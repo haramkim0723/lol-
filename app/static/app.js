@@ -105,6 +105,10 @@ function renderRole() {
   $("#main-nav").classList.toggle("hidden", !viewer.authenticated && !publicPage);
   $("#logout-button").classList.toggle("hidden", !viewer.authenticated);
   $("#setup-nav").classList.toggle("hidden", viewer.role !== "host");
+  $("#competition-switcher").classList.toggle(
+    "hidden",
+    !viewer.authenticated && !publicPage
+  );
 
   let label = "관전자";
   if (viewer.role === "host") label = "강사님";
@@ -118,6 +122,31 @@ function renderRole() {
       `<option value="${captain.id}">${escapeHtml(captain.name)}</option>`
     ).join("")
     : '<option value="">등록된 팀장이 없습니다</option>';
+}
+
+function renderCompetitions() {
+  const registry = state.competition_registry;
+  if (!registry) return;
+  const activeId = registry.active_competition_id;
+  $("#active-competition-select").innerHTML = registry.competitions.map(
+    (competition) =>
+      `<option value="${competition.id}" ${competition.id === activeId ? "selected" : ""}>${escapeHtml(competition.name)}</option>`
+  ).join("");
+  $("#active-competition-select").disabled = state.viewer.role !== "host";
+  if (state.viewer.role !== "host") return;
+  $("#competition-list").innerHTML = registry.competitions.map(
+    (competition) => `
+      <article class="competition-item${competition.id === activeId ? " active" : ""}">
+        <div>
+          <strong>${escapeHtml(competition.name)}</strong>
+          <small>참가자 ${competition.player_count}명 · 팀 ${competition.team_count}개 · ${escapeHtml(competition.tournament_status)}</small>
+        </div>
+        <div class="competition-actions">
+          ${competition.id !== activeId ? `<button class="ghost" type="button" data-competition-select="${competition.id}">선택</button>` : ""}
+          <button class="remove" type="button" data-competition-delete="${competition.id}" data-competition-name="${escapeHtml(competition.name)}">삭제</button>
+        </div>
+      </article>`
+  ).join("");
 }
 
 function renderIntro() {
@@ -523,6 +552,7 @@ function render() {
     !state.deployment?.serverless || state.deployment?.persistent
   );
   renderRole();
+  renderCompetitions();
   renderIntro();
   renderSetup();
   renderTournament();
@@ -648,6 +678,32 @@ $("#logout-button").addEventListener("click", async () => {
   location.href = "/";
 });
 
+$("#competition-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.target));
+  try {
+    await api("/api/competitions", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    event.target.reset();
+    toast("새 대회를 만들고 현재 대회로 선택했습니다.");
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#active-competition-select").addEventListener("change", async (event) => {
+  if (state.viewer.role !== "host") {
+    event.target.value = state.competition_registry.active_competition_id;
+    toast("현재 대회 선택은 강사님만 변경할 수 있습니다.", true);
+    return;
+  }
+  try {
+    await api(`/api/competitions/${event.target.value}/select`, {
+      method: "POST",
+    });
+  } catch (error) { toast(error.message, true); }
+});
+
 $("#settings-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.target));
@@ -749,6 +805,30 @@ $("#start-tournament-button").addEventListener("click", async () => {
 });
 
 document.addEventListener("click", async (event) => {
+  const selectCompetitionId =
+    event.target.closest("[data-competition-select]")?.dataset.competitionSelect;
+  const deleteCompetitionButton =
+    event.target.closest("[data-competition-delete]");
+  if (selectCompetitionId) {
+    try {
+      await api(`/api/competitions/${selectCompetitionId}/select`, {
+        method: "POST",
+      });
+    } catch (error) { toast(error.message, true); }
+    return;
+  }
+  if (deleteCompetitionButton) {
+    const competitionId = deleteCompetitionButton.dataset.competitionDelete;
+    const competitionName = deleteCompetitionButton.dataset.competitionName;
+    if (!confirm(`"${competitionName}" 대회와 모든 관련 데이터를 삭제할까요?`)) {
+      return;
+    }
+    try {
+      await api(`/api/competitions/${competitionId}`, { method: "DELETE" });
+      toast("대회와 관련 데이터를 삭제했습니다.");
+    } catch (error) { toast(error.message, true); }
+    return;
+  }
   const introPosition = event.target.closest("[data-intro-position]")?.dataset.introPosition;
   const requestedIntroIndex = event.target.closest("[data-intro-index]")?.dataset.introIndex;
   if (introPosition) {

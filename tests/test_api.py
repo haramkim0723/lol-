@@ -110,6 +110,45 @@ class ApiFlowTest(unittest.TestCase):
             response = client.post("/api/auction/start")
             self.assertEqual(response.status_code, 403)
 
+    def test_teacher_manages_competitions_and_delete_cascades(self):
+        with TestClient(app) as client:
+            client.post(
+                "/api/login",
+                json={"role": "host", "pin": "1234", "captain_id": None},
+            )
+            created = client.post(
+                "/api/competitions", json={"name": "여름 멸망전"}
+            )
+            self.assertEqual(created.status_code, 200)
+            competition_id = created.json()["id"]
+            player = client.post(
+                "/api/players",
+                json={
+                    "name": "대회 참가자",
+                    "riot_id": "",
+                    "tier": "GOLD",
+                    "score": 8,
+                    "primary_position": "TOP",
+                    "secondary_position": None,
+                },
+            )
+            self.assertEqual(player.status_code, 200)
+            state = client.get("/api/state").json()
+            self.assertEqual(
+                state["competition_registry"]["active_competition_id"],
+                competition_id,
+            )
+            self.assertEqual(len(state["players"]), 1)
+
+            deleted = client.delete(f"/api/competitions/{competition_id}")
+            self.assertEqual(deleted.status_code, 200)
+            after = client.get("/api/state").json()
+            self.assertNotEqual(
+                after["competition_registry"]["active_competition_id"],
+                competition_id,
+            )
+            self.assertEqual(len(after["players"]), 0)
+
     def test_participant_registers_team_and_host_sets_score_limit(self):
         with TestClient(app) as client:
             client.post(

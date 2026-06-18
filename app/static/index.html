@@ -14,6 +14,10 @@
         <h1 id="room-title">장원혁의 협곡 경매</h1>
       </div>
       <div class="header-actions">
+        <div id="competition-switcher" class="competition-switcher hidden">
+          <span>현재 대회</span>
+          <select id="active-competition-select"></select>
+        </div>
         <nav id="main-nav" class="main-nav hidden">
           <button type="button" data-view="intro">선수 소개</button>
           <button id="setup-nav" type="button" data-view="setup">강사님 설정</button>
@@ -53,6 +57,15 @@
       </section>
 
       <section id="setup-panel" class="setup-grid">
+        <article class="panel competition-manager">
+          <div class="panel-title"><span>00</span><h2>대회 관리</h2></div>
+          <form id="competition-form" class="competition-create-form">
+            <input name="name" required maxlength="50" placeholder="새 대회 이름" />
+            <button class="primary" type="submit">대회 생성</button>
+          </form>
+          <div id="competition-list" class="competition-list"></div>
+          <p class="danger-guide">대회를 삭제하면 해당 참가자, 팀, 경매 기록과 대진표가 모두 삭제됩니다.</p>
+        </article>
         <article class="panel settings-panel">
           <div class="panel-title"><span>01</span><h2>경매 설정</h2></div>
           <form id="settings-form" class="form-grid">

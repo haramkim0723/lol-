@@ -5,6 +5,7 @@ import os
 import tempfile
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,11 @@ from .engine import new_state
 
 class JsonStore:
     def __init__(self, path: str | None = None):
-        default_path = "/tmp/lol-auction-state.json" if os.getenv("VERCEL") else "data/state.json"
+        default_path = (
+            "/tmp/lol-auction-state.json"
+            if os.getenv("VERCEL")
+            else "data/state.json"
+        )
         self.path = Path(path or os.getenv("DATA_FILE", default_path))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.redis_url = (
@@ -27,37 +32,118 @@ class JsonStore:
             or ""
         )
         self.redis_key = os.getenv("STATE_REDIS_KEY", "lol-auction:state")
-        self.state = self._load()
+        self.document = self._load()
+
+    @property
+    def state(self) -> dict[str, Any]:
+        competition = self.active_competition
+        if competition is None:
+            competition = self.create_competition("기본 대회", save=False)
+        return competition["state"]
+
+    @property
+    def active_competition(self) -> dict[str, Any] | None:
+        active_id = self.document.get("active_competition_id")
+        return next(
+            (
+                competition
+                for competition in self.document["competitions"]
+                if competition["id"] == active_id
+            ),
+            None,
+        )
 
     @property
     def persistent(self) -> bool:
         return bool(self.redis_url and self.redis_token) or not os.getenv("VERCEL")
+
+    def competition_summary(self) -> dict[str, Any]:
+        return {
+            "active_competition_id": self.document.get("active_competition_id"),
+            "competitions": [
+                {
+                    "id": competition["id"],
+                    "name": competition["name"],
+                    "created_at": competition["created_at"],
+                    "player_count": len(competition["state"]["players"]),
+                    "team_count": len(
+                        competition["state"]["tournament"]["teams"]
+                    ),
+                    "tournament_status": competition["state"]["tournament"][
+                        "status"
+                    ],
+                }
+                for competition in self.document["competitions"]
+            ],
+        }
+
+    def create_competition(
+        self, name: str, *, save: bool = True
+    ) -> dict[str, Any]:
+        competition = {
+            "id": uuid.uuid4().hex,
+            "name": name.strip(),
+            "created_at": __import__("time").time(),
+            "state": new_state(),
+        }
+        competition["state"]["settings"]["room_name"] = name.strip()
+        self.document["competitions"].append(competition)
+        self.document["active_competition_id"] = competition["id"]
+        if save:
+            self.save()
+        return competition
+
+    def select_competition(self, competition_id: str) -> None:
+        if not any(
+            item["id"] == competition_id
+            for item in self.document["competitions"]
+        ):
+            raise ValueError("대회를 찾을 수 없습니다.")
+        self.document["active_competition_id"] = competition_id
+        self.save()
+
+    def delete_competition(self, competition_id: str) -> None:
+        before = len(self.document["competitions"])
+        self.document["competitions"] = [
+            item
+            for item in self.document["competitions"]
+            if item["id"] != competition_id
+        ]
+        if len(self.document["competitions"]) == before:
+            raise ValueError("대회를 찾을 수 없습니다.")
+        if not self.document["competitions"]:
+            self.create_competition("기본 대회", save=False)
+        elif self.document.get("active_competition_id") == competition_id:
+            self.document["active_competition_id"] = self.document[
+                "competitions"
+            ][0]["id"]
+        self.save()
 
     def refresh(self) -> None:
         if not (self.redis_url and self.redis_token):
             return
         result = self._redis_command(["GET", self.redis_key])
         if result:
-            self.state = self._normalize(json.loads(result))
+            self.document = self._normalize_document(json.loads(result))
 
     def _load(self) -> dict[str, Any]:
+        raw: dict[str, Any] | None = None
         if self.redis_url and self.redis_token:
             try:
                 result = self._redis_command(["GET", self.redis_key])
                 if result:
-                    return self._normalize(json.loads(result))
+                    raw = json.loads(result)
             except (OSError, ValueError, json.JSONDecodeError):
                 pass
-        if not self.path.exists():
-            return new_state()
-        try:
-            state = json.loads(self.path.read_text(encoding="utf-8"))
-            return self._normalize(state)
-        except (json.JSONDecodeError, OSError):
-            return new_state()
+        if raw is None and self.path.exists():
+            try:
+                raw = json.loads(self.path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                pass
+        return self._normalize_document(raw or new_state())
 
     def save(self) -> None:
-        payload = json.dumps(self.state, ensure_ascii=False, indent=2)
+        payload = json.dumps(self.document, ensure_ascii=False, indent=2)
         if self.redis_url and self.redis_token:
             self._redis_command(["SET", self.redis_key, payload])
             return
@@ -72,15 +158,65 @@ class JsonStore:
         temp_path.replace(self.path)
 
     def reset(self) -> None:
-        self.state = new_state()
+        competition = self.active_competition
+        if competition is None:
+            competition = self.create_competition("기본 대회", save=False)
+        name = competition["name"]
+        competition["state"] = new_state()
+        competition["state"]["settings"]["room_name"] = name
         self.save()
 
-    def _normalize(self, state: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_event(self, state: dict[str, Any]) -> dict[str, Any]:
         defaults = new_state()
         state.setdefault("tournament", defaults["tournament"])
-        for player in state.get("players", []):
+        state.setdefault("settings", defaults["settings"])
+        state.setdefault("captains", [])
+        state.setdefault("players", [])
+        state.setdefault("auction", defaults["auction"])
+        for player in state["players"]:
             player.setdefault("score", 0)
         return state
+
+    def _normalize_document(self, raw: dict[str, Any]) -> dict[str, Any]:
+        if "competitions" not in raw:
+            event = self._normalize_event(raw)
+            competition_id = uuid.uuid4().hex
+            return {
+                "version": 2,
+                "active_competition_id": competition_id,
+                "competitions": [
+                    {
+                        "id": competition_id,
+                        "name": event["settings"].get(
+                            "room_name", "기본 대회"
+                        ),
+                        "created_at": __import__("time").time(),
+                        "state": event,
+                    }
+                ],
+            }
+        raw.setdefault("version", 2)
+        for competition in raw["competitions"]:
+            competition["state"] = self._normalize_event(
+                competition.get("state", new_state())
+            )
+        if not raw["competitions"]:
+            competition_id = uuid.uuid4().hex
+            raw["competitions"] = [
+                {
+                    "id": competition_id,
+                    "name": "기본 대회",
+                    "created_at": __import__("time").time(),
+                    "state": new_state(),
+                }
+            ]
+            raw["active_competition_id"] = competition_id
+        if not any(
+            item["id"] == raw.get("active_competition_id")
+            for item in raw["competitions"]
+        ):
+            raw["active_competition_id"] = raw["competitions"][0]["id"]
+        return raw
 
     def _redis_command(self, command: list[str]) -> Any:
         request = urllib.request.Request(

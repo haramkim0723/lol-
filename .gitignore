@@ -8,3 +8,4 @@ server.*.log
 .vercel/
 
 .vercel
+.env*

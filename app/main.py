@@ -104,6 +104,9 @@ async def broadcast() -> None:
                 "type": "state",
                 "data": engine.public_state(store.state, viewer),
             }
+            payload["data"]["competition_registry"] = (
+                store.competition_summary()
+            )
             await connection.send_json(payload)
         except Exception:
             dead.append(connection)
@@ -214,6 +217,10 @@ class MatchWinnerInput(BaseModel):
     team_id: str
 
 
+class CompetitionInput(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+
+
 @app.get("/")
 async def index():
     return FileResponse(ROOT / "static" / "index.html")
@@ -237,11 +244,49 @@ async def tournament_page():
 @app.get("/api/state")
 async def get_state(auction_auth: str | None = Cookie(default=None)):
     result = engine.public_state(store.state, read_session(auction_auth))
+    result["competition_registry"] = store.competition_summary()
     result["deployment"] = {
         "serverless": bool(os.getenv("VERCEL")),
         "persistent": store.persistent,
     }
     return result
+
+
+@app.post("/api/competitions")
+async def create_competition(data: CompetitionInput, request: Request):
+    require_host(request)
+    async with state_lock:
+        competition = store.create_competition(data.name)
+    await broadcast()
+    return {
+        "id": competition["id"],
+        "name": competition["name"],
+        "created_at": competition["created_at"],
+    }
+
+
+@app.post("/api/competitions/{competition_id}/select")
+async def select_competition(competition_id: str, request: Request):
+    require_host(request)
+    try:
+        async with state_lock:
+            store.select_competition(competition_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    await broadcast()
+    return {"ok": True}
+
+
+@app.delete("/api/competitions/{competition_id}")
+async def delete_competition(competition_id: str, request: Request):
+    require_host(request)
+    try:
+        async with state_lock:
+            store.delete_competition(competition_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    await broadcast()
+    return {"ok": True}
 
 
 @app.post("/api/login")
@@ -538,7 +583,13 @@ async def websocket_endpoint(websocket: WebSocket):
     viewer = read_session(websocket.cookies.get("auction_auth"))
     connection_viewers[websocket] = viewer
     await websocket.send_json(
-        {"type": "state", "data": engine.public_state(store.state, viewer)}
+        {
+            "type": "state",
+            "data": {
+                **engine.public_state(store.state, viewer),
+                "competition_registry": store.competition_summary(),
+            },
+        }
     )
     try:
         while True:

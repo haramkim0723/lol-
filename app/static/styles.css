@@ -42,6 +42,10 @@ header {
 .main-nav button.active { color: var(--gold-light); background: rgba(217,169,79,.12); }
 .role-badge { color: var(--cyan); border: 1px solid rgba(39,211,211,.22); background: rgba(39,211,211,.08); padding: 7px 10px; border-radius: 8px; font-size: 11px; font-weight: 800; }
 .small-button { padding: 7px 10px; font-size: 11px; }
+.competition-switcher { display: flex; align-items: center; gap: 7px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 9px; background: rgba(7,10,16,.72); }
+.competition-switcher span { color: var(--muted); font-size: 9px; font-weight: 800; }
+.competition-switcher select { max-width: 165px; padding: 5px 24px 5px 7px; border: 0; color: var(--gold-light); background: #0b1119; font-size: 10px; font-weight: 800; outline: 0; }
+.competition-switcher select option { color: #111821; }
 .eyebrow {
   color: var(--gold);
   letter-spacing: .28em;
@@ -71,6 +75,18 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 36px 60px; }
   box-shadow: 0 18px 60px rgba(0,0,0,.22);
 }
 .players-panel { grid-column: 1 / -1; }
+.competition-manager { grid-column: 1 / -1; }
+.competition-create-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.competition-create-form input { padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; color: #fff; background: #080e15; outline: 0; }
+.competition-list { display: grid; grid-template-columns: repeat(auto-fill,minmax(230px,1fr)); gap: 8px; margin-top: 13px; }
+.competition-item { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.02); }
+.competition-item.active { border-color: rgba(39,211,211,.32); background: rgba(39,211,211,.055); }
+.competition-item strong, .competition-item small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.competition-item strong { font-size: 12px; }
+.competition-item small { margin-top: 4px; color: var(--muted); font-size: 9px; }
+.competition-actions { display: flex; gap: 4px; }
+.competition-actions button { padding: 5px 7px; font-size: 8px; }
+.danger-guide { margin: 10px 0 0; color: #a76a72; font-size: 9px; }
 .panel-title { display: flex; align-items: center; gap: 11px; margin-bottom: 18px; }
 .panel-title span { color: var(--gold); font-size: 11px; font-weight: 900; letter-spacing: .12em; }
 .panel-title h2 { font-size: 18px; margin: 0; }
