@@ -52,15 +52,44 @@
           </form>
         </article>
 
-        <article class="panel">
-          <div class="panel-title"><span>02</span><h2>팀장과 예산</h2></div>
-          <form id="captain-form" class="inline-form">
-            <select id="captain-player" name="player_id" required></select>
-            <input name="budget" type="number" min="0" placeholder="총 예산" required />
-            <input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" placeholder="입장 PIN" required />
-            <button class="accent" type="submit">추가</button>
+        <article class="panel captain-panel">
+          <div class="panel-title captain-title">
+            <div><span>02</span><h2>팀장과 예산</h2></div>
+            <p>참가자 중 팀장을 선택하면 본인의 주 포지션에 자동 배치됩니다.</p>
+          </div>
+          <form id="captain-form" class="captain-form">
+            <div class="captain-candidate">
+              <div id="captain-preview-avatar" class="captain-preview-avatar">?</div>
+              <div class="captain-candidate-copy">
+                <span class="field-caption">팀장으로 지정할 참가자</span>
+                <select id="captain-player" name="player_id" required></select>
+                <small id="captain-preview-meta">참가자를 먼저 등록해 주세요.</small>
+              </div>
+            </div>
+            <label class="captain-field">
+              <span class="field-caption">시작 예산</span>
+              <div class="input-with-unit">
+                <input name="budget" type="number" min="0" placeholder="예: 1000" required />
+                <span>POINT</span>
+              </div>
+            </label>
+            <label class="captain-field">
+              <span class="field-caption">팀장 입장 PIN</span>
+              <div class="input-with-icon">
+                <input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" placeholder="숫자 4~12자리" required />
+                <span>••••</span>
+              </div>
+            </label>
+            <button class="captain-add-button" type="submit">
+              <span class="button-plus">＋</span>
+              <span>팀장 등록</span>
+            </button>
           </form>
-          <div id="captain-setup-list" class="stack-list empty-message">등록된 팀장이 없습니다.</div>
+          <div id="captain-setup-list" class="captain-list empty-message">
+            <div class="captain-empty-icon">♜</div>
+            <strong>아직 등록된 팀장이 없습니다</strong>
+            <span>참가자를 등록한 뒤 팀장과 시작 예산을 지정해 주세요.</span>
+          </div>
         </article>
 
         <article class="panel players-panel">

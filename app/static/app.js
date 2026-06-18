@@ -135,15 +135,24 @@ function renderSetup() {
   });
 
   $("#captain-setup-list").className = state.captains.length
-    ? "stack-list" : "stack-list empty-message";
+    ? "captain-list" : "captain-list empty-message";
   $("#captain-setup-list").innerHTML = state.captains.length
     ? state.captains.map((captain) => `
       <div class="captain-row">
-        <span>${escapeHtml(captain.name)}</span>
-        <span><strong>${captain.initial_budget.toLocaleString()} P</strong>
-        <button class="remove" data-delete-captain="${captain.id}">삭제</button></span>
+        <div class="captain-row-avatar">${escapeHtml(captain.name.slice(0, 1))}</div>
+        <div class="captain-row-copy">
+          <strong>${escapeHtml(captain.name)} 팀</strong>
+          <small>${escapeHtml(playerById(captain.player_id)?.primary_position || "POSITION")} 자동 배치 · PIN 입장</small>
+        </div>
+        <div class="captain-budget">
+          <strong>${captain.initial_budget.toLocaleString()} P</strong>
+          <small>START BUDGET</small>
+        </div>
+        <button class="remove" data-delete-captain="${captain.id}">삭제</button>
       </div>`).join("")
-    : "등록된 팀장이 없습니다.";
+    : `<div class="captain-empty-icon">♜</div>
+       <strong>아직 등록된 팀장이 없습니다</strong>
+       <span>참가자를 등록한 뒤 팀장과 시작 예산을 지정해 주세요.</span>`;
 
   const captainCandidates = state.players.filter(
     (player) => player.status === "waiting"
@@ -153,6 +162,7 @@ function renderSetup() {
       `<option value="${player.id}">${escapeHtml(player.name)} · ${player.primary_position}</option>`
     ).join("")
     : '<option value="">먼저 참가자를 등록하세요</option>';
+  updateCaptainPreview();
 
   $("#player-setup-list").className = state.players.length
     ? "player-cards" : "player-cards empty-message";
@@ -168,6 +178,15 @@ function renderSetup() {
         <button class="remove" data-delete-player="${player.id}">×</button>
       </div>`).join("")
     : "등록된 참가자가 없습니다.";
+}
+
+function updateCaptainPreview() {
+  if (!state) return;
+  const player = playerById($("#captain-player").value);
+  $("#captain-preview-avatar").textContent = player ? player.name.slice(0, 1) : "?";
+  $("#captain-preview-meta").textContent = player
+    ? `${player.tier} · ${POSITION_NAMES[player.primary_position]} 자동 배치`
+    : "참가자를 먼저 등록해 주세요.";
 }
 
 function renderAuction() {
@@ -316,6 +335,8 @@ $$(".tab").forEach((button) => button.addEventListener("click", () => {
   $("#manual-player-form").classList.toggle("hidden", button.dataset.tab !== "manual");
   $("#riot-player-form").classList.toggle("hidden", button.dataset.tab !== "riot");
 }));
+
+$("#captain-player").addEventListener("change", updateCaptainPreview);
 
 $$("[data-view]").forEach((button) => {
   button.addEventListener("click", () => setView(button.dataset.view));
