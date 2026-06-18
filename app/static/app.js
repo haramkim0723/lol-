@@ -17,7 +17,11 @@ const TIER_STYLES = {
 };
 
 let state = null;
-let currentView = "intro";
+let currentView = location.pathname === "/team-register"
+  ? "team-register"
+  : location.pathname === "/tournament"
+    ? "tournament"
+    : "intro";
 let loginRole = "spectator";
 let introIndex = 0;
 let introPlayerId = null;
@@ -81,17 +85,24 @@ function setView(view) {
   currentView = view;
   $("#intro-panel").classList.toggle("hidden", view !== "intro");
   $("#setup-panel").classList.toggle("hidden", view !== "setup");
+  $("#team-register-panel").classList.toggle("hidden", view !== "team-register");
   $("#tournament-panel").classList.toggle("hidden", view !== "tournament");
   $("#auction-panel").classList.toggle("hidden", view !== "auction");
   $$("[data-view]").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === view);
   });
+  const path = view === "team-register" ? "/team-register"
+    : view === "tournament" ? "/tournament" : "/";
+  if (location.pathname !== path) {
+    history.pushState({ view }, "", path);
+  }
 }
 
 function renderRole() {
   const viewer = state.viewer;
-  $("#login-overlay").classList.toggle("hidden", viewer.authenticated);
-  $("#main-nav").classList.toggle("hidden", !viewer.authenticated);
+  const publicPage = ["/team-register", "/tournament"].includes(location.pathname);
+  $("#login-overlay").classList.toggle("hidden", viewer.authenticated || publicPage);
+  $("#main-nav").classList.toggle("hidden", !viewer.authenticated && !publicPage);
   $("#logout-button").classList.toggle("hidden", !viewer.authenticated);
   $("#setup-nav").classList.toggle("hidden", viewer.role !== "host");
 
@@ -243,12 +254,20 @@ function renderTournament() {
   $("#tournament-status").textContent =
     tournament.status === "registration" ? "TEAM REGISTRATION"
       : tournament.status === "running" ? "TOURNAMENT LIVE" : "TOURNAMENT FINISHED";
-  $("#tournament-registration-layout").classList.toggle("hidden", !registrationOpen);
+  $("#tournament-team-form").classList.toggle("hidden", !registrationOpen);
+  $("#team-registration-closed").classList.toggle("hidden", registrationOpen);
   $("#tournament-bracket-section").classList.toggle("hidden", registrationOpen);
   $("#tournament-host-controls").classList.toggle("hidden", !isHost);
   $("#tournament-score-limit-input").value = tournament.score_limit;
   $("#team-score-limit").textContent = tournament.score_limit;
+  $("#open-team-register").classList.toggle("hidden", !registrationOpen);
 
+  const currentSelections = Object.fromEntries(
+    POSITIONS.map((position) => [
+      position,
+      $("#tournament-team-form").elements[position]?.value || "",
+    ])
+  );
   $("#tournament-member-selects").innerHTML = POSITIONS.map((position) => {
     const candidates = state.players.filter((player) =>
       player.primary_position === position || player.secondary_position === position
@@ -263,6 +282,12 @@ function renderTournament() {
       </select>
     </label>`;
   }).join("");
+  POSITIONS.forEach((position) => {
+    const select = $("#tournament-team-form").elements[position];
+    if ([...select.options].some((option) => option.value === currentSelections[position])) {
+      select.value = currentSelections[position];
+    }
+  });
 
   $("#tournament-team-list").innerHTML = tournament.teams.length
     ? tournament.teams.map((team) => `
@@ -457,7 +482,11 @@ function render() {
   renderSetup();
   renderTournament();
   renderAuction();
-  if (state.viewer.role !== "host" && state.auction.status === "setup") {
+  if (
+    state.viewer.role !== "host"
+    && state.auction.status === "setup"
+    && ["setup", "auction"].includes(currentView)
+  ) {
     currentView = "intro";
   }
   setView(currentView);
@@ -534,6 +563,13 @@ $("#captain-player").addEventListener("change", updateCaptainPreview);
 
 $$("[data-view]").forEach((button) => {
   button.addEventListener("click", () => setView(button.dataset.view));
+});
+
+window.addEventListener("popstate", () => {
+  currentView = location.pathname === "/team-register"
+    ? "team-register"
+    : location.pathname === "/tournament" ? "tournament" : "intro";
+  if (state) setView(currentView);
 });
 
 $$(".login-tab").forEach((button) => button.addEventListener("click", () => {

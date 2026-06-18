@@ -400,6 +400,9 @@ aside { display: grid; gap: 18px; }
 .tournament-heading { display: flex; justify-content: space-between; align-items: end; margin-bottom: 20px; }
 .tournament-heading h2, .bracket-header h2 { margin: 0; font-size: clamp(28px,4vw,46px); letter-spacing: -.05em; }
 .tournament-heading p:not(.eyebrow) { margin: 8px 0 0; color: var(--muted); }
+.tournament-heading-actions { display: flex; align-items: center; gap: 8px; }
+.page-link-button { display: inline-flex; align-items: center; min-height: 36px; padding: 8px 12px; border: 1px solid rgba(217,169,79,.25); border-radius: 9px; color: var(--gold-light); background: rgba(217,169,79,.07); font-size: 10px; font-weight: 900; text-decoration: none; }
+.page-link-button:hover { background: rgba(217,169,79,.13); }
 .tournament-status { padding: 8px 12px; border: 1px solid rgba(39,211,211,.25); border-radius: 9px; color: var(--cyan); background: rgba(39,211,211,.07); font-size: 10px; font-weight: 900; letter-spacing: .12em; }
 .tournament-registration-layout { display: grid; grid-template-columns: minmax(0,1.6fr) minmax(310px,.7fr); gap: 18px; align-items: start; }
 .team-registration-head { display: grid; grid-template-columns: 1.4fr .8fr; gap: 10px; }
@@ -421,6 +424,8 @@ aside { display: grid; gap: 18px; }
 .team-score-meter p { margin: 0; color: var(--muted); font-size: 10px; }
 .team-score-meter p.over { color: var(--red); }
 .team-register-button { width: 100%; margin-top: 12px; padding: 14px; }
+.registration-closed { padding: 70px 20px; border: 1px dashed var(--line); border-radius: 16px; color: var(--muted); text-align: center; }
+.tournament-team-panel { max-width: 1100px; margin: 0 auto; }
 .tournament-team-list { display: grid; gap: 9px; }
 .registered-team { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.02); }
 .registered-team-head { display: flex; justify-content: space-between; gap: 8px; }
@@ -505,6 +510,7 @@ aside { display: grid; gap: 18px; }
   .balance-total { grid-column: 1 / -1; text-align: center; border-top: 1px solid var(--line); }
   .tournament-heading, .bracket-header { display: block; }
   .tournament-status, .tournament-champion { display: inline-block; margin-top: 12px; }
+  .tournament-heading-actions { align-items: flex-start; flex-direction: column; }
   .tournament-registration-layout { grid-template-columns: 1fr; }
   .team-registration-head, .tournament-member-selects { grid-template-columns: 1fr; }
   .current-card { min-height: 370px; }
