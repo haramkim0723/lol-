@@ -17,16 +17,19 @@
         <nav id="main-nav" class="main-nav hidden">
           <button type="button" data-view="intro">선수 소개</button>
           <button id="setup-nav" type="button" data-view="setup">호스트 설정</button>
-          <button id="balance-nav" type="button" data-view="balance">팀 밸런싱</button>
+          <button id="tournament-nav" type="button" data-view="tournament">멸망전</button>
           <button type="button" data-view="auction">경매장</button>
         </nav>
         <div id="role-badge" class="role-badge">관전자</div>
-        <button id="logout-button" class="ghost small-button" type="button">나가기</button>
+        <button id="logout-button" class="ghost small-button" type="button">역할 전환</button>
         <div class="connection"><span id="socket-dot"></span><span id="socket-text">연결 중</span></div>
       </div>
     </header>
 
     <main>
+      <div id="deployment-warning" class="deployment-warning hidden">
+        현재 Vercel 임시 저장 모드입니다. 외부 Redis를 연결하기 전에는 데이터가 재시작 시 초기화될 수 있습니다.
+      </div>
       <section id="intro-panel" class="intro-panel hidden">
         <div class="intro-heading">
           <div>
@@ -129,24 +132,55 @@
         </article>
       </section>
 
-      <section id="balance-panel" class="balance-panel hidden">
-        <div class="balance-heading">
+      <section id="tournament-panel" class="tournament-panel hidden">
+        <div class="tournament-heading">
           <div>
-            <p class="eyebrow">CORE FIT BALANCER</p>
-            <h2>고정 코어 조합 추천</h2>
-            <p>함께 뛰어야 하는 선수를 잠그고, 빈 포지션에 가장 적합한 조합을 점수 차이순으로 추천합니다.</p>
+            <p class="eyebrow">DOOMSDAY TOURNAMENT</p>
+            <h2>멸망전 팀 등록</h2>
+            <p>참가자들이 직접 5인 팀을 구성해 등록하고, 승인된 팀으로 토너먼트를 진행합니다.</p>
+          </div>
+          <div id="tournament-status" class="tournament-status">TEAM REGISTRATION</div>
+        </div>
+
+        <div id="tournament-registration-layout" class="tournament-registration-layout">
+          <form id="tournament-team-form" class="panel tournament-team-form">
+            <div class="panel-title"><span>REGISTER</span><h2>우리 팀 등록하기</h2></div>
+            <div class="team-registration-head">
+              <label>팀명<input name="name" required maxlength="30" placeholder="팀 이름" /></label>
+              <label>수정용 PIN<input name="registration_pin" required type="password" inputmode="numeric" pattern="[0-9]{4,12}" placeholder="숫자 4~12자리" /></label>
+            </div>
+            <div id="tournament-member-selects" class="tournament-member-selects"></div>
+            <div class="team-score-meter">
+              <div>
+                <span>TEAM SCORE</span>
+                <strong><b id="team-current-score">0</b> / <b id="team-score-limit">40</b></strong>
+              </div>
+              <div class="score-track"><span id="team-score-bar"></span></div>
+              <p id="team-score-message">다섯 포지션의 선수를 선택해 주세요.</p>
+            </div>
+            <button id="team-register-button" class="primary team-register-button" type="submit">팀 등록 신청</button>
+          </form>
+
+          <aside class="panel tournament-team-panel">
+            <div class="panel-title"><span>TEAMS</span><h2>등록 팀</h2></div>
+            <div id="tournament-team-list" class="tournament-team-list"></div>
+            <div id="tournament-host-controls" class="tournament-host-controls hidden">
+              <label>팀 총점 제한<input id="tournament-score-limit-input" type="number" min="0" /></label>
+              <button id="save-tournament-settings" class="ghost" type="button">제한 저장</button>
+              <button id="start-tournament-button" class="accent" type="button">대진표 생성</button>
+            </div>
           </div>
         </div>
-        <form id="balance-form" class="panel balance-form">
-          <div id="balance-locks" class="balance-locks"></div>
-          <div class="balance-target">
-            <label>목표 팀 총점<input id="balance-target-score" name="target_score" type="number" min="0" placeholder="예: 40" required /></label>
-            <button class="primary" type="submit">핏 좋은 조합 찾기</button>
+
+        <div id="tournament-bracket-section" class="tournament-bracket-section hidden">
+          <div class="bracket-header">
+            <div>
+              <p class="eyebrow">TOURNAMENT BRACKET</p>
+              <h2>대진표</h2>
+            </div>
+            <div id="tournament-champion" class="tournament-champion"></div>
           </div>
-        </form>
-        <div id="balance-summary" class="balance-summary"></div>
-        <div id="balance-results" class="balance-results">
-          <div class="balance-empty">고정 선수를 선택하고 목표 총점을 입력해 주세요.</div>
+          <div id="tournament-bracket" class="tournament-bracket"></div>
         </div>
       </section>
 

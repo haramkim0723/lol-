@@ -110,12 +110,16 @@ class ApiFlowTest(unittest.TestCase):
             response = client.post("/api/auction/start")
             self.assertEqual(response.status_code, 403)
 
-    def test_host_can_request_locked_core_balance(self):
+    def test_participant_registers_team_and_host_sets_score_limit(self):
         with TestClient(app) as client:
             client.post(
                 "/api/login",
                 json={"role": "host", "pin": "1234", "captain_id": None},
             )
+            settings = client.put(
+                "/api/tournament/settings", json={"score_limit": 40}
+            )
+            self.assertEqual(settings.status_code, 200)
             players = {}
             for name, position, score in (
                 ("탑", "TOP", 8),
@@ -137,24 +141,24 @@ class ApiFlowTest(unittest.TestCase):
                 )
                 players[position] = response.json()["id"]
 
+            client.post("/api/logout")
             response = client.post(
-                "/api/balance/recommend",
+                "/api/tournament/teams",
                 json={
-                    "target_score": 40,
-                    "limit": 5,
-                    "locked": {
+                    "name": "참가자 직접 등록팀",
+                    "registration_pin": "5678",
+                    "members": {
                         "TOP": players["TOP"],
                         "JUG": players["JUG"],
                         "MID": players["MID"],
-                        "ADC": None,
-                        "SUP": None,
+                        "ADC": players["ADC"],
+                        "SUP": players["SUP"],
                     },
                 },
             )
             self.assertEqual(response.status_code, 200)
-            first = response.json()["recommendations"][0]
-            self.assertEqual(first["total_score"], 40)
-            self.assertEqual(first["lineup"]["ADC"]["name"], "원딜")
+            self.assertEqual(response.json()["total_score"], 40)
+            self.assertNotIn("registration_pin", response.json())
 
     def test_websocket_sends_initial_state(self):
         with TestClient(app) as client:

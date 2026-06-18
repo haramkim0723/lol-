@@ -4,7 +4,6 @@ import random
 import time
 import uuid
 from copy import deepcopy
-from itertools import product
 from typing import Any
 
 
@@ -23,6 +22,13 @@ def new_state() -> dict[str, Any]:
         },
         "captains": [],
         "players": [],
+        "tournament": {
+            "score_limit": 40,
+            "status": "registration",
+            "teams": [],
+            "rounds": [],
+            "champion_id": None,
+        },
         "auction": {
             "status": "setup",
             "queue": [],
@@ -43,6 +49,18 @@ def public_state(
     result = deepcopy(state)
     for captain in result["captains"]:
         captain.pop("pin", None)
+    tournament = result.setdefault(
+        "tournament",
+        {
+            "score_limit": 40,
+            "status": "registration",
+            "teams": [],
+            "rounds": [],
+            "champion_id": None,
+        },
+    )
+    for team in tournament["teams"]:
+        team.pop("registration_pin", None)
     now = time.time()
     deadline = result["auction"].get("deadline")
     result["server_time"] = now
@@ -109,96 +127,176 @@ def add_player(
     return player
 
 
-def recommend_completions(
+def register_tournament_team(
     state: dict[str, Any],
-    locked: dict[str, str | None],
-    target_score: int,
-    limit: int = 12,
-) -> list[dict[str, Any]]:
+    name: str,
+    members: dict[str, str],
+    registration_pin: str,
+) -> dict[str, Any]:
+    tournament = state["tournament"]
+    if tournament["status"] != "registration":
+        raise ValueError("현재는 팀 등록 기간이 아닙니다.")
+    if set(members) != set(POSITIONS):
+        raise ValueError("다섯 포지션을 모두 등록해 주세요.")
+
     players = state["players"]
     by_id = {player["id"]: player for player in players}
-    selected_ids = [player_id for player_id in locked.values() if player_id]
+    selected_ids = list(members.values())
     if len(selected_ids) != len(set(selected_ids)):
-        raise ValueError("한 참가자를 여러 포지션에 중복 배치할 수 없습니다.")
+        raise ValueError("한 참가자를 여러 포지션에 중복 등록할 수 없습니다.")
+
+    for existing in tournament["teams"]:
+        if existing["status"] == "rejected":
+            continue
+        overlap = set(existing["members"].values()) & set(selected_ids)
+        if overlap:
+            player = by_id[next(iter(overlap))]
+            raise ValueError(f'{player["name"]} 님은 이미 다른 팀에 등록되어 있습니다.')
 
     lineup: dict[str, dict[str, Any]] = {}
-    for position, player_id in locked.items():
-        if not player_id:
-            continue
+    for position, player_id in members.items():
         player = by_id.get(player_id)
         if player is None:
-            raise ValueError("고정 참가자를 찾을 수 없습니다.")
+            raise ValueError("등록할 참가자를 찾을 수 없습니다.")
         if position not in (player["primary_position"], player["secondary_position"]):
             raise ValueError(
                 f'{player["name"]} 님은 {position} 포지션으로 배치할 수 없습니다.'
             )
         lineup[position] = player
 
-    empty_positions = [position for position in POSITIONS if position not in lineup]
-    if not empty_positions:
-        return [_score_lineup(lineup, target_score)]
-
-    candidate_lists: list[list[tuple[dict[str, Any], int]]] = []
-    for position in empty_positions:
-        candidates = []
-        for player in players:
-            if player["id"] in selected_ids:
-                continue
-            if player["primary_position"] == position:
-                candidates.append((player, 0))
-            elif player.get("secondary_position") == position:
-                candidates.append((player, 1))
-        if not candidates:
-            raise ValueError(f"{position}에 배치 가능한 참가자가 없습니다.")
-        candidate_lists.append(candidates)
-
-    recommendations: list[dict[str, Any]] = []
-    for choices in product(*candidate_lists):
-        chosen_players = [choice[0] for choice in choices]
-        chosen_ids = [player["id"] for player in chosen_players]
-        if len(chosen_ids) != len(set(chosen_ids)):
-            continue
-        completed = dict(lineup)
-        fit_penalty = 0
-        for position, (player, penalty) in zip(empty_positions, choices):
-            completed[position] = player
-            fit_penalty += penalty
-        recommendation = _score_lineup(completed, target_score)
-        recommendation["fit_penalty"] = fit_penalty
-        recommendations.append(recommendation)
-
-    recommendations.sort(
-        key=lambda item: (
-            item["score_difference"],
-            item["fit_penalty"],
-            -item["total_score"],
-            tuple(item["lineup"][position]["name"] for position in POSITIONS),
-        )
-    )
-    return recommendations[:limit]
-
-
-def _score_lineup(
-    lineup: dict[str, dict[str, Any]], target_score: int
-) -> dict[str, Any]:
     total_score = sum(int(player.get("score", 0)) for player in lineup.values())
-    return {
-        "lineup": {
-            position: {
-                "id": player["id"],
-                "name": player["name"],
-                "score": int(player.get("score", 0)),
-                "primary_position": player["primary_position"],
-                "secondary_position": player.get("secondary_position"),
-                "is_off_position": player["primary_position"] != position,
-            }
-            for position, player in lineup.items()
-        },
+    if total_score > tournament["score_limit"]:
+        raise ValueError(
+            f'팀 총점 {total_score}점으로 제한 {tournament["score_limit"]}점을 초과합니다.'
+        )
+    if any(team["name"].casefold() == name.strip().casefold() for team in tournament["teams"]):
+        raise ValueError("이미 사용 중인 팀명입니다.")
+
+    team = {
+        "id": uuid.uuid4().hex,
+        "name": name.strip(),
+        "members": dict(members),
         "total_score": total_score,
-        "target_score": target_score,
-        "score_difference": abs(total_score - target_score),
-        "fit_penalty": 0,
+        "registration_pin": registration_pin,
+        "status": "pending",
+        "created_at": time.time(),
     }
+    tournament["teams"].append(team)
+    return team
+
+
+def approve_tournament_team(
+    state: dict[str, Any], team_id: str, approved: bool
+) -> dict[str, Any]:
+    tournament = state["tournament"]
+    if tournament["status"] != "registration":
+        raise ValueError("토너먼트 시작 후에는 승인 상태를 바꿀 수 없습니다.")
+    team = next((item for item in tournament["teams"] if item["id"] == team_id), None)
+    if team is None:
+        raise ValueError("팀을 찾을 수 없습니다.")
+    team["status"] = "approved" if approved else "rejected"
+    return team
+
+
+def delete_tournament_team(state: dict[str, Any], team_id: str) -> None:
+    tournament = state["tournament"]
+    if tournament["status"] != "registration":
+        raise ValueError("토너먼트 시작 후에는 팀을 삭제할 수 없습니다.")
+    before = len(tournament["teams"])
+    tournament["teams"] = [
+        team for team in tournament["teams"] if team["id"] != team_id
+    ]
+    if len(tournament["teams"]) == before:
+        raise ValueError("팀을 찾을 수 없습니다.")
+
+
+def start_tournament(state: dict[str, Any]) -> None:
+    tournament = state["tournament"]
+    approved = [
+        team["id"] for team in tournament["teams"] if team["status"] == "approved"
+    ]
+    if len(approved) < 2:
+        raise ValueError("승인된 팀이 두 팀 이상 필요합니다.")
+    random.SystemRandom().shuffle(approved)
+    bracket_size = 1
+    while bracket_size < len(approved):
+        bracket_size *= 2
+    seeds = approved + [None] * (bracket_size - len(approved))
+    rounds: list[list[dict[str, Any]]] = []
+    for round_index in range(bracket_size.bit_length() - 1):
+        match_count = bracket_size // (2 ** (round_index + 1))
+        rounds.append(
+            [
+                {
+                    "id": uuid.uuid4().hex,
+                    "team1_id": None,
+                    "team2_id": None,
+                    "winner_id": None,
+                }
+                for _ in range(match_count)
+            ]
+        )
+    for index, match in enumerate(rounds[0]):
+        match["team1_id"] = seeds[index * 2]
+        match["team2_id"] = seeds[index * 2 + 1]
+    tournament["rounds"] = rounds
+    tournament["status"] = "running"
+    tournament["champion_id"] = None
+    _advance_byes(tournament)
+
+
+def select_match_winner(
+    state: dict[str, Any], round_index: int, match_index: int, team_id: str
+) -> None:
+    tournament = state["tournament"]
+    if tournament["status"] != "running":
+        raise ValueError("진행 중인 토너먼트가 아닙니다.")
+    try:
+        match = tournament["rounds"][round_index][match_index]
+    except IndexError as exc:
+        raise ValueError("경기를 찾을 수 없습니다.") from exc
+    if team_id not in (match["team1_id"], match["team2_id"]):
+        raise ValueError("이 경기에 참가하지 않은 팀입니다.")
+    if not match["team1_id"] or not match["team2_id"]:
+        raise ValueError("부전승 경기는 자동으로 처리됩니다.")
+    match["winner_id"] = team_id
+    if round_index == len(tournament["rounds"]) - 1:
+        tournament["champion_id"] = team_id
+        tournament["status"] = "finished"
+        return
+    next_match = tournament["rounds"][round_index + 1][match_index // 2]
+    slot = "team1_id" if match_index % 2 == 0 else "team2_id"
+    next_match[slot] = team_id
+    next_match["winner_id"] = None
+    _advance_byes(tournament)
+
+
+def _advance_byes(tournament: dict[str, Any]) -> None:
+    changed = True
+    while changed:
+        changed = False
+        for round_index, round_matches in enumerate(tournament["rounds"]):
+            for match_index, match in enumerate(round_matches):
+                teams = [match["team1_id"], match["team2_id"]]
+                present = [team_id for team_id in teams if team_id]
+                if len(present) != 1 or match["winner_id"]:
+                    continue
+                # 첫 라운드의 실제 빈 시드만 부전승으로 처리한다.
+                if round_index > 0:
+                    previous = tournament["rounds"][round_index - 1]
+                    source_matches = previous[match_index * 2: match_index * 2 + 2]
+                    if any(source["winner_id"] is None for source in source_matches):
+                        continue
+                winner_id = present[0]
+                match["winner_id"] = winner_id
+                if round_index == len(tournament["rounds"]) - 1:
+                    tournament["champion_id"] = winner_id
+                    tournament["status"] = "finished"
+                    return
+                next_match = tournament["rounds"][round_index + 1][match_index // 2]
+                slot = "team1_id" if match_index % 2 == 0 else "team2_id"
+                next_match[slot] = winner_id
+                changed = True
 
 
 def start_auction(state: dict[str, Any], *, shuffle: bool = True) -> None:

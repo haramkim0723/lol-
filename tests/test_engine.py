@@ -48,70 +48,51 @@ class AuctionEngineTest(unittest.TestCase):
             engine.place_bid(self.state, self.captain["id"], 80)
 
 
-class BalanceEngineTest(unittest.TestCase):
+class TournamentEngineTest(unittest.TestCase):
     def setUp(self):
         self.state = engine.new_state()
-        self.top = engine.add_player(
-            self.state, "탑고정", "", "GOLD", "TOP", score=8
-        )
-        self.jug = engine.add_player(
-            self.state, "정글고정", "", "GOLD", "JUG", score=7
-        )
-        self.mid = engine.add_player(
-            self.state, "미드고정", "", "GOLD", "MID", score=10
-        )
-        engine.add_player(
-            self.state, "원딜A", "", "GOLD", "ADC", score=9
-        )
-        engine.add_player(
-            self.state, "원딜B", "", "GOLD", "ADC", score=5
-        )
-        engine.add_player(
-            self.state, "서폿A", "", "GOLD", "SUP", score=6
-        )
-        engine.add_player(
-            self.state, "서폿B", "", "GOLD", "MID", "SUP", score=4
-        )
-        engine.add_player(
-            self.state, "서폿C", "", "GOLD", "SUP", score=4
-        )
+        self.members = {}
+        for position, score in zip(engine.POSITIONS, (8, 7, 10, 9, 6)):
+            player = engine.add_player(
+                self.state, position, "", "GOLD", position, score=score
+            )
+            self.members[position] = player["id"]
 
-    def test_locked_core_recommends_closest_bottom_duo(self):
-        recommendations = engine.recommend_completions(
-            self.state,
-            {
-                "TOP": self.top["id"],
-                "JUG": self.jug["id"],
-                "MID": self.mid["id"],
-                "ADC": None,
-                "SUP": None,
-            },
-            target_score=40,
+    def test_people_can_register_complete_team_within_limit(self):
+        team = engine.register_tournament_team(
+            self.state, "직접 만든 팀", self.members, "1234"
         )
-        self.assertEqual(recommendations[0]["total_score"], 40)
-        self.assertEqual(
-            recommendations[0]["lineup"]["ADC"]["name"], "원딜A"
-        )
-        self.assertEqual(
-            recommendations[0]["lineup"]["SUP"]["name"], "서폿A"
-        )
+        self.assertEqual(team["total_score"], 40)
+        self.assertEqual(team["status"], "pending")
 
-    def test_primary_position_wins_tie_over_secondary(self):
-        recommendations = engine.recommend_completions(
-            self.state,
-            {
-                "TOP": self.top["id"],
-                "JUG": self.jug["id"],
-                "MID": self.mid["id"],
-                "ADC": None,
-                "SUP": None,
-            },
-            target_score=38,
+    def test_team_over_host_score_limit_is_rejected(self):
+        self.state["tournament"]["score_limit"] = 39
+        with self.assertRaisesRegex(ValueError, "제한 39점"):
+            engine.register_tournament_team(
+                self.state, "초과 팀", self.members, "1234"
+            )
+
+    def test_approved_teams_create_bracket_and_winner_advances(self):
+        first = engine.register_tournament_team(
+            self.state, "A팀", self.members, "1234"
         )
-        self.assertEqual(recommendations[0]["fit_penalty"], 0)
-        self.assertEqual(
-            recommendations[0]["lineup"]["SUP"]["name"], "서폿C"
+        engine.approve_tournament_team(self.state, first["id"], True)
+        second_members = {}
+        for position, score in zip(engine.POSITIONS, (7, 7, 8, 8, 7)):
+            player = engine.add_player(
+                self.state, f"B{position}", "", "GOLD", position, score=score
+            )
+            second_members[position] = player["id"]
+        second = engine.register_tournament_team(
+            self.state, "B팀", second_members, "5678"
         )
+        engine.approve_tournament_team(self.state, second["id"], True)
+        engine.start_tournament(self.state)
+        match = self.state["tournament"]["rounds"][0][0]
+        winner = match["team1_id"]
+        engine.select_match_winner(self.state, 0, 0, winner)
+        self.assertEqual(self.state["tournament"]["champion_id"], winner)
+        self.assertEqual(self.state["tournament"]["status"], "finished")
 
 
 if __name__ == "__main__":

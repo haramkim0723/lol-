@@ -22,6 +22,7 @@ let loginRole = "spectator";
 let introIndex = 0;
 let introPlayerId = null;
 let toastTimer = null;
+let stateSignature = "";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -70,7 +71,7 @@ function positionOptions(optional = false) {
 }
 
 function setView(view) {
-  if (["setup", "balance"].includes(view) && state.viewer.role !== "host") {
+  if (view === "setup" && state.viewer.role !== "host") {
     view = "intro";
   }
   if (view === "auction" && state.auction.status === "setup") {
@@ -80,7 +81,7 @@ function setView(view) {
   currentView = view;
   $("#intro-panel").classList.toggle("hidden", view !== "intro");
   $("#setup-panel").classList.toggle("hidden", view !== "setup");
-  $("#balance-panel").classList.toggle("hidden", view !== "balance");
+  $("#tournament-panel").classList.toggle("hidden", view !== "tournament");
   $("#auction-panel").classList.toggle("hidden", view !== "auction");
   $$("[data-view]").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === view);
@@ -93,7 +94,6 @@ function renderRole() {
   $("#main-nav").classList.toggle("hidden", !viewer.authenticated);
   $("#logout-button").classList.toggle("hidden", !viewer.authenticated);
   $("#setup-nav").classList.toggle("hidden", viewer.role !== "host");
-  $("#balance-nav").classList.toggle("hidden", viewer.role !== "host");
 
   let label = "관전자";
   if (viewer.role === "host") label = "호스트";
@@ -236,46 +236,106 @@ function renderSetup() {
     : "등록된 참가자가 없습니다.";
 }
 
-function renderBalance() {
-  if (state.viewer.role !== "host") return;
-  $("#balance-locks").innerHTML = POSITIONS.map((position) => {
+function renderTournament() {
+  const tournament = state.tournament;
+  const isHost = state.viewer.role === "host";
+  const registrationOpen = tournament.status === "registration";
+  $("#tournament-status").textContent =
+    tournament.status === "registration" ? "TEAM REGISTRATION"
+      : tournament.status === "running" ? "TOURNAMENT LIVE" : "TOURNAMENT FINISHED";
+  $("#tournament-registration-layout").classList.toggle("hidden", !registrationOpen);
+  $("#tournament-bracket-section").classList.toggle("hidden", registrationOpen);
+  $("#tournament-host-controls").classList.toggle("hidden", !isHost);
+  $("#tournament-score-limit-input").value = tournament.score_limit;
+  $("#team-score-limit").textContent = tournament.score_limit;
+
+  $("#tournament-member-selects").innerHTML = POSITIONS.map((position) => {
     const candidates = state.players.filter((player) =>
       player.primary_position === position || player.secondary_position === position
     ).sort((a, b) => a.name.localeCompare(b.name, "ko-KR"));
-    return `<label class="balance-slot">
-      <span class="balance-slot-head"><strong>${position} · ${POSITION_NAMES[position]}</strong><span>고정 선택</span></span>
-      <select name="${position}">
-        <option value="">추천으로 채우기</option>
+    return `<label class="tournament-member-slot">
+      <strong>${position} · ${POSITION_NAMES[position]}</strong>
+      <select name="${position}" required>
+        <option value="">선수 선택</option>
         ${candidates.map((player) =>
           `<option value="${player.id}">${escapeHtml(player.name)} · ${Number(player.score || 0)}점${player.primary_position !== position ? " (부)" : ""}</option>`
         ).join("")}
       </select>
     </label>`;
   }).join("");
-}
 
-function renderBalanceResults(recommendations) {
-  $("#balance-summary").textContent = recommendations.length
-    ? `총 ${recommendations.length}개 조합 · 점수 차이와 주 포지션 적합도를 함께 반영했습니다.`
-    : "";
-  $("#balance-results").innerHTML = recommendations.length
-    ? recommendations.map((result, index) => `
-      <article class="balance-result">
-        <div class="balance-rank">${index + 1}</div>
-        ${POSITIONS.map((position) => {
-          const player = result.lineup[position];
-          return `<div class="balance-member${player.is_off_position ? " off-position" : ""}">
-            <small>${position}${player.is_off_position ? " · 부 포지션" : " · 주 포지션"}</small>
-            <strong>${escapeHtml(player.name)}</strong>
-            <span>${player.score}점</span>
-          </div>`;
-        }).join("")}
-        <div class="balance-total">
-          <small>목표 ${result.target_score}점 · 차이 ${result.score_difference}</small>
-          <strong class="${result.score_difference === 0 ? "perfect" : ""}">${result.total_score}점</strong>
+  $("#tournament-team-list").innerHTML = tournament.teams.length
+    ? tournament.teams.map((team) => `
+      <article class="registered-team">
+        <div class="registered-team-head">
+          <strong>${escapeHtml(team.name)}</strong>
+          <span class="team-status ${team.status}">${team.status === "approved" ? "승인" : team.status === "rejected" ? "반려" : "승인 대기"}</span>
+        </div>
+        <div class="registered-team-members">
+          ${POSITIONS.map((position) => {
+            const player = playerById(team.members[position]);
+            return `<div class="registered-team-member"><small>${position}</small><strong>${escapeHtml(player?.name || "-")}</strong></div>`;
+          }).join("")}
+        </div>
+        <div class="registered-team-footer">
+          <span>총 ${team.total_score} / ${tournament.score_limit}점</span>
+          ${isHost ? `<div class="team-admin-actions">
+            <button class="ghost" type="button" data-team-approve="${team.id}">승인</button>
+            <button class="ghost" type="button" data-team-reject="${team.id}">반려</button>
+            <button class="remove" type="button" data-team-delete="${team.id}">삭제</button>
+          </div>` : ""}
         </div>
       </article>`).join("")
-    : '<div class="balance-empty">조건에 맞는 완성 조합이 없습니다.</div>';
+    : '<div class="empty-message">아직 등록된 팀이 없습니다.</div>';
+  updateTeamScore();
+  renderTournamentBracket();
+}
+
+function updateTeamScore() {
+  if (!state || state.tournament.status !== "registration") return;
+  const form = $("#tournament-team-form");
+  const ids = POSITIONS.map((position) => form.elements[position]?.value).filter(Boolean);
+  const score = ids.reduce((sum, id) => sum + Number(playerById(id)?.score || 0), 0);
+  const limit = state.tournament.score_limit;
+  const duplicate = ids.length !== new Set(ids).size;
+  const complete = ids.length === POSITIONS.length;
+  const over = score > limit;
+  $("#team-current-score").textContent = score;
+  const bar = $("#team-score-bar");
+  bar.style.width = `${Math.min(100, limit ? score / limit * 100 : 0)}%`;
+  bar.classList.toggle("over", over);
+  const message = $("#team-score-message");
+  message.classList.toggle("over", over || duplicate);
+  message.textContent = duplicate ? "같은 선수를 두 포지션에 등록할 수 없습니다."
+    : over ? `제한을 ${score - limit}점 초과했습니다.`
+      : complete ? `등록 가능 · ${limit - score}점 여유`
+        : "다섯 포지션의 선수를 선택해 주세요.";
+  $("#team-register-button").disabled = !complete || over || duplicate;
+}
+
+function renderTournamentBracket() {
+  const tournament = state.tournament;
+  const isHost = state.viewer.role === "host";
+  const teamById = (id) => tournament.teams.find((team) => team.id === id);
+  $("#tournament-champion").textContent = tournament.champion_id
+    ? `🏆 ${teamById(tournament.champion_id)?.name || ""} 우승`
+    : "";
+  $("#tournament-bracket").innerHTML = tournament.rounds.map((round, roundIndex) => `
+    <section class="bracket-round">
+      <div class="bracket-round-title">${roundIndex === tournament.rounds.length - 1 ? "FINAL" : `ROUND ${roundIndex + 1}`}</div>
+      ${round.map((match, matchIndex) => `
+        <div class="bracket-match">
+          ${["team1_id", "team2_id"].map((slot) => {
+            const team = teamById(match[slot]);
+            const canSelect = isHost && team && match.team1_id && match.team2_id && !match.winner_id;
+            return `<button class="bracket-team${team ? " ready" : ""}${match.winner_id === team?.id ? " winner" : ""}" type="button"
+              ${canSelect ? `data-match-winner="${team.id}" data-round-index="${roundIndex}" data-match-index="${matchIndex}"` : "disabled"}>
+              <strong>${escapeHtml(team?.name || "TBD")}</strong>
+              <span>${team ? `${team.total_score}점` : ""}</span>
+            </button>`;
+          }).join("")}
+        </div>`).join("")}
+    </section>`).join("");
 }
 
 function updateCaptainPreview() {
@@ -388,10 +448,14 @@ function updateTimer() {
 function render() {
   $("#room-title").textContent = state.settings.room_name;
   document.title = `${state.settings.room_name} · LoL Auction`;
+  $("#deployment-warning").classList.toggle(
+    "hidden",
+    !state.deployment?.serverless || state.deployment?.persistent
+  );
   renderRole();
   renderIntro();
   renderSetup();
-  renderBalance();
+  renderTournament();
   renderAuction();
   if (state.viewer.role !== "host" && state.auction.status === "setup") {
     currentView = "intro";
@@ -400,6 +464,12 @@ function render() {
 }
 
 function connectSocket() {
+  if (location.hostname.endsWith(".vercel.app")) {
+    $("#socket-dot").classList.add("online");
+    $("#socket-text").textContent = "자동 갱신";
+    setInterval(pollState, 1000);
+    return;
+  }
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(`${protocol}//${location.host}/ws`);
   socket.onopen = () => {
@@ -422,6 +492,31 @@ function connectSocket() {
     $("#socket-text").textContent = "재연결 중";
     setTimeout(connectSocket, 1500);
   };
+}
+
+function meaningfulStateSignature(value) {
+  const copy = structuredClone(value);
+  delete copy.server_time;
+  if (copy.auction) delete copy.auction.remaining_seconds;
+  return JSON.stringify(copy);
+}
+
+async function pollState() {
+  try {
+    const data = await api("/api/state");
+    const signature = meaningfulStateSignature(data);
+    if (signature !== stateSignature) {
+      state = data;
+      stateSignature = signature;
+      render();
+    } else {
+      state.server_time = data.server_time;
+      state.auction.remaining_seconds = data.auction.remaining_seconds;
+    }
+  } catch {
+    $("#socket-dot").classList.remove("online");
+    $("#socket-text").textContent = "재연결 중";
+  }
 }
 
 $$(".position-select").forEach((select) => {
@@ -469,7 +564,7 @@ $("#login-form").addEventListener("submit", async (event) => {
 
 $("#logout-button").addEventListener("click", async () => {
   await api("/api/logout", { method: "POST" });
-  location.reload();
+  location.href = "/";
 });
 
 $("#settings-form").addEventListener("submit", async (event) => {
@@ -523,25 +618,42 @@ $("#riot-player-form").addEventListener("submit", async (event) => {
   }
 });
 
-$("#balance-form").addEventListener("submit", async (event) => {
+$("#tournament-team-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.target));
-  const locked = Object.fromEntries(
-    POSITIONS.map((position) => [position, data[position] || null])
-  );
+  const members = Object.fromEntries(POSITIONS.map((position) => [position, data[position]]));
   try {
-    const result = await api("/api/balance/recommend", {
+    await api("/api/tournament/teams", {
       method: "POST",
       body: JSON.stringify({
-        target_score: Number(data.target_score),
-        locked,
-        limit: 12,
+        name: data.name,
+        registration_pin: data.registration_pin,
+        members,
       }),
     });
-    renderBalanceResults(result.recommendations);
+    event.target.reset();
+    updateTeamScore();
+    toast("팀 등록을 신청했습니다.");
   } catch (error) {
     toast(error.message, true);
   }
+});
+
+$("#tournament-member-selects").addEventListener("change", updateTeamScore);
+$("#save-tournament-settings").addEventListener("click", async () => {
+  try {
+    await api("/api/tournament/settings", {
+      method: "PUT",
+      body: JSON.stringify({ score_limit: Number($("#tournament-score-limit-input").value) }),
+    });
+    toast("팀 총점 제한을 저장했습니다.");
+  } catch (error) { toast(error.message, true); }
+});
+$("#start-tournament-button").addEventListener("click", async () => {
+  try {
+    await api("/api/tournament/start", { method: "POST" });
+    toast("대진표를 생성했습니다.");
+  } catch (error) { toast(error.message, true); }
 });
 
 document.addEventListener("click", async (event) => {
@@ -558,6 +670,38 @@ document.addEventListener("click", async (event) => {
     introIndex = Number(requestedIntroIndex);
     introPlayerId = sortedIntroPlayers()[introIndex]?.id || null;
     renderIntro();
+    return;
+  }
+  const approveTeamId = event.target.closest("[data-team-approve]")?.dataset.teamApprove;
+  const rejectTeamId = event.target.closest("[data-team-reject]")?.dataset.teamReject;
+  const deleteTeamId = event.target.closest("[data-team-delete]")?.dataset.teamDelete;
+  const winnerButton = event.target.closest("[data-match-winner]");
+  try {
+    if (approveTeamId || rejectTeamId) {
+      const teamId = approveTeamId || rejectTeamId;
+      await api(`/api/tournament/teams/${teamId}/approval`, {
+        method: "POST",
+        body: JSON.stringify({ approved: Boolean(approveTeamId) }),
+      });
+      return;
+    }
+    if (deleteTeamId) {
+      await api(`/api/tournament/teams/${deleteTeamId}`, { method: "DELETE" });
+      return;
+    }
+    if (winnerButton) {
+      await api("/api/tournament/winner", {
+        method: "POST",
+        body: JSON.stringify({
+          round_index: Number(winnerButton.dataset.roundIndex),
+          match_index: Number(winnerButton.dataset.matchIndex),
+          team_id: winnerButton.dataset.matchWinner,
+        }),
+      });
+      return;
+    }
+  } catch (error) {
+    toast(error.message, true);
     return;
   }
   const captainId = event.target.dataset.deleteCaptain;
@@ -601,6 +745,7 @@ $("#bid-form").addEventListener("submit", async (event) => {
 setInterval(updateTimer, 100);
 api("/api/state").then((data) => {
   state = data;
+  stateSignature = meaningfulStateSignature(data);
   render();
 });
 connectSocket();

@@ -88,6 +88,13 @@ def require_captain(request: Request) -> dict:
     return viewer
 
 
+def require_authenticated(request: Request) -> dict:
+    viewer = read_session(request.cookies.get("auction_auth"))
+    if not viewer["authenticated"]:
+        raise HTTPException(401, "먼저 입장해 주세요.")
+    return viewer
+
+
 async def broadcast() -> None:
     dead: list[WebSocket] = []
     for connection in list(connections):
@@ -119,13 +126,26 @@ async def timer_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    task = asyncio.create_task(timer_loop())
+    task = None
+    if not os.getenv("VERCEL"):
+        task = asyncio.create_task(timer_loop())
     yield
-    task.cancel()
+    if task:
+        task.cancel()
 
 
 app = FastAPI(title="LoL Auction", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+
+
+@app.middleware("http")
+async def serverless_state_sync(request: Request, call_next):
+    if os.getenv("VERCEL") and request.url.path.startswith("/api/"):
+        async with state_lock:
+            store.refresh()
+            if engine.finalize_if_due(store.state):
+                store.save()
+    return await call_next(request)
 
 
 class SettingsInput(BaseModel):
@@ -170,12 +190,28 @@ class LoginInput(BaseModel):
     captain_id: str | None = None
 
 
-class BalanceInput(BaseModel):
-    target_score: int = Field(ge=0, le=5000)
-    locked: dict[
-        Literal["TOP", "JUG", "MID", "ADC", "SUP"], str | None
+class TournamentSettingsInput(BaseModel):
+    score_limit: int = Field(ge=0, le=5000)
+
+
+class TournamentTeamInput(BaseModel):
+    name: str = Field(min_length=1, max_length=30)
+    members: dict[
+        Literal["TOP", "JUG", "MID", "ADC", "SUP"], str
     ]
-    limit: int = Field(default=12, ge=1, le=50)
+    registration_pin: str = Field(
+        min_length=4, max_length=12, pattern=r"^[0-9]+$"
+    )
+
+
+class TeamApprovalInput(BaseModel):
+    approved: bool
+
+
+class MatchWinnerInput(BaseModel):
+    round_index: int = Field(ge=0)
+    match_index: int = Field(ge=0)
+    team_id: str
 
 
 @app.get("/")
@@ -185,7 +221,12 @@ async def index():
 
 @app.get("/api/state")
 async def get_state(auction_auth: str | None = Cookie(default=None)):
-    return engine.public_state(store.state, read_session(auction_auth))
+    result = engine.public_state(store.state, read_session(auction_auth))
+    result["deployment"] = {
+        "serverless": bool(os.getenv("VERCEL")),
+        "persistent": store.persistent,
+    }
+    return result
 
 
 @app.post("/api/login")
@@ -219,7 +260,7 @@ async def login(data: LoginInput, response: Response):
         make_session(viewer["role"], viewer["captain_id"]),
         httponly=True,
         samesite="lax",
-        max_age=60 * 60 * 12,
+        secure=bool(os.getenv("VERCEL")),
     )
     return viewer
 
@@ -329,6 +370,13 @@ async def delete_player(player_id: str, request: Request):
     async with state_lock:
         if store.state["auction"]["status"] != "setup":
             raise HTTPException(409, "경매 시작 후에는 참가자를 삭제할 수 없습니다.")
+        registered = any(
+            player_id in team["members"].values()
+            and team["status"] != "rejected"
+            for team in store.state["tournament"]["teams"]
+        )
+        if registered:
+            raise HTTPException(409, "멸망전 팀에 등록된 참가자는 삭제할 수 없습니다.")
         before = len(store.state["players"])
         store.state["players"] = [
             p for p in store.state["players"] if p["id"] != player_id
@@ -340,20 +388,78 @@ async def delete_player(player_id: str, request: Request):
     return {"ok": True}
 
 
-@app.post("/api/balance/recommend")
-async def balance_recommend(data: BalanceInput, request: Request):
+@app.put("/api/tournament/settings")
+async def update_tournament_settings(
+    data: TournamentSettingsInput, request: Request
+):
     require_host(request)
+    async with state_lock:
+        if store.state["tournament"]["status"] != "registration":
+            raise HTTPException(409, "토너먼트 시작 후에는 제한을 바꿀 수 없습니다.")
+        store.state["tournament"]["score_limit"] = data.score_limit
+        store.save()
+    await broadcast()
+    return {"ok": True}
+
+
+@app.post("/api/tournament/teams")
+async def register_tournament_team(
+    data: TournamentTeamInput, request: Request
+):
     try:
-        return {
-            "recommendations": engine.recommend_completions(
-                store.state,
-                data.locked,
-                data.target_score,
-                data.limit,
+        async with state_lock:
+            team = engine.register_tournament_team(
+            store.state,
+            data.name,
+            data.members,
+            data.registration_pin,
             )
-        }
+            store.save()
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    await broadcast()
+    return {key: value for key, value in team.items() if key != "registration_pin"}
+
+
+@app.post("/api/tournament/teams/{team_id}/approval")
+async def approve_tournament_team(
+    team_id: str, data: TeamApprovalInput, request: Request
+):
+    require_host(request)
+    return await mutate(
+        lambda: engine.approve_tournament_team(
+            store.state, team_id, data.approved
+        )
+    )
+
+
+@app.delete("/api/tournament/teams/{team_id}")
+async def delete_tournament_team(team_id: str, request: Request):
+    require_host(request)
+    return await mutate(
+        lambda: engine.delete_tournament_team(store.state, team_id)
+    )
+
+
+@app.post("/api/tournament/start")
+async def start_tournament(request: Request):
+    require_host(request)
+    return await mutate(lambda: engine.start_tournament(store.state))
+
+
+@app.post("/api/tournament/winner")
+async def select_tournament_winner(
+    data: MatchWinnerInput, request: Request
+):
+    require_host(request)
+    return await mutate(
+        lambda: engine.select_match_winner(
+            store.state,
+            data.round_index,
+            data.match_index,
+            data.team_id,
+        )
+    )
 
 
 async def mutate(action):
