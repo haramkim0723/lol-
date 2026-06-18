@@ -150,12 +150,14 @@ class PlayerInput(BaseModel):
     primary_position: Literal["TOP", "JUG", "MID", "ADC", "SUP"]
     secondary_position: Literal["TOP", "JUG", "MID", "ADC", "SUP"] | None = None
     profile_icon_url: str | None = None
+    score: int = Field(default=0, ge=0, le=1000)
 
 
 class RiotPlayerInput(BaseModel):
     riot_id: str = Field(min_length=3, max_length=80)
     primary_position: Literal["TOP", "JUG", "MID", "ADC", "SUP"]
     secondary_position: Literal["TOP", "JUG", "MID", "ADC", "SUP"] | None = None
+    score: int = Field(default=0, ge=0, le=1000)
 
 
 class BidInput(BaseModel):
@@ -166,6 +168,14 @@ class LoginInput(BaseModel):
     role: Literal["host", "captain", "spectator"]
     pin: str = ""
     captain_id: str | None = None
+
+
+class BalanceInput(BaseModel):
+    target_score: int = Field(ge=0, le=5000)
+    locked: dict[
+        Literal["TOP", "JUG", "MID", "ADC", "SUP"], str | None
+    ]
+    limit: int = Field(default=12, ge=1, le=50)
 
 
 @app.get("/")
@@ -306,6 +316,7 @@ async def create_riot_player(data: RiotPlayerInput, request: Request):
             **riot,
             primary_position=data.primary_position,
             secondary_position=data.secondary_position,
+            score=data.score,
         )
         store.save()
     await broadcast()
@@ -327,6 +338,22 @@ async def delete_player(player_id: str, request: Request):
         store.save()
     await broadcast()
     return {"ok": True}
+
+
+@app.post("/api/balance/recommend")
+async def balance_recommend(data: BalanceInput, request: Request):
+    require_host(request)
+    try:
+        return {
+            "recommendations": engine.recommend_completions(
+                store.state,
+                data.locked,
+                data.target_score,
+                data.limit,
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 async def mutate(action):

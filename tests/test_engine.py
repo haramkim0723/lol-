@@ -48,5 +48,71 @@ class AuctionEngineTest(unittest.TestCase):
             engine.place_bid(self.state, self.captain["id"], 80)
 
 
+class BalanceEngineTest(unittest.TestCase):
+    def setUp(self):
+        self.state = engine.new_state()
+        self.top = engine.add_player(
+            self.state, "탑고정", "", "GOLD", "TOP", score=8
+        )
+        self.jug = engine.add_player(
+            self.state, "정글고정", "", "GOLD", "JUG", score=7
+        )
+        self.mid = engine.add_player(
+            self.state, "미드고정", "", "GOLD", "MID", score=10
+        )
+        engine.add_player(
+            self.state, "원딜A", "", "GOLD", "ADC", score=9
+        )
+        engine.add_player(
+            self.state, "원딜B", "", "GOLD", "ADC", score=5
+        )
+        engine.add_player(
+            self.state, "서폿A", "", "GOLD", "SUP", score=6
+        )
+        engine.add_player(
+            self.state, "서폿B", "", "GOLD", "MID", "SUP", score=4
+        )
+        engine.add_player(
+            self.state, "서폿C", "", "GOLD", "SUP", score=4
+        )
+
+    def test_locked_core_recommends_closest_bottom_duo(self):
+        recommendations = engine.recommend_completions(
+            self.state,
+            {
+                "TOP": self.top["id"],
+                "JUG": self.jug["id"],
+                "MID": self.mid["id"],
+                "ADC": None,
+                "SUP": None,
+            },
+            target_score=40,
+        )
+        self.assertEqual(recommendations[0]["total_score"], 40)
+        self.assertEqual(
+            recommendations[0]["lineup"]["ADC"]["name"], "원딜A"
+        )
+        self.assertEqual(
+            recommendations[0]["lineup"]["SUP"]["name"], "서폿A"
+        )
+
+    def test_primary_position_wins_tie_over_secondary(self):
+        recommendations = engine.recommend_completions(
+            self.state,
+            {
+                "TOP": self.top["id"],
+                "JUG": self.jug["id"],
+                "MID": self.mid["id"],
+                "ADC": None,
+                "SUP": None,
+            },
+            target_score=38,
+        )
+        self.assertEqual(recommendations[0]["fit_penalty"], 0)
+        self.assertEqual(
+            recommendations[0]["lineup"]["SUP"]["name"], "서폿C"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -17,6 +17,7 @@
         <nav id="main-nav" class="main-nav hidden">
           <button type="button" data-view="intro">선수 소개</button>
           <button id="setup-nav" type="button" data-view="setup">호스트 설정</button>
+          <button id="balance-nav" type="button" data-view="balance">팀 밸런싱</button>
           <button type="button" data-view="auction">경매장</button>
         </nav>
         <div id="role-badge" class="role-badge">관전자</div>
@@ -111,12 +112,14 @@
             <label>표시 이름<input name="name" required placeholder="참가자 이름" /></label>
             <label>Riot ID<input name="riot_id" placeholder="게임이름#KR1" /></label>
             <label>티어<input name="tier" value="UNRANKED" /></label>
+            <label>멸망전 점수<input name="score" type="number" min="0" value="0" /></label>
             <label>주 포지션<select name="primary_position" class="position-select"></select></label>
             <label>부 포지션<select name="secondary_position" class="position-select optional"></select></label>
             <button class="accent" type="submit">참가자 추가</button>
           </form>
           <form id="riot-player-form" class="form-grid player-form hidden">
             <label class="wide">Riot ID<input name="riot_id" required placeholder="게임이름#KR1" /></label>
+            <label>멸망전 점수<input name="score" type="number" min="0" value="0" /></label>
             <label>주 포지션<select name="primary_position" class="position-select"></select></label>
             <label>부 포지션<select name="secondary_position" class="position-select optional"></select></label>
             <button class="accent wide" type="submit">티어 조회 후 추가</button>
@@ -124,6 +127,27 @@
           <div id="player-setup-list" class="player-cards empty-message">등록된 참가자가 없습니다.</div>
           <button id="start-button" class="start-button" type="button">순서를 섞고 경매 시작</button>
         </article>
+      </section>
+
+      <section id="balance-panel" class="balance-panel hidden">
+        <div class="balance-heading">
+          <div>
+            <p class="eyebrow">CORE FIT BALANCER</p>
+            <h2>고정 코어 조합 추천</h2>
+            <p>함께 뛰어야 하는 선수를 잠그고, 빈 포지션에 가장 적합한 조합을 점수 차이순으로 추천합니다.</p>
+          </div>
+        </div>
+        <form id="balance-form" class="panel balance-form">
+          <div id="balance-locks" class="balance-locks"></div>
+          <div class="balance-target">
+            <label>목표 팀 총점<input id="balance-target-score" name="target_score" type="number" min="0" placeholder="예: 40" required /></label>
+            <button class="primary" type="submit">핏 좋은 조합 찾기</button>
+          </div>
+        </form>
+        <div id="balance-summary" class="balance-summary"></div>
+        <div id="balance-results" class="balance-results">
+          <div class="balance-empty">고정 선수를 선택하고 목표 총점을 입력해 주세요.</div>
+        </div>
       </section>
 
       <section id="auction-panel" class="auction-layout hidden">

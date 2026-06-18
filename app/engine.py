@@ -4,6 +4,7 @@ import random
 import time
 import uuid
 from copy import deepcopy
+from itertools import product
 from typing import Any
 
 
@@ -88,6 +89,7 @@ def add_player(
     primary_position: str,
     secondary_position: str | None = None,
     profile_icon_url: str | None = None,
+    score: int = 0,
 ) -> dict[str, Any]:
     player = {
         "id": uuid.uuid4().hex,
@@ -97,6 +99,7 @@ def add_player(
         "primary_position": primary_position,
         "secondary_position": secondary_position or None,
         "profile_icon_url": profile_icon_url,
+        "score": score,
         "status": "waiting",
         "sold_to": None,
         "sold_amount": None,
@@ -104,6 +107,98 @@ def add_player(
     }
     state["players"].append(player)
     return player
+
+
+def recommend_completions(
+    state: dict[str, Any],
+    locked: dict[str, str | None],
+    target_score: int,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    players = state["players"]
+    by_id = {player["id"]: player for player in players}
+    selected_ids = [player_id for player_id in locked.values() if player_id]
+    if len(selected_ids) != len(set(selected_ids)):
+        raise ValueError("한 참가자를 여러 포지션에 중복 배치할 수 없습니다.")
+
+    lineup: dict[str, dict[str, Any]] = {}
+    for position, player_id in locked.items():
+        if not player_id:
+            continue
+        player = by_id.get(player_id)
+        if player is None:
+            raise ValueError("고정 참가자를 찾을 수 없습니다.")
+        if position not in (player["primary_position"], player["secondary_position"]):
+            raise ValueError(
+                f'{player["name"]} 님은 {position} 포지션으로 배치할 수 없습니다.'
+            )
+        lineup[position] = player
+
+    empty_positions = [position for position in POSITIONS if position not in lineup]
+    if not empty_positions:
+        return [_score_lineup(lineup, target_score)]
+
+    candidate_lists: list[list[tuple[dict[str, Any], int]]] = []
+    for position in empty_positions:
+        candidates = []
+        for player in players:
+            if player["id"] in selected_ids:
+                continue
+            if player["primary_position"] == position:
+                candidates.append((player, 0))
+            elif player.get("secondary_position") == position:
+                candidates.append((player, 1))
+        if not candidates:
+            raise ValueError(f"{position}에 배치 가능한 참가자가 없습니다.")
+        candidate_lists.append(candidates)
+
+    recommendations: list[dict[str, Any]] = []
+    for choices in product(*candidate_lists):
+        chosen_players = [choice[0] for choice in choices]
+        chosen_ids = [player["id"] for player in chosen_players]
+        if len(chosen_ids) != len(set(chosen_ids)):
+            continue
+        completed = dict(lineup)
+        fit_penalty = 0
+        for position, (player, penalty) in zip(empty_positions, choices):
+            completed[position] = player
+            fit_penalty += penalty
+        recommendation = _score_lineup(completed, target_score)
+        recommendation["fit_penalty"] = fit_penalty
+        recommendations.append(recommendation)
+
+    recommendations.sort(
+        key=lambda item: (
+            item["score_difference"],
+            item["fit_penalty"],
+            -item["total_score"],
+            tuple(item["lineup"][position]["name"] for position in POSITIONS),
+        )
+    )
+    return recommendations[:limit]
+
+
+def _score_lineup(
+    lineup: dict[str, dict[str, Any]], target_score: int
+) -> dict[str, Any]:
+    total_score = sum(int(player.get("score", 0)) for player in lineup.values())
+    return {
+        "lineup": {
+            position: {
+                "id": player["id"],
+                "name": player["name"],
+                "score": int(player.get("score", 0)),
+                "primary_position": player["primary_position"],
+                "secondary_position": player.get("secondary_position"),
+                "is_off_position": player["primary_position"] != position,
+            }
+            for position, player in lineup.items()
+        },
+        "total_score": total_score,
+        "target_score": target_score,
+        "score_difference": abs(total_score - target_score),
+        "fit_penalty": 0,
+    }
 
 
 def start_auction(state: dict[str, Any], *, shuffle: bool = True) -> None:

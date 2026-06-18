@@ -70,7 +70,9 @@ function positionOptions(optional = false) {
 }
 
 function setView(view) {
-  if (view === "setup" && state.viewer.role !== "host") view = "intro";
+  if (["setup", "balance"].includes(view) && state.viewer.role !== "host") {
+    view = "intro";
+  }
   if (view === "auction" && state.auction.status === "setup") {
     toast("호스트가 아직 경매를 시작하지 않았습니다.");
     view = "intro";
@@ -78,6 +80,7 @@ function setView(view) {
   currentView = view;
   $("#intro-panel").classList.toggle("hidden", view !== "intro");
   $("#setup-panel").classList.toggle("hidden", view !== "setup");
+  $("#balance-panel").classList.toggle("hidden", view !== "balance");
   $("#auction-panel").classList.toggle("hidden", view !== "auction");
   $$("[data-view]").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === view);
@@ -90,6 +93,7 @@ function renderRole() {
   $("#main-nav").classList.toggle("hidden", !viewer.authenticated);
   $("#logout-button").classList.toggle("hidden", !viewer.authenticated);
   $("#setup-nav").classList.toggle("hidden", viewer.role !== "host");
+  $("#balance-nav").classList.toggle("hidden", viewer.role !== "host");
 
   let label = "관전자";
   if (viewer.role === "host") label = "호스트";
@@ -232,6 +236,48 @@ function renderSetup() {
     : "등록된 참가자가 없습니다.";
 }
 
+function renderBalance() {
+  if (state.viewer.role !== "host") return;
+  $("#balance-locks").innerHTML = POSITIONS.map((position) => {
+    const candidates = state.players.filter((player) =>
+      player.primary_position === position || player.secondary_position === position
+    ).sort((a, b) => a.name.localeCompare(b.name, "ko-KR"));
+    return `<label class="balance-slot">
+      <span class="balance-slot-head"><strong>${position} · ${POSITION_NAMES[position]}</strong><span>고정 선택</span></span>
+      <select name="${position}">
+        <option value="">추천으로 채우기</option>
+        ${candidates.map((player) =>
+          `<option value="${player.id}">${escapeHtml(player.name)} · ${Number(player.score || 0)}점${player.primary_position !== position ? " (부)" : ""}</option>`
+        ).join("")}
+      </select>
+    </label>`;
+  }).join("");
+}
+
+function renderBalanceResults(recommendations) {
+  $("#balance-summary").textContent = recommendations.length
+    ? `총 ${recommendations.length}개 조합 · 점수 차이와 주 포지션 적합도를 함께 반영했습니다.`
+    : "";
+  $("#balance-results").innerHTML = recommendations.length
+    ? recommendations.map((result, index) => `
+      <article class="balance-result">
+        <div class="balance-rank">${index + 1}</div>
+        ${POSITIONS.map((position) => {
+          const player = result.lineup[position];
+          return `<div class="balance-member${player.is_off_position ? " off-position" : ""}">
+            <small>${position}${player.is_off_position ? " · 부 포지션" : " · 주 포지션"}</small>
+            <strong>${escapeHtml(player.name)}</strong>
+            <span>${player.score}점</span>
+          </div>`;
+        }).join("")}
+        <div class="balance-total">
+          <small>목표 ${result.target_score}점 · 차이 ${result.score_difference}</small>
+          <strong class="${result.score_difference === 0 ? "perfect" : ""}">${result.total_score}점</strong>
+        </div>
+      </article>`).join("")
+    : '<div class="balance-empty">조건에 맞는 완성 조합이 없습니다.</div>';
+}
+
 function updateCaptainPreview() {
   if (!state) return;
   const player = playerById($("#captain-player").value);
@@ -345,6 +391,7 @@ function render() {
   renderRole();
   renderIntro();
   renderSetup();
+  renderBalance();
   renderAuction();
   if (state.viewer.role !== "host" && state.auction.status === "setup") {
     currentView = "intro";
@@ -450,6 +497,7 @@ $("#manual-player-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.target));
   data.secondary_position ||= null;
+  data.score = Number(data.score || 0);
   try {
     await api("/api/players", { method: "POST", body: JSON.stringify(data) });
     event.target.reset();
@@ -460,6 +508,7 @@ $("#riot-player-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.target));
   data.secondary_position ||= null;
+  data.score = Number(data.score || 0);
   const button = event.target.querySelector("button");
   button.disabled = true;
   button.textContent = "조회 중...";
@@ -471,6 +520,27 @@ $("#riot-player-form").addEventListener("submit", async (event) => {
   finally {
     button.disabled = false;
     button.textContent = "티어 조회 후 추가";
+  }
+});
+
+$("#balance-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.target));
+  const locked = Object.fromEntries(
+    POSITIONS.map((position) => [position, data[position] || null])
+  );
+  try {
+    const result = await api("/api/balance/recommend", {
+      method: "POST",
+      body: JSON.stringify({
+        target_score: Number(data.target_score),
+        locked,
+        limit: 12,
+      }),
+    });
+    renderBalanceResults(result.recommendations);
+  } catch (error) {
+    toast(error.message, true);
   }
 });
 

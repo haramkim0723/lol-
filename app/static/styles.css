@@ -96,7 +96,7 @@ button { border: 0; border-radius: 10px; padding: 11px 16px; color: #fff; font-w
 .tabs { display: flex; gap: 5px; margin-bottom: 15px; }
 .tab { background: #0b111a; color: var(--muted); }
 .tab.active { background: rgba(217,169,79,.15); color: var(--gold-light); }
-.player-form { grid-template-columns: 1.2fr 1.2fr 1fr 1fr 1fr auto; align-items: end; }
+.player-form { grid-template-columns: 1.15fr 1.15fr .8fr .7fr .85fr .85fr auto; align-items: end; }
 .player-form .wide { grid-column: span 2; }
 
 .stack-list, .player-cards { margin-top: 17px; }
@@ -365,6 +365,36 @@ aside { display: grid; gap: 18px; }
 .intro-progress button { width: 20px; height: 3px; padding: 0; border-radius: 2px; background: #26313f; transition: .18s; }
 .intro-progress button.active { width: 38px; background: var(--gold); }
 
+.balance-panel { padding: 20px 0 50px; }
+.balance-heading { margin-bottom: 20px; }
+.balance-heading h2 { margin: 0; font-size: clamp(28px,4vw,46px); letter-spacing: -.05em; }
+.balance-heading p:not(.eyebrow) { margin: 8px 0 0; color: var(--muted); }
+.balance-form { display: grid; gap: 18px; }
+.balance-locks { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 9px; }
+.balance-slot { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(4,9,15,.45); }
+.balance-slot-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.balance-slot-head strong { color: var(--cyan); font-size: 12px; }
+.balance-slot-head span { color: var(--muted); font-size: 9px; }
+.balance-slot select { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--text); background: #080e15; }
+.balance-slot select option { color: #111821; }
+.balance-target { display: flex; justify-content: flex-end; align-items: end; gap: 10px; border-top: 1px solid var(--line); padding-top: 15px; }
+.balance-target label { color: var(--muted); font-size: 11px; }
+.balance-target input { display: block; width: 170px; margin-top: 6px; padding: 11px; border: 1px solid var(--line); border-radius: 9px; color: #fff; background: #080e15; }
+.balance-summary { margin: 15px 0; color: var(--muted); font-size: 12px; }
+.balance-results { display: grid; gap: 10px; }
+.balance-empty { padding: 70px 20px; text-align: center; border: 1px dashed var(--line); border-radius: 16px; color: var(--muted); }
+.balance-result { display: grid; grid-template-columns: 58px repeat(5,minmax(0,1fr)) 115px; align-items: stretch; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(90deg,rgba(22,31,44,.95),rgba(9,14,21,.95)); }
+.balance-rank { display: grid; place-items: center; color: var(--gold); font-size: 20px; font-weight: 900; background: rgba(217,169,79,.06); }
+.balance-member { padding: 12px 10px; border-left: 1px solid rgba(255,255,255,.04); }
+.balance-member small, .balance-total small { display: block; color: var(--muted); font-size: 9px; }
+.balance-member strong { display: block; margin: 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+.balance-member span { color: var(--gold-light); font-size: 11px; font-weight: 800; }
+.balance-member.off-position { background: rgba(255,97,112,.045); }
+.balance-member.off-position small { color: var(--red); }
+.balance-total { display: grid; place-content: center; padding: 10px; text-align: right; border-left: 1px solid var(--line); }
+.balance-total strong { color: var(--gold-light); font-size: 20px; }
+.balance-total .perfect { color: #4de0a1; }
+
 .login-overlay { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(3,6,10,.9); backdrop-filter: blur(16px); }
 .login-card { width: min(430px, 100%); border: 1px solid rgba(217,169,79,.25); border-radius: 20px; padding: 28px; background: linear-gradient(145deg, #172130, #0a0f17); box-shadow: 0 25px 100px rgba(0,0,0,.55); }
 .login-card h2 { margin: 0; font-size: 28px; }
@@ -410,5 +440,11 @@ aside { display: grid; gap: 18px; }
   .intro-index, .intro-positions { justify-content: center; }
   .intro-footer { display: block; text-align: center; }
   .intro-progress { justify-content: center; margin-bottom: 9px; }
+  .balance-locks { grid-template-columns: 1fr; }
+  .balance-target { display: grid; grid-template-columns: 1fr; }
+  .balance-target input { width: 100%; }
+  .balance-result { grid-template-columns: 42px 1fr; }
+  .balance-member { grid-column: 2; }
+  .balance-total { grid-column: 1 / -1; text-align: center; border-top: 1px solid var(--line); }
   .current-card { min-height: 370px; }
 }
