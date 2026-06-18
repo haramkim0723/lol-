@@ -165,7 +165,26 @@
           <form id="manual-player-form" class="form-grid player-form">
             <label>표시 이름<input name="name" required placeholder="참가자 이름" /></label>
             <label>Riot ID<input name="riot_id" placeholder="게임이름#KR1" /></label>
-            <label>티어<input name="tier" value="UNRANKED" /></label>
+            <label>티어
+              <select id="manual-tier" name="tier" required>
+                <option value="UNRANKED">언랭크</option>
+                <option value="IRON">아이언</option>
+                <option value="BRONZE">브론즈</option>
+                <option value="SILVER">실버</option>
+                <option value="GOLD">골드</option>
+                <option value="PLATINUM">플래티넘</option>
+                <option value="EMERALD">에메랄드</option>
+                <option value="DIAMOND">다이아몬드</option>
+                <option value="MASTER">마스터</option>
+                <option value="GRANDMASTER">그랜드마스터</option>
+                <option value="CHALLENGER">챌린저</option>
+              </select>
+            </label>
+            <label class="tier-division-field">
+              <span class="tier-division-heading">티어 등급 <output id="manual-tier-division-output" for="manual-tier-division">선택 안 함</output></span>
+              <input id="manual-tier-division" name="tier_division" type="range" min="1" max="4" value="4" step="1" disabled />
+              <span class="tier-division-scale" aria-hidden="true"><b>4</b><b>3</b><b>2</b><b>1</b></span>
+            </label>
             <label>점수제 점수<input name="score" type="number" min="0" value="0" /></label>
             <label>주 포지션<select name="primary_position" class="position-select"></select></label>
             <label>부 포지션<select name="secondary_position" class="position-select optional"></select></label>
@@ -323,11 +342,13 @@
             <div class="panel-title"><span>LIVE</span><h2>직접 입찰</h2></div>
             <form id="bid-form" class="bid-form">
               <div id="bid-identity" class="bid-identity">팀장으로 입장하면 직접 입찰할 수 있습니다.</div>
-              <div class="amount-wrap"><input id="bid-amount" name="amount" type="number" min="0" required /><span>POINT</span></div>
+              <div class="amount-wrap"><input id="bid-amount" name="amount" type="number" inputmode="numeric" min="0" step="1" required /><span>POINT</span></div>
               <button class="bid-button" type="submit">입찰하기</button>
             </form>
             <p id="bid-guide" class="guide"></p>
+            <div id="captain-presence" class="captain-presence hidden"></div>
             <div class="host-controls">
+              <button id="start-timer-button" class="accent hidden" type="button">이 후보 타이머 시작</button>
               <button id="pause-button" class="ghost" type="button">일시정지</button>
               <button id="resume-button" class="ghost hidden" type="button">재개</button>
               <button id="reauction-button" class="accent hidden" type="button">유찰자 재경매 시작</button>

@@ -451,8 +451,8 @@ def _begin_next(state: dict[str, Any]) -> None:
     auction["paused_remaining"] = None
     if auction["queue"]:
         auction["current_player_id"] = auction["queue"].pop(0)
-        auction["deadline"] = time.time() + state["settings"]["countdown_seconds"]
-        auction["status"] = "running"
+        auction["deadline"] = None
+        auction["status"] = "ready"
     elif auction["unsold"]:
         auction["current_player_id"] = None
         auction["deadline"] = None
@@ -461,6 +461,14 @@ def _begin_next(state: dict[str, Any]) -> None:
         auction["current_player_id"] = None
         auction["deadline"] = None
         auction["status"] = "finished"
+
+
+def start_timer(state: dict[str, Any]) -> None:
+    auction = state["auction"]
+    if auction["status"] != "ready" or not auction["current_player_id"]:
+        raise ValueError("타이머를 시작할 후보가 준비되지 않았습니다.")
+    auction["deadline"] = time.time() + state["settings"]["countdown_seconds"]
+    auction["status"] = "running"
 
 
 def place_bid(

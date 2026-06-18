@@ -29,6 +29,8 @@ class AuctionEngineTest(unittest.TestCase):
 
     def test_successful_bid_deducts_budget_and_assigns_position(self):
         engine.start_auction(self.state, shuffle=False)
+        self.assertEqual(self.state["auction"]["status"], "ready")
+        engine.start_timer(self.state)
         engine.place_bid(self.state, self.captain["id"], 20)
         engine.finalize_if_due(self.state, now=time.time() + 10)
         self.assertEqual(self.captain["remaining_budget"], 80)
@@ -37,6 +39,7 @@ class AuctionEngineTest(unittest.TestCase):
 
     def test_unsold_player_moves_to_separate_list(self):
         engine.start_auction(self.state, shuffle=False)
+        engine.start_timer(self.state)
         engine.finalize_if_due(self.state, now=time.time() + 10)
         self.assertEqual(self.state["auction"]["status"], "waiting_reauction")
         self.assertEqual(self.state["auction"]["unsold"], [self.player["id"]])
@@ -44,8 +47,22 @@ class AuctionEngineTest(unittest.TestCase):
 
     def test_bid_must_reserve_minimum_for_empty_slots(self):
         engine.start_auction(self.state, shuffle=False)
+        engine.start_timer(self.state)
         with self.assertRaisesRegex(ValueError, "최대 70점"):
             engine.place_bid(self.state, self.captain["id"], 80)
+
+    def test_each_candidate_waits_for_host_to_start_timer(self):
+        second = engine.add_player(
+            self.state, "두번째 선수", "두번째#KR1", "SILVER II", "ADC"
+        )
+        engine.start_auction(self.state, shuffle=False)
+        self.assertEqual(self.state["auction"]["status"], "ready")
+        self.assertIsNone(self.state["auction"]["deadline"])
+        engine.start_timer(self.state)
+        engine.finalize_if_due(self.state, now=time.time() + 10)
+        self.assertEqual(self.state["auction"]["current_player_id"], second["id"])
+        self.assertEqual(self.state["auction"]["status"], "ready")
+        self.assertIsNone(self.state["auction"]["deadline"])
 
 
 class TournamentEngineTest(unittest.TestCase):

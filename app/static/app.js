@@ -2,6 +2,10 @@ const POSITIONS = ["TOP", "JUG", "MID", "ADC", "SUP"];
 const POSITION_NAMES = {
   TOP: "탑", JUG: "정글", MID: "미드", ADC: "원딜", SUP: "서폿",
 };
+const TIER_DIVISIONS = { 1: "I", 2: "II", 3: "III", 4: "IV" };
+const DIVISION_TIERS = new Set([
+  "IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND",
+]);
 const TIER_STYLES = {
   IRON: ["#82909e", "#b1bbc4", "#303944", "rgba(130,144,158,.22)"],
   BRONZE: ["#ad7049", "#d69a6d", "#4d2d20", "rgba(173,112,73,.24)"],
@@ -80,12 +84,22 @@ function positionOptions(optional = false) {
   ).join("")}`;
 }
 
+function updateManualTierDivision() {
+  const tier = $("#manual-tier").value;
+  const slider = $("#manual-tier-division");
+  const output = $("#manual-tier-division-output");
+  const usesDivision = DIVISION_TIERS.has(tier);
+  slider.disabled = !usesDivision;
+  output.textContent = usesDivision ? `${slider.value} · ${TIER_DIVISIONS[slider.value]}` : "선택 안 함";
+  $(".tier-division-field").classList.toggle("disabled", !usesDivision);
+}
+
 function setView(view) {
   if (view === "setup" && state.viewer.role !== "host") {
     view = "intro";
   }
   if (view === "auction" && state.auction.status === "setup") {
-    toast("강사님이 아직 경매를 시작하지 않았습니다.");
+    toast("강사님이 아직 이 대회의 경매를 열지 않았습니다.");
     view = "intro";
   }
   currentView = view;
@@ -106,6 +120,27 @@ function setView(view) {
   if (location.pathname !== path) {
     history.pushState({ view }, "", path);
   }
+}
+
+async function enterAuctionView() {
+  if (state.auction.status === "setup") {
+    if (state.viewer.role !== "host") {
+      toast("강사님이 아직 이 대회의 경매를 열지 않았습니다.");
+      return;
+    }
+    try {
+      await api("/api/auction/start", { method: "POST" });
+      state = await api("/api/state");
+      stateSignature = meaningfulStateSignature(state);
+      render();
+      toast("현재 대회의 경매장을 열었습니다. 첫 후보의 타이머를 시작해 주세요.");
+    } catch (error) {
+      toast(error.message, true);
+      return;
+    }
+  }
+  currentView = "auction";
+  setView("auction");
 }
 
 function renderRole() {
@@ -676,9 +711,33 @@ function renderAuction() {
   $("#bid-form").querySelectorAll("input, button").forEach((element) => {
     element.disabled = !canBid;
   });
+  const presence = state.captain_presence || {
+    online_captain_ids: [], connected: 0, total: state.captains.length, all_connected: false,
+  };
+  const presencePanel = $("#captain-presence");
+  presencePanel.classList.toggle("hidden", state.viewer.role !== "host");
+  presencePanel.innerHTML = `
+    <div class="captain-presence-summary">
+      <strong>팀장 접속 현황</strong>
+      <span class="${presence.all_connected ? "ready" : ""}">${presence.connected} / ${presence.total} 접속</span>
+    </div>
+    <div class="captain-presence-list">
+      ${state.captains.map((captain) => {
+        const online = presence.online_captain_ids.includes(captain.id);
+        return `<span class="${online ? "online" : "offline"}"><i></i>${escapeHtml(captain.name)} 팀</span>`;
+      }).join("")}
+    </div>`;
   $("#pause-button").classList.toggle(
     "hidden", state.viewer.role !== "host" || auction.status !== "running"
   );
+  const startTimerButton = $("#start-timer-button");
+  startTimerButton.classList.toggle(
+    "hidden", state.viewer.role !== "host" || auction.status !== "ready"
+  );
+  startTimerButton.disabled = !presence.all_connected;
+  startTimerButton.textContent = presence.all_connected
+    ? "이 후보 타이머 시작"
+    : `팀장 접속 대기 (${presence.connected}/${presence.total})`;
   $("#resume-button").classList.toggle(
     "hidden", state.viewer.role !== "host" || auction.status !== "paused"
   );
@@ -692,9 +751,13 @@ function renderAuction() {
 }
 
 function renderTeams() {
+  const onlineCaptainIds = state.captain_presence?.online_captain_ids || [];
   $("#teams").innerHTML = state.captains.map((captain) => `
     <div class="team-card">
-      <div class="team-head"><strong>${escapeHtml(captain.name)} 팀</strong><span class="budget">${captain.remaining_budget.toLocaleString()} P</span></div>
+      <div class="team-head">
+        <strong>${escapeHtml(captain.name)} 팀 <small class="connection-badge ${onlineCaptainIds.includes(captain.id) ? "online" : "offline"}">${onlineCaptainIds.includes(captain.id) ? "접속" : "미접속"}</small></strong>
+        <span class="budget">${captain.remaining_budget.toLocaleString()} P</span>
+      </div>
       ${POSITIONS.map((position) => {
         const player = playerById(captain.team[position]);
         return `<div class="roster-row"><span>${position}</span><span class="${player ? "" : "vacant"}">${player ? escapeHtml(player.name) : "비어 있음"}</span></div>`;
@@ -723,6 +786,7 @@ function updateTimer() {
   if (!state || state.auction.status === "setup") return;
   let remaining = state.auction.remaining_seconds;
   if (state.auction.status === "paused") remaining = state.auction.paused_remaining;
+  if (state.auction.status === "ready") remaining = state.settings.countdown_seconds;
   const timer = $("#timer");
   if (remaining == null) {
     timer.textContent = state.auction.status === "waiting_reauction" ? "RE" : "--";
@@ -779,7 +843,7 @@ function connectSocket() {
     if (message.type === "state") {
       const previousStatus = state?.auction?.status;
       state = message.data;
-      if (previousStatus === "setup" && state.auction.status === "running") {
+      if (previousStatus === "setup" && state.auction.status === "ready") {
         currentView = "auction";
       }
       render();
@@ -829,9 +893,18 @@ $$(".tab").forEach((button) => button.addEventListener("click", () => {
 }));
 
 $("#captain-player").addEventListener("change", updateCaptainPreview);
+$("#manual-tier").addEventListener("change", updateManualTierDivision);
+$("#manual-tier-division").addEventListener("input", updateManualTierDivision);
+updateManualTierDivision();
 
 $$("[data-view]").forEach((button) => {
-  button.addEventListener("click", () => setView(button.dataset.view));
+  button.addEventListener("click", () => {
+    if (button.dataset.view === "auction") {
+      enterAuctionView();
+      return;
+    }
+    setView(button.dataset.view);
+  });
 });
 
 window.addEventListener("popstate", () => {
@@ -960,11 +1033,17 @@ $("#captain-form").addEventListener("submit", async (event) => {
 $("#manual-player-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.target));
+  const selectedTier = data.tier;
+  data.tier = DIVISION_TIERS.has(selectedTier)
+    ? `${selectedTier} ${TIER_DIVISIONS[data.tier_division]}`
+    : selectedTier;
+  delete data.tier_division;
   data.secondary_position ||= null;
   data.score = Number(data.score || 0);
   try {
     await api("/api/players", { method: "POST", body: JSON.stringify(data) });
     event.target.reset();
+    updateManualTierDivision();
   } catch (error) { toast(error.message, true); }
 });
 
@@ -1206,12 +1285,12 @@ document.addEventListener("keydown", (event) => {
 });
 
 $("#start-button").addEventListener("click", async () => {
-  try {
-    await api("/api/auction/start", { method: "POST" });
-    currentView = "auction";
-    toast("무작위 순서로 경매를 시작했습니다.");
-  } catch (error) { toast(error.message, true); }
+  await enterAuctionView();
 });
+$("#start-timer-button").addEventListener("click", () =>
+  api("/api/auction/timer/start", { method: "POST" })
+    .then(() => toast("현재 후보의 타이머를 시작했습니다."))
+    .catch((e) => toast(e.message, true)));
 $("#pause-button").addEventListener("click", () =>
   api("/api/auction/pause", { method: "POST" }).catch((e) => toast(e.message, true)));
 $("#resume-button").addEventListener("click", () =>

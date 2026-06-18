@@ -36,6 +36,22 @@ connections: set[WebSocket] = set()
 connection_viewers: dict[WebSocket, dict] = {}
 
 
+def captain_presence() -> dict:
+    online_ids = {
+        viewer["captain_id"]
+        for viewer in connection_viewers.values()
+        if viewer.get("role") == "captain" and viewer.get("captain_id")
+    }
+    captain_ids = {captain["id"] for captain in store.state["captains"]}
+    connected_ids = sorted(online_ids & captain_ids)
+    return {
+        "online_captain_ids": connected_ids,
+        "connected": len(connected_ids),
+        "total": len(captain_ids),
+        "all_connected": bool(captain_ids) and captain_ids <= online_ids,
+    }
+
+
 def _sign(payload: str) -> str:
     secret = os.getenv("SESSION_SECRET", "local-development-secret").encode()
     return hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
@@ -107,6 +123,7 @@ async def broadcast() -> None:
             payload["data"]["competition_registry"] = (
                 store.competition_summary()
             )
+            payload["data"]["captain_presence"] = captain_presence()
             await connection.send_json(payload)
         except Exception:
             dead.append(connection)
@@ -267,6 +284,7 @@ async def tournament_page():
 async def get_state(auction_auth: str | None = Cookie(default=None)):
     result = engine.public_state(store.state, read_session(auction_auth))
     result["competition_registry"] = store.competition_summary()
+    result["captain_presence"] = captain_presence()
     result["deployment"] = {
         "serverless": bool(os.getenv("VERCEL")),
         "persistent": store.persistent,
@@ -622,6 +640,12 @@ async def reauction(request: Request):
     return await mutate(lambda: engine.start_reauction(store.state))
 
 
+@app.post("/api/auction/timer/start")
+async def start_auction_timer(request: Request):
+    require_host(request)
+    return await mutate(lambda: engine.start_timer(store.state))
+
+
 @app.post("/api/auction/bid")
 async def captain_bid(data: BidInput, request: Request):
     viewer = require_captain(request)
@@ -659,18 +683,11 @@ async def websocket_endpoint(websocket: WebSocket):
     connections.add(websocket)
     viewer = read_session(websocket.cookies.get("auction_auth"))
     connection_viewers[websocket] = viewer
-    await websocket.send_json(
-        {
-            "type": "state",
-            "data": {
-                **engine.public_state(store.state, viewer),
-                "competition_registry": store.competition_summary(),
-            },
-        }
-    )
+    await broadcast()
     try:
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
         connections.discard(websocket)
         connection_viewers.pop(websocket, None)
+        await broadcast()

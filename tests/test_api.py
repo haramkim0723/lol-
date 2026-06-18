@@ -79,8 +79,10 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(started.status_code, 200)
 
             state = client.get("/api/state").json()
-            self.assertEqual(state["auction"]["status"], "running")
+            self.assertEqual(state["auction"]["status"], "ready")
             self.assertEqual(state["settings"]["room_name"], "테스트 경매")
+            timer_started = client.post("/api/auction/timer/start")
+            self.assertEqual(timer_started.status_code, 200)
 
             captain_client = TestClient(app)
             captain_login = captain_client.post(
