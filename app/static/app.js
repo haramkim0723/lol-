@@ -17,14 +17,20 @@ const TIER_STYLES = {
 };
 
 let state = null;
-let currentView = ["/team-simulator", "/team-register"].includes(location.pathname)
+let currentView = location.pathname === "/score-players"
+  ? "score-intro"
+  : location.pathname === "/team-simulator"
   ? "team-simulator"
+  : location.pathname === "/team-register"
+    ? "team-register"
   : location.pathname === "/tournament"
     ? "tournament"
     : "intro";
 let loginRole = "spectator";
 let introIndex = 0;
 let introPlayerId = null;
+let scoreIntroIndex = 0;
+let scoreIntroPlayerId = null;
 let toastTimer = null;
 let stateSignature = "";
 
@@ -85,13 +91,17 @@ function setView(view) {
   currentView = view;
   $("#intro-panel").classList.toggle("hidden", view !== "intro");
   $("#setup-panel").classList.toggle("hidden", view !== "setup");
+  $("#score-intro-panel").classList.toggle("hidden", view !== "score-intro");
   $("#team-simulator-panel").classList.toggle("hidden", view !== "team-simulator");
+  $("#team-register-panel").classList.toggle("hidden", view !== "team-register");
   $("#tournament-panel").classList.toggle("hidden", view !== "tournament");
   $("#auction-panel").classList.toggle("hidden", view !== "auction");
   $$("[data-view]").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === view);
   });
   const path = view === "team-simulator" ? "/team-simulator"
+    : view === "score-intro" ? "/score-players"
+    : view === "team-register" ? "/team-register"
     : view === "tournament" ? "/tournament" : "/";
   if (location.pathname !== path) {
     history.pushState({ view }, "", path);
@@ -100,7 +110,7 @@ function setView(view) {
 
 function renderRole() {
   const viewer = state.viewer;
-  const publicPage = ["/team-simulator", "/team-register", "/tournament"].includes(location.pathname);
+  const publicPage = ["/score-players", "/team-simulator", "/team-register", "/tournament"].includes(location.pathname);
   $("#login-overlay").classList.toggle("hidden", viewer.authenticated || publicPage);
   $("#main-nav").classList.toggle("hidden", !viewer.authenticated && !publicPage);
   $("#logout-button").classList.toggle("hidden", !viewer.authenticated);
@@ -139,7 +149,7 @@ function renderCompetitions() {
       <article class="competition-item${competition.id === activeId ? " active" : ""}">
         <div>
           <strong>${escapeHtml(competition.name)}</strong>
-          <small>참가자 ${competition.player_count}명 · 팀 ${competition.team_count}개 · ${escapeHtml(competition.tournament_status)}</small>
+          <small>${competition.mode === "auction" ? "경매 대회" : "점수제 대회"} · 참가자 ${competition.player_count}명 · 팀 ${competition.team_count}개</small>
         </div>
         <div class="competition-actions">
           ${competition.id !== activeId ? `<button class="ghost" type="button" data-competition-select="${competition.id}">선택</button>` : ""}
@@ -147,6 +157,92 @@ function renderCompetitions() {
         </div>
       </article>`
   ).join("");
+}
+
+function activeCompetition() {
+  const registry = state.competition_registry;
+  return registry?.competitions.find(
+    (competition) => competition.id === registry.active_competition_id
+  );
+}
+
+function applyCompetitionMode() {
+  const isAuction = (activeCompetition()?.mode || "auction") === "auction";
+  $$('[data-view="intro"], [data-view="auction"]').forEach((button) => {
+    button.classList.toggle("hidden", !isAuction);
+  });
+  $$('[data-view="score-intro"], [data-view="team-simulator"], [data-view="team-register"], [data-view="tournament"]').forEach((button) => {
+    button.classList.toggle("hidden", isAuction);
+  });
+  $('[data-login-role="captain"]').classList.toggle("hidden", !isAuction);
+  $(".tournament-score-settings").classList.toggle("hidden", isAuction);
+  $(".settings-panel").classList.toggle("hidden", !isAuction);
+  $(".captain-panel").classList.toggle("hidden", !isAuction);
+
+  const allowedViews = isAuction
+    ? ["intro", "setup", "auction"]
+    : ["setup", "score-intro", "team-simulator", "team-register", "tournament"];
+  if (!allowedViews.includes(currentView)) {
+    currentView = isAuction ? "intro" : "tournament";
+  }
+}
+
+function renderScoreIntro() {
+  const players = sortedIntroPlayers();
+  $("#score-intro-count").textContent = `${players.length} PLAYERS`;
+  if (!players.length) {
+    $("#score-intro-player").innerHTML =
+      '<div class="intro-empty">점수제 참가자가 아직 없습니다.</div>';
+    $("#score-intro-position-nav").innerHTML = "";
+    $("#score-intro-progress").innerHTML = "";
+    $("#score-intro-prev").disabled = true;
+    $("#score-intro-next").disabled = true;
+    return;
+  }
+  const preserved = players.findIndex(
+    (player) => player.id === scoreIntroPlayerId
+  );
+  if (preserved >= 0) scoreIntroIndex = preserved;
+  scoreIntroIndex = Math.min(
+    Math.max(scoreIntroIndex, 0), players.length - 1
+  );
+  const player = players[scoreIntroIndex];
+  scoreIntroPlayerId = player.id;
+  const key = tierKey(player.tier);
+  const [color, light, dark, glow] = TIER_STYLES[key];
+  $("#score-intro-player").innerHTML = `
+    <article class="intro-player" data-position="${player.primary_position}" style="--tier-color:${color};--tier-light:${light};--tier-dark:${dark};--tier-glow:${glow}">
+      <div class="intro-visual"><div class="tier-emblem" data-tier="${key}"></div></div>
+      <div class="intro-player-content">
+        <div class="intro-index">${String(scoreIntroIndex + 1).padStart(2, "0")} / ${String(players.length).padStart(2, "0")} · ${POSITION_NAMES[player.primary_position]}</div>
+        <h3>${escapeHtml(player.name)}</h3>
+        <span class="riot-name">${escapeHtml(player.riot_id || "Riot ID 미등록")}</span>
+        <div class="intro-tier">${escapeHtml(player.tier)}</div>
+        <div class="showcase-score"><strong>${Number(player.score || 0)}</strong><span>SCORE POINT</span></div>
+        <div class="intro-positions">
+          <span class="pos">${player.primary_position} · ${POSITION_NAMES[player.primary_position]}</span>
+          ${player.secondary_position ? `<span class="pos">${player.secondary_position} · ${POSITION_NAMES[player.secondary_position]}</span>` : ""}
+        </div>
+      </div>
+    </article>`;
+  $("#score-intro-position-nav").innerHTML = POSITIONS.map((position) => {
+    const count = players.filter((item) => item.primary_position === position).length;
+    return `<button class="intro-position-button${player.primary_position === position ? " active" : ""}" type="button" data-score-intro-position="${position}" ${count ? "" : "disabled"}>${POSITION_NAMES[position]} <span>${count}</span></button>`;
+  }).join("");
+  $("#score-intro-progress").innerHTML = players.map((item, index) =>
+    `<button type="button" class="${index === scoreIntroIndex ? "active" : ""}" data-score-intro-index="${index}" aria-label="${escapeHtml(item.name)}"></button>`
+  ).join("");
+  $("#score-intro-prev").disabled = scoreIntroIndex === 0;
+  $("#score-intro-next").disabled = scoreIntroIndex === players.length - 1;
+}
+
+function moveScoreIntro(direction) {
+  const players = sortedIntroPlayers();
+  scoreIntroIndex = Math.min(
+    Math.max(scoreIntroIndex + direction, 0), players.length - 1
+  );
+  scoreIntroPlayerId = players[scoreIntroIndex]?.id || null;
+  renderScoreIntro();
 }
 
 function renderIntro() {
@@ -215,15 +311,62 @@ function sortedIntroPlayers() {
   });
 }
 
+function normalizedSearch(value = "") {
+  return value.trim().toLocaleLowerCase("ko-KR").replace(/\s+/g, "");
+}
+
+function matchingIntroPlayers(query) {
+  const needle = normalizedSearch(query);
+  if (!needle) return [];
+  return sortedIntroPlayers().filter((player) =>
+    [player.name, player.riot_id].some((value) =>
+      normalizedSearch(value).includes(needle)
+    )
+  ).slice(0, 8);
+}
+
+function renderPlayerSearch(inputSelector, resultsSelector, view) {
+  const input = $(inputSelector);
+  const results = $(resultsSelector);
+  const matches = matchingIntroPlayers(input.value);
+  results.classList.toggle("hidden", !input.value.trim());
+  results.innerHTML = matches.length
+    ? matches.map((player) => `
+      <button type="button" data-player-search-id="${player.id}" data-player-search-view="${view}">
+        <strong>${escapeHtml(player.name)}</strong>
+        <span>${escapeHtml(player.riot_id || "Riot ID 미등록")} · ${POSITION_NAMES[player.primary_position]}</span>
+      </button>`).join("")
+    : '<div class="player-search-empty">일치하는 참가자가 없습니다.</div>';
+}
+
+function selectSearchedPlayer(playerId, view) {
+  const players = sortedIntroPlayers();
+  const index = players.findIndex((player) => player.id === playerId);
+  if (index < 0) return;
+  if (view === "score-intro") {
+    scoreIntroIndex = index;
+    scoreIntroPlayerId = playerId;
+    $("#score-intro-search-results").classList.add("hidden");
+    renderScoreIntro();
+  } else {
+    introIndex = index;
+    introPlayerId = playerId;
+    $("#intro-search-results").classList.add("hidden");
+    renderIntro();
+  }
+}
+
 function moveIntro(direction) {
   const players = sortedIntroPlayers();
   introIndex = Math.min(Math.max(introIndex + direction, 0), players.length - 1);
   introPlayerId = players[introIndex]?.id || null;
   renderIntro();
+  renderScoreIntro();
 }
 
 function renderSetup() {
   if (state.viewer.role !== "host") return;
+  $("#teacher-score-limit-input").value = state.tournament.score_limit;
   const settings = state.settings;
   const form = $("#settings-form");
   Object.entries(settings).forEach(([key, value]) => {
@@ -268,9 +411,22 @@ function renderSetup() {
         ${player.profile_icon_url ? `<img src="${escapeHtml(player.profile_icon_url)}" alt="" />` : '<div class="avatar"></div>'}
         <div class="player-copy">
           <strong>${escapeHtml(player.name)}</strong>
-          <small>${escapeHtml(player.tier)} · ${escapeHtml(player.riot_id || "Riot ID 없음")}</small>
+          <small>${escapeHtml(player.riot_id || "Riot ID 없음")}</small>
+          <div class="player-meta-badges">
+            <span class="tier-badge">${escapeHtml(player.tier)}</span>
+            <span class="pos">${player.status === "captain" ? "CAPTAIN · " : ""}${player.primary_position} · ${POSITION_NAMES[player.primary_position]}</span>
+          </div>
         </div>
-        <span class="pos">${player.status === "captain" ? "CAPTAIN · " : ""}${player.primary_position}</span>
+        <div class="player-score-control">
+          <span class="score-player-label">${escapeHtml(player.name)} · ${escapeHtml(player.tier)}</span>
+          <div class="score-input-row">
+            <label class="player-score-editor">
+              <input data-player-score="${player.id}" type="number" min="0" max="1000" value="${Number(player.score || 0)}" aria-label="${escapeHtml(player.name)} 점수제 점수" />
+              <span>점</span>
+            </label>
+            <button class="score-save" type="button" data-save-player-score="${player.id}">점수 저장</button>
+          </div>
+        </div>
         <button class="remove" data-delete-player="${player.id}">×</button>
       </div>`).join("")
     : "등록된 참가자가 없습니다.";
@@ -303,7 +459,7 @@ function renderTournament() {
 
   $("#tournament-team-list").innerHTML = tournament.teams.length
     ? tournament.teams.map((team) => `
-      <article class="registered-team">
+      <article class="registered-team${team.over_score_limit ? " over-limit" : ""}">
         <div class="registered-team-head">
           <strong>${escapeHtml(team.name)}</strong>
           <span class="team-status ${team.status}">${team.status === "approved" ? "승인" : team.status === "rejected" ? "반려" : "승인 대기"}</span>
@@ -315,7 +471,7 @@ function renderTournament() {
           }).join("")}
         </div>
         <div class="registered-team-footer">
-          <span>총 ${team.total_score} / ${tournament.score_limit}점</span>
+          <span>총 ${team.total_score} / ${tournament.score_limit}점${team.over_score_limit ? " · 제한 초과" : ""}</span>
           ${isHost ? `<div class="team-admin-actions">
             <button class="ghost" type="button" data-team-approve="${team.id}">승인</button>
             <button class="ghost" type="button" data-team-reject="${team.id}">반려</button>
@@ -389,7 +545,7 @@ function updateTeamScore() {
 
 function updateSimulatorScore() {
   if (!state) return;
-  const { score, limit, duplicate, complete, over } =
+  const { ids, score, limit, duplicate, complete, over } =
     calculateFormScore("#team-simulator-form");
   $("#simulator-current-score").textContent = score;
   const bar = $("#simulator-score-bar");
@@ -398,10 +554,24 @@ function updateSimulatorScore() {
   const message = $("#simulator-score-message");
   message.classList.toggle("over", over || duplicate);
   message.textContent = duplicate ? "같은 선수를 두 포지션에 넣을 수 없습니다."
-    : over ? `제한을 ${score - limit}점 초과했습니다.`
+    : over ? `현재 고정 선수만으로 제한을 ${score - limit}점 초과했습니다.`
       : complete ? `사용 가능한 조합 · ${limit - score}점 여유`
-        : "다섯 포지션의 선수를 선택해 주세요.";
-  $("#use-simulation-button").disabled = !complete || over || duplicate;
+        : ids.length
+          ? `${ids.length}개 포지션 고정 · 빈 자리를 추천으로 채울 수 있습니다.`
+          : "한 명 이상 선택하면 최적 조합을 추천합니다.";
+  const recommendButton = $("#use-simulation-button");
+  const emptyCount = POSITIONS.length - ids.length;
+  recommendButton.textContent = emptyCount
+    ? `빈 ${emptyCount}자리 최적 조합 추천`
+    : "현재 조합과 가까운 대안 추천";
+  recommendButton.disabled = ids.length === 0 || duplicate;
+  const draft = Object.fromEntries(
+    POSITIONS.map((position) => [
+      position,
+      $("#team-simulator-form").elements[position]?.value || "",
+    ])
+  );
+  sessionStorage.setItem("tournament-team-draft", JSON.stringify(draft));
 }
 
 function loadSimulationDraft() {
@@ -410,6 +580,29 @@ function loadSimulationDraft() {
   } catch {
     return null;
   }
+}
+
+function renderSimulatorRecommendations(recommendations) {
+  $("#simulator-recommendations").innerHTML = recommendations.length
+    ? recommendations.map((result, index) => `
+      <article class="recommendation-card">
+        <div class="recommendation-rank">${index + 1}</div>
+        ${POSITIONS.map((position) => {
+          const player = result.lineup[position];
+          return `<div class="recommendation-member${player.is_off_position ? " off-position" : ""}${player.is_locked ? " locked" : ""}">
+            <small>${position}${player.is_off_position ? " · 부 포지션" : ""}</small>
+            <strong>${escapeHtml(player.name)}</strong>
+            <span>${player.score}점</span>
+          </div>`;
+        }).join("")}
+        <div class="recommendation-score">
+          <small>목표 ${result.target_score} · 차이 ${result.score_difference}</small>
+          <strong class="${result.score_difference === 0 ? "perfect" : ""}">${result.total_score}점</strong>
+        </div>
+        <button class="apply-recommendation" type="button" data-apply-recommendation="${index}">조합 적용</button>
+      </article>`).join("")
+    : '<div class="balance-empty">조건에 맞는 조합을 찾지 못했습니다.</div>';
+  window.latestRecommendations = recommendations;
 }
 
 function renderTournamentBracket() {
@@ -553,6 +746,7 @@ function render() {
   );
   renderRole();
   renderCompetitions();
+  applyCompetitionMode();
   renderIntro();
   renderSetup();
   renderTournament();
@@ -641,8 +835,11 @@ $$("[data-view]").forEach((button) => {
 });
 
 window.addEventListener("popstate", () => {
-  currentView = ["/team-simulator", "/team-register"].includes(location.pathname)
+  currentView = location.pathname === "/score-players"
+    ? "score-intro"
+    : location.pathname === "/team-simulator"
     ? "team-simulator"
+    : location.pathname === "/team-register" ? "team-register"
     : location.pathname === "/tournament" ? "tournament" : "intro";
   if (state) setView(currentView);
 });
@@ -688,6 +885,41 @@ $("#competition-form").addEventListener("submit", async (event) => {
     });
     event.target.reset();
     toast("새 대회를 만들고 현재 대회로 선택했습니다.");
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#teacher-pin-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.target));
+  if (data.new_pin !== data.confirm_pin) {
+    toast("새 PIN 확인이 일치하지 않습니다.", true);
+    return;
+  }
+  try {
+    await api("/api/teacher/pin", {
+      method: "POST",
+      body: JSON.stringify({
+        current_pin: data.current_pin,
+        new_pin: data.new_pin,
+      }),
+    });
+    event.target.reset();
+    alert("강사님 PIN이 변경되었습니다. 새 PIN으로 다시 입장해 주세요.");
+    location.href = "/";
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#teacher-score-limit-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const scoreLimit = Number(
+    new FormData(event.target).get("score_limit")
+  );
+  try {
+    await api("/api/tournament/settings", {
+      method: "PUT",
+      body: JSON.stringify({ score_limit: scoreLimit }),
+    });
+    toast(`점수제 팀 총점을 ${scoreLimit}점으로 설정했습니다.`);
   } catch (error) { toast(error.message, true); }
 });
 
@@ -772,6 +1004,7 @@ $("#tournament-team-form").addEventListener("submit", async (event) => {
     event.target.reset();
     updateTeamScore();
     toast("팀 등록을 신청했습니다.");
+    setTimeout(() => { location.href = "/tournament"; }, 500);
   } catch (error) {
     toast(error.message, true);
   }
@@ -782,11 +1015,15 @@ $("#simulator-member-selects").addEventListener("change", updateSimulatorScore);
 $("#team-simulator-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.target));
-  const members = Object.fromEntries(
-    POSITIONS.map((position) => [position, data[position]])
+  const locked = Object.fromEntries(
+    POSITIONS.map((position) => [position, data[position] || null])
   );
-  sessionStorage.setItem("tournament-team-draft", JSON.stringify(members));
-  location.href = "/tournament";
+  api("/api/tournament/recommend", {
+    method: "POST",
+    body: JSON.stringify({ locked, limit: 12 }),
+  }).then((result) => {
+    renderSimulatorRecommendations(result.recommendations);
+  }).catch((error) => toast(error.message, true));
 });
 $("#save-tournament-settings").addEventListener("click", async () => {
   try {
@@ -805,6 +1042,60 @@ $("#start-tournament-button").addEventListener("click", async () => {
 });
 
 document.addEventListener("click", async (event) => {
+  const searchedPlayer = event.target.closest("[data-player-search-id]");
+  if (searchedPlayer) {
+    selectSearchedPlayer(
+      searchedPlayer.dataset.playerSearchId,
+      searchedPlayer.dataset.playerSearchView
+    );
+    return;
+  }
+  const scoreIntroPosition =
+    event.target.closest("[data-score-intro-position]")?.dataset.scoreIntroPosition;
+  const scoreIntroRequestedIndex =
+    event.target.closest("[data-score-intro-index]")?.dataset.scoreIntroIndex;
+  if (scoreIntroPosition) {
+    const players = sortedIntroPlayers();
+    scoreIntroIndex = players.findIndex(
+      (player) => player.primary_position === scoreIntroPosition
+    );
+    scoreIntroPlayerId = players[scoreIntroIndex]?.id || null;
+    renderScoreIntro();
+    return;
+  }
+  if (scoreIntroRequestedIndex !== undefined) {
+    scoreIntroIndex = Number(scoreIntroRequestedIndex);
+    scoreIntroPlayerId = sortedIntroPlayers()[scoreIntroIndex]?.id || null;
+    renderScoreIntro();
+    return;
+  }
+  const recommendationIndex =
+    event.target.closest("[data-apply-recommendation]")?.dataset.applyRecommendation;
+  if (recommendationIndex !== undefined) {
+    const result = window.latestRecommendations?.[Number(recommendationIndex)];
+    if (result) {
+      POSITIONS.forEach((position) => {
+        $("#team-simulator-form").elements[position].value =
+          result.lineup[position].id;
+      });
+      updateSimulatorScore();
+      toast("추천 조합을 시뮬레이터에 적용했습니다.");
+    }
+    return;
+  }
+  const scorePlayerId =
+    event.target.closest("[data-save-player-score]")?.dataset.savePlayerScore;
+  if (scorePlayerId) {
+    const input = document.querySelector(`[data-player-score="${scorePlayerId}"]`);
+    try {
+      await api(`/api/players/${scorePlayerId}/score`, {
+        method: "PATCH",
+        body: JSON.stringify({ score: Number(input.value) }),
+      });
+      toast("점수제 점수를 수정했습니다.");
+    } catch (error) { toast(error.message, true); }
+    return;
+  }
   const selectCompetitionId =
     event.target.closest("[data-competition-select]")?.dataset.competitionSelect;
   const deleteCompetitionButton =
@@ -886,6 +1177,28 @@ document.addEventListener("click", async (event) => {
 
 $("#intro-prev").addEventListener("click", () => moveIntro(-1));
 $("#intro-next").addEventListener("click", () => moveIntro(1));
+$("#score-intro-prev").addEventListener("click", () => moveScoreIntro(-1));
+$("#score-intro-next").addEventListener("click", () => moveScoreIntro(1));
+$("#intro-search").addEventListener("input", () =>
+  renderPlayerSearch("#intro-search", "#intro-search-results", "intro")
+);
+$("#score-intro-search").addEventListener("input", () =>
+  renderPlayerSearch(
+    "#score-intro-search",
+    "#score-intro-search-results",
+    "score-intro"
+  )
+);
+$("#intro-search").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  const match = matchingIntroPlayers(event.currentTarget.value)[0];
+  if (match) selectSearchedPlayer(match.id, "intro");
+});
+$("#score-intro-search").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  const match = matchingIntroPlayers(event.currentTarget.value)[0];
+  if (match) selectSearchedPlayer(match.id, "score-intro");
+});
 document.addEventListener("keydown", (event) => {
   if (currentView !== "intro" || !state?.viewer?.authenticated) return;
   if (event.key === "ArrowLeft") moveIntro(-1);

@@ -72,6 +72,42 @@ class TournamentEngineTest(unittest.TestCase):
                 self.state, "초과 팀", self.members, "1234"
             )
 
+    def test_teacher_score_edit_recalculates_registered_team(self):
+        team = engine.register_tournament_team(
+            self.state, "수정 팀", self.members, "1234"
+        )
+        top_id = self.members["TOP"]
+        engine.update_player_score(self.state, top_id, 10)
+        self.assertEqual(team["total_score"], 42)
+        self.assertTrue(team["over_score_limit"])
+
+    def test_partial_lineup_recommends_closest_complete_team(self):
+        extra_members = {}
+        for position, score in (("JUG", 6), ("ADC", 8), ("SUP", 7)):
+            player = engine.add_player(
+                self.state,
+                f"추천{position}",
+                "",
+                "GOLD",
+                position,
+                score=score,
+            )
+            extra_members[position] = player["id"]
+        recommendations = engine.recommend_team_combinations(
+            self.state,
+            {
+                "TOP": self.members["TOP"],
+                "JUG": None,
+                "MID": self.members["MID"],
+                "ADC": None,
+                "SUP": None,
+            },
+            target_score=40,
+        )
+        self.assertTrue(recommendations)
+        self.assertEqual(recommendations[0]["score_difference"], 0)
+        self.assertTrue(recommendations[0]["lineup"]["TOP"]["is_locked"])
+
     def test_approved_teams_create_bracket_and_winner_advances(self):
         first = engine.register_tournament_team(
             self.state, "A팀", self.members, "1234"

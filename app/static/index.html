@@ -21,8 +21,10 @@
         <nav id="main-nav" class="main-nav hidden">
           <button type="button" data-view="intro">선수 소개</button>
           <button id="setup-nav" type="button" data-view="setup">강사님 설정</button>
+          <button type="button" data-view="score-intro">점수제 참가자</button>
           <button type="button" data-view="team-simulator">조합 시뮬레이션</button>
-          <button id="tournament-nav" type="button" data-view="tournament">멸망전</button>
+          <button type="button" data-view="team-register">팀 등록</button>
+          <button id="tournament-nav" type="button" data-view="tournament">점수제</button>
           <button type="button" data-view="auction">경매장</button>
         </nav>
         <div id="role-badge" class="role-badge">관전자</div>
@@ -44,6 +46,13 @@
           </div>
           <div id="intro-count" class="intro-count">0 PLAYERS</div>
         </div>
+        <div class="player-search">
+          <div class="player-search-field">
+            <span aria-hidden="true">⌕</span>
+            <input id="intro-search" type="search" placeholder="참가자 이름 또는 Riot ID 검색" autocomplete="off" />
+          </div>
+          <div id="intro-search-results" class="player-search-results hidden"></div>
+        </div>
         <div id="intro-position-nav" class="intro-position-nav"></div>
         <div class="intro-showcase">
           <button id="intro-prev" class="intro-arrow" type="button" aria-label="이전 참가자">‹</button>
@@ -61,10 +70,38 @@
           <div class="panel-title"><span>00</span><h2>대회 관리</h2></div>
           <form id="competition-form" class="competition-create-form">
             <input name="name" required maxlength="50" placeholder="새 대회 이름" />
+            <select name="mode" required>
+              <option value="auction">경매 대회</option>
+              <option value="tournament">점수제 대회</option>
+            </select>
             <button class="primary" type="submit">대회 생성</button>
           </form>
           <div id="competition-list" class="competition-list"></div>
           <p class="danger-guide">대회를 삭제하면 해당 참가자, 팀, 경매 기록과 대진표가 모두 삭제됩니다.</p>
+        </article>
+        <article class="panel teacher-security-panel">
+          <div class="panel-title"><span>SECURITY</span><h2>강사님 PIN 변경</h2></div>
+          <form id="teacher-pin-form" class="teacher-pin-form">
+            <label>현재 PIN<input name="current_pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" required placeholder="현재 PIN" /></label>
+            <label>새 PIN<input name="new_pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" required placeholder="숫자 4~12자리" /></label>
+            <label>새 PIN 확인<input name="confirm_pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" required placeholder="새 PIN 다시 입력" /></label>
+            <button class="primary" type="submit">PIN 변경</button>
+          </form>
+          <p class="security-guide">변경 후 자동으로 로그아웃되며 새 PIN으로 다시 입장해야 합니다.</p>
+        </article>
+        <article class="panel tournament-score-settings">
+          <div class="panel-title"><span>SCORE</span><h2>점수제 팀 총점 설정</h2></div>
+          <form id="teacher-score-limit-form" class="score-limit-form">
+            <div>
+              <span class="field-caption">현재 대회의 팀 총점 제한</span>
+              <div class="input-with-unit">
+                <input id="teacher-score-limit-input" name="score_limit" type="number" min="0" max="5000" required />
+                <span>POINT</span>
+              </div>
+            </div>
+            <button class="primary" type="submit">총점 제한 저장</button>
+          </form>
+          <p class="security-guide">선수 5명의 점수제 점수 합계가 이 값을 넘으면 팀을 등록할 수 없습니다.</p>
         </article>
         <article class="panel settings-panel">
           <div class="panel-title"><span>01</span><h2>경매 설정</h2></div>
@@ -129,14 +166,14 @@
             <label>표시 이름<input name="name" required placeholder="참가자 이름" /></label>
             <label>Riot ID<input name="riot_id" placeholder="게임이름#KR1" /></label>
             <label>티어<input name="tier" value="UNRANKED" /></label>
-            <label>멸망전 점수<input name="score" type="number" min="0" value="0" /></label>
+            <label>점수제 점수<input name="score" type="number" min="0" value="0" /></label>
             <label>주 포지션<select name="primary_position" class="position-select"></select></label>
             <label>부 포지션<select name="secondary_position" class="position-select optional"></select></label>
             <button class="accent" type="submit">참가자 추가</button>
           </form>
           <form id="riot-player-form" class="form-grid player-form hidden">
             <label class="wide">Riot ID<input name="riot_id" required placeholder="게임이름#KR1" /></label>
-            <label>멸망전 점수<input name="score" type="number" min="0" value="0" /></label>
+            <label>점수제 점수<input name="score" type="number" min="0" value="0" /></label>
             <label>주 포지션<select name="primary_position" class="position-select"></select></label>
             <label>부 포지션<select name="secondary_position" class="position-select optional"></select></label>
             <button class="accent wide" type="submit">티어 조회 후 추가</button>
@@ -144,6 +181,34 @@
           <div id="player-setup-list" class="player-cards empty-message">등록된 참가자가 없습니다.</div>
           <button id="start-button" class="start-button" type="button">순서를 섞고 경매 시작</button>
         </article>
+      </section>
+
+      <section id="score-intro-panel" class="intro-panel hidden">
+        <div class="intro-heading">
+          <div>
+            <p class="eyebrow">SCORE PLAYER SHOWCASE</p>
+            <h2>점수제 참가자</h2>
+            <p>포지션별 참가자의 티어와 점수제 점수를 확인하세요.</p>
+          </div>
+          <div id="score-intro-count" class="intro-count">0 PLAYERS</div>
+        </div>
+        <div class="player-search">
+          <div class="player-search-field">
+            <span aria-hidden="true">⌕</span>
+            <input id="score-intro-search" type="search" placeholder="참가자 이름 또는 Riot ID 검색" autocomplete="off" />
+          </div>
+          <div id="score-intro-search-results" class="player-search-results hidden"></div>
+        </div>
+        <div id="score-intro-position-nav" class="intro-position-nav"></div>
+        <div class="intro-showcase">
+          <button id="score-intro-prev" class="intro-arrow" type="button" aria-label="이전 참가자">‹</button>
+          <div id="score-intro-player" class="intro-stage"></div>
+          <button id="score-intro-next" class="intro-arrow" type="button" aria-label="다음 참가자">›</button>
+        </div>
+        <div class="intro-footer">
+          <div id="score-intro-progress" class="intro-progress"></div>
+          <span>TOP부터 포지션 순 · 이름 가나다순</span>
+        </div>
       </section>
 
       <section id="team-simulator-panel" class="tournament-panel hidden">
@@ -157,7 +222,7 @@
         </div>
 
         <div id="team-registration-closed" class="registration-closed hidden">
-          팀 등록 기간이 종료되었습니다. 멸망전 페이지에서 대진표를 확인해 주세요.
+          팀 등록 기간이 종료되었습니다. 점수제 페이지에서 대진표를 확인해 주세요.
         </div>
         <form id="team-simulator-form" class="panel tournament-team-form">
           <div class="panel-title"><span>SIMULATOR</span><h2>가상 조합 만들기</h2></div>
@@ -170,23 +235,22 @@
             <div class="score-track"><span id="simulator-score-bar"></span></div>
             <p id="simulator-score-message">다섯 포지션의 선수를 선택해 주세요.</p>
           </div>
-          <button id="use-simulation-button" class="primary team-register-button" type="submit">이 조합으로 등록하러 가기</button>
+          <button id="use-simulation-button" class="primary team-register-button" type="submit">최적 조합 추천</button>
         </form>
+        <div id="simulator-recommendations" class="simulator-recommendations">
+          <div class="balance-empty">원하는 선수를 일부 고정하고 최적 조합 추천을 눌러보세요.</div>
+        </div>
       </section>
 
-      <section id="tournament-panel" class="tournament-panel hidden">
+      <section id="team-register-panel" class="tournament-panel hidden">
         <div class="tournament-heading">
           <div>
-            <p class="eyebrow">DOOMSDAY TOURNAMENT</p>
-            <h2>멸망전</h2>
-            <p>등록된 팀과 토너먼트 대진 및 경기 결과를 확인합니다.</p>
+            <p class="eyebrow">TEAM REGISTRATION</p>
+            <h2>점수제 팀 등록</h2>
+            <p>시뮬레이션에서 만든 조합을 불러오거나 직접 5인 팀을 구성해 등록합니다.</p>
           </div>
-          <div class="tournament-heading-actions">
-            <div id="tournament-status" class="tournament-status">TEAM REGISTRATION</div>
-            <a id="open-team-register" class="page-link-button" href="/team-simulator">조합 시뮬레이션 →</a>
-          </div>
+          <a class="page-link-button" href="/tournament">등록된 팀 보기 →</a>
         </div>
-
         <div id="tournament-registration-area" class="panel tournament-team-form">
           <div class="panel-title"><span>REGISTER</span><h2>팀 등록 신청</h2></div>
           <form id="tournament-team-form">
@@ -208,6 +272,20 @@
         </div>
         <div id="team-registration-closed-tournament" class="registration-closed hidden">
           팀 등록 기간이 종료되었습니다.
+        </div>
+      </section>
+
+      <section id="tournament-panel" class="tournament-panel hidden">
+        <div class="tournament-heading">
+          <div>
+            <p class="eyebrow">SCORE TOURNAMENT</p>
+            <h2>점수제</h2>
+            <p>등록된 팀과 토너먼트 대진 및 경기 결과를 확인합니다.</p>
+          </div>
+          <div class="tournament-heading-actions">
+            <div id="tournament-status" class="tournament-status">TEAM REGISTRATION</div>
+            <a id="open-team-register" class="page-link-button" href="/team-register">팀 등록하기 →</a>
+          </div>
         </div>
 
         <div class="panel tournament-team-panel">

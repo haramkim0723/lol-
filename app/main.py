@@ -176,6 +176,10 @@ class PlayerInput(BaseModel):
     score: int = Field(default=0, ge=0, le=1000)
 
 
+class PlayerScoreInput(BaseModel):
+    score: int = Field(ge=0, le=1000)
+
+
 class RiotPlayerInput(BaseModel):
     riot_id: str = Field(min_length=3, max_length=80)
     primary_position: Literal["TOP", "JUG", "MID", "ADC", "SUP"]
@@ -217,8 +221,21 @@ class MatchWinnerInput(BaseModel):
     team_id: str
 
 
+class TeamRecommendationInput(BaseModel):
+    locked: dict[
+        Literal["TOP", "JUG", "MID", "ADC", "SUP"], str | None
+    ]
+    limit: int = Field(default=12, ge=1, le=30)
+
+
 class CompetitionInput(BaseModel):
     name: str = Field(min_length=1, max_length=50)
+    mode: Literal["auction", "tournament"]
+
+
+class TeacherPinChangeInput(BaseModel):
+    current_pin: str = Field(min_length=4, max_length=12, pattern=r"^[0-9]+$")
+    new_pin: str = Field(min_length=4, max_length=12, pattern=r"^[0-9]+$")
 
 
 @app.get("/")
@@ -228,6 +245,11 @@ async def index():
 
 @app.get("/team-simulator")
 async def team_simulator_page():
+    return FileResponse(ROOT / "static" / "index.html")
+
+
+@app.get("/score-players")
+async def score_players_page():
     return FileResponse(ROOT / "static" / "index.html")
 
 
@@ -256,11 +278,12 @@ async def get_state(auction_auth: str | None = Cookie(default=None)):
 async def create_competition(data: CompetitionInput, request: Request):
     require_host(request)
     async with state_lock:
-        competition = store.create_competition(data.name)
+        competition = store.create_competition(data.name, data.mode)
     await broadcast()
     return {
         "id": competition["id"],
         "name": competition["name"],
+        "mode": competition["mode"],
         "created_at": competition["created_at"],
     }
 
@@ -292,10 +315,17 @@ async def delete_competition(competition_id: str, request: Request):
 @app.post("/api/login")
 async def login(data: LoginInput, response: Response):
     if data.role == "host":
-        if not secrets.compare_digest(data.pin, os.getenv("HOST_PIN", "1234")):
+        if not store.verify_teacher_pin(data.pin):
             raise HTTPException(401, "강사님 PIN이 올바르지 않습니다.")
         viewer = {"role": "host", "captain_id": None, "authenticated": True}
     elif data.role == "captain":
+        if (
+            store.active_competition is None
+            or store.active_competition.get("mode", "auction") != "auction"
+        ):
+            raise HTTPException(
+                400, "팀장 입장은 경매 대회에서만 사용할 수 있습니다."
+            )
         captain = next(
             (c for c in store.state["captains"] if c["id"] == data.captain_id),
             None,
@@ -323,6 +353,21 @@ async def login(data: LoginInput, response: Response):
         secure=bool(os.getenv("VERCEL")),
     )
     return viewer
+
+
+@app.post("/api/teacher/pin")
+async def change_teacher_pin(
+    data: TeacherPinChangeInput, request: Request, response: Response
+):
+    require_host(request)
+    if not store.verify_teacher_pin(data.current_pin):
+        raise HTTPException(401, "현재 강사님 PIN이 올바르지 않습니다.")
+    if data.current_pin == data.new_pin:
+        raise HTTPException(400, "새 PIN은 현재 PIN과 달라야 합니다.")
+    async with state_lock:
+        store.change_teacher_pin(data.new_pin)
+    response.delete_cookie("auction_auth")
+    return {"ok": True, "reauthenticate": True}
 
 
 @app.post("/api/logout")
@@ -436,7 +481,7 @@ async def delete_player(player_id: str, request: Request):
             for team in store.state["tournament"]["teams"]
         )
         if registered:
-            raise HTTPException(409, "멸망전 팀에 등록된 참가자는 삭제할 수 없습니다.")
+            raise HTTPException(409, "점수제 팀에 등록된 참가자는 삭제할 수 없습니다.")
         before = len(store.state["players"])
         store.state["players"] = [
             p for p in store.state["players"] if p["id"] != player_id
@@ -446,6 +491,23 @@ async def delete_player(player_id: str, request: Request):
         store.save()
     await broadcast()
     return {"ok": True}
+
+
+@app.patch("/api/players/{player_id}/score")
+async def update_player_score(
+    player_id: str, data: PlayerScoreInput, request: Request
+):
+    require_host(request)
+    try:
+        async with state_lock:
+            player = engine.update_player_score(
+                store.state, player_id, data.score
+            )
+            store.save()
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    await broadcast()
+    return player
 
 
 @app.put("/api/tournament/settings")
@@ -460,6 +522,21 @@ async def update_tournament_settings(
         store.save()
     await broadcast()
     return {"ok": True}
+
+
+@app.post("/api/tournament/recommend")
+async def recommend_tournament_team(data: TeamRecommendationInput):
+    try:
+        return {
+            "recommendations": engine.recommend_team_combinations(
+                store.state,
+                data.locked,
+                store.state["tournament"]["score_limit"],
+                data.limit,
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.post("/api/tournament/teams")
