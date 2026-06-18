@@ -123,8 +123,14 @@ button { border: 0; border-radius: 10px; padding: 11px 16px; color: #fff; font-w
 .tabs { display: flex; gap: 5px; margin-bottom: 15px; }
 .tab { background: #0b111a; color: var(--muted); }
 .tab.active { background: rgba(217,169,79,.15); color: var(--gold-light); }
-.player-form { grid-template-columns: 1.15fr 1.15fr .8fr 1.15fr .7fr .85fr .85fr auto; align-items: end; }
+.player-form { grid-template-columns: 1.1fr 1.1fr .75fr 1.1fr 1.35fr .8fr .8fr auto; align-items: end; }
 .player-form .wide { grid-column: span 2; }
+.position-score-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-width: 210px; }
+.position-score-pair label { min-width: 0; color: var(--muted); font-size: 12px; font-weight: 600; }
+.position-score-pair input { min-width: 0; }
+.secondary-score-field:has(input:disabled) { opacity: .46; }
+.secondary-score-field::after { content: "부 포지션 선택 시 적용"; display: block; margin-top: 4px; color: #68778a; font-size: 8px; }
+.secondary-score-field.selected::after { content: "비워두면 주 점수 적용"; color: var(--cyan); }
 .tier-division-field { min-width: 180px; }
 .tier-division-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .tier-division-heading output { color: var(--gold-light); font-size: 11px; font-weight: 900; white-space: nowrap; }
@@ -167,12 +173,12 @@ button { border: 0; border-radius: 10px; padding: 11px 16px; color: #fff; font-w
 .player-meta-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
 .tier-badge { display: inline-flex; padding: 3px 6px; border: 1px solid rgba(217,169,79,.2); border-radius: 5px; color: var(--gold-light); background: rgba(217,169,79,.08); font-size: 9px; font-weight: 900; }
 .pos { display: inline-flex; color: var(--cyan); background: rgba(39,211,211,.1); border: 1px solid rgba(39,211,211,.2); padding: 3px 6px; border-radius: 5px; font-size: 10px; font-weight: 900; }
-.player-score-control { flex: 0 0 190px; padding-left: 11px; border-left: 1px solid var(--line); }
+.player-score-control { flex: 0 0 245px; padding-left: 11px; border-left: 1px solid var(--line); }
 .score-player-label { display: block; margin-bottom: 5px; color: #aeb9c7; font-size: 9px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .score-input-row { display: flex; gap: 5px; }
-.player-score-editor { position: relative; flex: 0 0 66px; }
-.player-score-editor input { width: 100%; padding: 7px 24px 7px 8px; border: 1px solid var(--line); border-radius: 8px; color: var(--gold-light); background: #080e15; outline: 0; font-size: 11px; font-weight: 800; }
-.player-score-editor span { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 9px; pointer-events: none; }
+.player-score-editor { position: relative; flex: 0 0 76px; }
+.player-score-editor input { width: 100%; padding: 7px 31px 7px 8px; border: 1px solid var(--line); border-radius: 8px; color: var(--gold-light); background: #080e15; outline: 0; font-size: 11px; font-weight: 800; }
+.player-score-editor span { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); color: var(--cyan); font-size: 8px; font-weight: 900; pointer-events: none; }
 .score-save { flex: 1; padding: 6px 8px; color: #071315; background: var(--cyan); font-size: 9px; white-space: nowrap; }
 .registered-team.over-limit { border-color: rgba(255,97,112,.35); }
 

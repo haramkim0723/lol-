@@ -191,10 +191,12 @@ class PlayerInput(BaseModel):
     secondary_position: Literal["TOP", "JUG", "MID", "ADC", "SUP"] | None = None
     profile_icon_url: str | None = None
     score: int = Field(default=0, ge=0, le=1000)
+    secondary_score: int | None = Field(default=None, ge=0, le=1000)
 
 
 class PlayerScoreInput(BaseModel):
     score: int = Field(ge=0, le=1000)
+    secondary_score: int | None = Field(default=None, ge=0, le=1000)
 
 
 class RiotPlayerInput(BaseModel):
@@ -202,6 +204,7 @@ class RiotPlayerInput(BaseModel):
     primary_position: Literal["TOP", "JUG", "MID", "ADC", "SUP"]
     secondary_position: Literal["TOP", "JUG", "MID", "ADC", "SUP"] | None = None
     score: int = Field(default=0, ge=0, le=1000)
+    secondary_score: int | None = Field(default=None, ge=0, le=1000)
 
 
 class BidInput(BaseModel):
@@ -481,6 +484,7 @@ async def create_riot_player(data: RiotPlayerInput, request: Request):
             primary_position=data.primary_position,
             secondary_position=data.secondary_position,
             score=data.score,
+            secondary_score=data.secondary_score,
         )
         store.save()
     await broadcast()
@@ -519,7 +523,7 @@ async def update_player_score(
     try:
         async with state_lock:
             player = engine.update_player_score(
-                store.state, player_id, data.score
+                store.state, player_id, data.score, data.secondary_score
             )
             store.save()
     except ValueError as exc:

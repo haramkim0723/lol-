@@ -109,6 +109,7 @@ def add_player(
     secondary_position: str | None = None,
     profile_icon_url: str | None = None,
     score: int = 0,
+    secondary_score: int | None = None,
 ) -> dict[str, Any]:
     player = {
         "id": uuid.uuid4().hex,
@@ -119,6 +120,7 @@ def add_player(
         "secondary_position": secondary_position or None,
         "profile_icon_url": profile_icon_url,
         "score": score,
+        "secondary_score": score if secondary_score is None else secondary_score,
         "status": "waiting",
         "sold_to": None,
         "sold_amount": None,
@@ -128,8 +130,20 @@ def add_player(
     return player
 
 
+def player_score_for_position(player: dict[str, Any], position: str) -> int:
+    if (
+        player.get("secondary_position") == position
+        and player.get("primary_position") != position
+    ):
+        return int(player.get("secondary_score", player.get("score", 0)))
+    return int(player.get("score", 0))
+
+
 def update_player_score(
-    state: dict[str, Any], player_id: str, score: int
+    state: dict[str, Any],
+    player_id: str,
+    score: int,
+    secondary_score: int | None = None,
 ) -> dict[str, Any]:
     player = next(
         (item for item in state["players"] if item["id"] == player_id), None
@@ -137,17 +151,20 @@ def update_player_score(
     if player is None:
         raise ValueError("참가자를 찾을 수 없습니다.")
     player["score"] = score
+    if secondary_score is not None:
+        player["secondary_score"] = secondary_score
     for team in state["tournament"]["teams"]:
         if player_id in team["members"].values():
             team["total_score"] = sum(
-                int(
+                player_score_for_position(
                     next(
                         item
                         for item in state["players"]
                         if item["id"] == member_id
-                    ).get("score", 0)
+                    ),
+                    position,
                 )
-                for member_id in team["members"].values()
+                for position, member_id in team["members"].items()
             )
             team["over_score_limit"] = (
                 team["total_score"] > state["tournament"]["score_limit"]
@@ -213,14 +230,17 @@ def recommend_team_combinations(
             completed[position] = player
             off_position_count += penalty
         total_score = sum(
-            int(player.get("score", 0)) for player in completed.values()
+            player_score_for_position(completed[position], position)
+            for position in POSITIONS
         )
         result = {
             "lineup": {
                 position: {
                     "id": completed[position]["id"],
                     "name": completed[position]["name"],
-                    "score": int(completed[position].get("score", 0)),
+                    "score": player_score_for_position(
+                        completed[position], position
+                    ),
                     "is_locked": position in lineup,
                     "is_off_position": (
                         completed[position]["primary_position"] != position
@@ -284,7 +304,10 @@ def register_tournament_team(
             )
         lineup[position] = player
 
-    total_score = sum(int(player.get("score", 0)) for player in lineup.values())
+    total_score = sum(
+        player_score_for_position(lineup[position], position)
+        for position in POSITIONS
+    )
     if total_score > tournament["score_limit"]:
         raise ValueError(
             f'팀 총점 {total_score}점으로 제한 {tournament["score_limit"]}점을 초과합니다.'

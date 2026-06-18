@@ -27,7 +27,7 @@
           <button id="tournament-nav" type="button" data-view="tournament">점수제</button>
           <button type="button" data-view="auction">경매장</button>
         </nav>
-        <div id="role-badge" class="role-badge">관전자</div>
+        <div id="role-badge" class="role-badge">참가자</div>
         <button id="logout-button" class="ghost small-button" type="button">역할 전환</button>
         <div class="connection"><span id="socket-dot"></span><span id="socket-text">연결 중</span></div>
       </div>
@@ -185,14 +185,20 @@
               <input id="manual-tier-division" name="tier_division" type="range" min="1" max="4" value="4" step="1" disabled />
               <span class="tier-division-scale" aria-hidden="true"><b>4</b><b>3</b><b>2</b><b>1</b></span>
             </label>
-            <label>점수제 점수<input name="score" type="number" min="0" value="0" /></label>
+            <div class="position-score-pair">
+              <label>주 포지션 점수<input name="score" type="number" min="0" value="0" /></label>
+              <label class="secondary-score-field">부 포지션 점수<input name="secondary_score" type="number" min="0" placeholder="선택 시 입력" disabled /></label>
+            </div>
             <label>주 포지션<select name="primary_position" class="position-select"></select></label>
             <label>부 포지션<select name="secondary_position" class="position-select optional"></select></label>
             <button class="accent" type="submit">참가자 추가</button>
           </form>
           <form id="riot-player-form" class="form-grid player-form hidden">
             <label class="wide">Riot ID<input name="riot_id" required placeholder="게임이름#KR1" /></label>
-            <label>점수제 점수<input name="score" type="number" min="0" value="0" /></label>
+            <div class="position-score-pair">
+              <label>주 포지션 점수<input name="score" type="number" min="0" value="0" /></label>
+              <label class="secondary-score-field">부 포지션 점수<input name="secondary_score" type="number" min="0" placeholder="선택 시 입력" disabled /></label>
+            </div>
             <label>주 포지션<select name="primary_position" class="position-select"></select></label>
             <label>부 포지션<select name="secondary_position" class="position-select optional"></select></label>
             <button class="accent wide" type="submit">티어 조회 후 추가</button>
@@ -379,7 +385,7 @@
         <h2>어떻게 입장할까요?</h2>
         <p class="login-copy">강사님은 전체 진행을 관리하고, 팀장은 자기 팀 예산으로 직접 입찰합니다.</p>
         <div class="login-tabs">
-          <button class="login-tab active" data-login-role="spectator" type="button">관전자</button>
+          <button class="login-tab active" data-login-role="spectator" type="button">참가자</button>
           <button class="login-tab" data-login-role="captain" type="button">팀장</button>
           <button class="login-tab" data-login-role="host" type="button">강사님</button>
         </div>
@@ -390,7 +396,7 @@
           <div id="pin-login-field" class="hidden">
             <label>입장 PIN<input name="pin" type="password" inputmode="numeric" placeholder="PIN 입력" /></label>
           </div>
-          <button id="login-submit" class="primary" type="submit">관전자로 입장</button>
+          <button id="login-submit" class="primary" type="submit">참가자로 입장</button>
         </form>
       </div>
     </div>

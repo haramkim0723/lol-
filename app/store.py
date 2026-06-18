@@ -210,6 +210,7 @@ class JsonStore:
         state.setdefault("auction", defaults["auction"])
         for player in state["players"]:
             player.setdefault("score", 0)
+            player.setdefault("secondary_score", player["score"])
         return state
 
     def _normalize_document(self, raw: dict[str, Any]) -> dict[str, Any]:

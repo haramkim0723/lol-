@@ -134,6 +134,7 @@ class TournamentEngineTest(unittest.TestCase):
             "TOP",
             secondary_position="MID",
             score=10,
+            secondary_score=4,
         )
         recommendations = engine.recommend_team_combinations(
             self.state,
@@ -154,6 +155,25 @@ class TournamentEngineTest(unittest.TestCase):
         )
         self.assertTrue(locked_secondary)
         self.assertTrue(locked_secondary[0]["lineup"]["MID"]["is_off_position"])
+        self.assertEqual(locked_secondary[0]["lineup"]["MID"]["score"], 4)
+
+    def test_team_total_uses_secondary_position_score(self):
+        secondary_mid = engine.add_player(
+            self.state,
+            "부포지션 미드",
+            "",
+            "GOLD",
+            "TOP",
+            secondary_position="MID",
+            score=12,
+            secondary_score=3,
+        )
+        members = dict(self.members)
+        members["MID"] = secondary_mid["id"]
+        team = engine.register_tournament_team(
+            self.state, "부포지션 점수팀", members, "1234"
+        )
+        self.assertEqual(team["total_score"], 33)
 
     def test_approved_teams_create_bracket_and_winner_advances(self):
         first = engine.register_tournament_team(

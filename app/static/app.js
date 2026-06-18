@@ -94,6 +94,28 @@ function updateManualTierDivision() {
   $(".tier-division-field").classList.toggle("disabled", !usesDivision);
 }
 
+function updateSecondaryScoreField(form) {
+  const secondaryPosition = form.elements.secondary_position?.value;
+  const input = form.elements.secondary_score;
+  const field = form.querySelector(".secondary-score-field");
+  if (!field || !input) return;
+  input.disabled = !secondaryPosition;
+  field.classList.toggle("selected", Boolean(secondaryPosition));
+  field.title = secondaryPosition
+    ? `${POSITION_NAMES[secondaryPosition]} 배치 시 이 점수를 사용합니다.`
+    : "부 포지션을 선택하면 이 점수를 사용합니다.";
+}
+
+function scoreForPosition(player, position) {
+  if (
+    player?.secondary_position === position &&
+    player?.primary_position !== position
+  ) {
+    return Number(player.secondary_score ?? player.score ?? 0);
+  }
+  return Number(player?.score || 0);
+}
+
 function setView(view) {
   if (view === "setup" && state.viewer.role !== "host") {
     view = "intro";
@@ -155,7 +177,7 @@ function renderRole() {
     !viewer.authenticated && !publicPage
   );
 
-  let label = "관전자";
+  let label = "참가자";
   if (viewer.role === "host") label = "강사님";
   if (viewer.role === "captain") {
     label = `${captainById(viewer.captain_id)?.name || "팀장"} 팀`;
@@ -449,16 +471,21 @@ function renderSetup() {
           <small>${escapeHtml(player.riot_id || "Riot ID 없음")}</small>
           <div class="player-meta-badges">
             <span class="tier-badge">${escapeHtml(player.tier)}</span>
-            <span class="pos">${player.status === "captain" ? "CAPTAIN · " : ""}${player.primary_position} · ${POSITION_NAMES[player.primary_position]}</span>
+            <span class="pos primary-score-badge">${player.status === "captain" ? "CAPTAIN · " : ""}주 ${player.primary_position} · ${Number(player.score || 0)}점</span>
+            ${player.secondary_position ? `<span class="pos secondary-score-badge">부 ${player.secondary_position} · ${Number(player.secondary_score ?? player.score ?? 0)}점</span>` : ""}
           </div>
         </div>
         <div class="player-score-control">
-          <span class="score-player-label">${escapeHtml(player.name)} · ${escapeHtml(player.tier)}</span>
+          <span class="score-player-label">${escapeHtml(player.name)} · 포지션별 점수</span>
           <div class="score-input-row">
             <label class="player-score-editor">
-              <input data-player-score="${player.id}" type="number" min="0" max="1000" value="${Number(player.score || 0)}" aria-label="${escapeHtml(player.name)} 점수제 점수" />
-              <span>점</span>
+              <input data-player-score="${player.id}" type="number" min="0" max="1000" value="${Number(player.score || 0)}" aria-label="${escapeHtml(player.name)} 주 포지션 점수" />
+              <span>주 ${player.primary_position}</span>
             </label>
+            ${player.secondary_position ? `<label class="player-score-editor">
+              <input data-player-secondary-score="${player.id}" type="number" min="0" max="1000" value="${Number(player.secondary_score ?? player.score ?? 0)}" aria-label="${escapeHtml(player.name)} 부 포지션 점수" />
+              <span>부 ${player.secondary_position}</span>
+            </label>` : ""}
             <button class="score-save" type="button" data-save-player-score="${player.id}">점수 저장</button>
           </div>
         </div>
@@ -542,12 +569,12 @@ function renderTeamSelectors(formSelector, containerSelector, initial = null) {
     const candidateOptions = `
       ${primaryCandidates.length ? `<optgroup label="${POSITION_NAMES[position]} 주 포지션">
         ${primaryCandidates.map((player) =>
-          `<option value="${player.id}">${escapeHtml(player.name)}　|　${Number(player.score || 0)}점　[주]</option>`
+          `<option value="${player.id}">${escapeHtml(player.name)}　|　${scoreForPosition(player, position)}점　[주]</option>`
         ).join("")}
       </optgroup>` : ""}
       ${secondaryCandidates.length ? `<optgroup label="${POSITION_NAMES[position]} 부 포지션 가능">
         ${secondaryCandidates.map((player) =>
-          `<option value="${player.id}">${escapeHtml(player.name)}　|　${Number(player.score || 0)}점　[부]</option>`
+          `<option value="${player.id}">${escapeHtml(player.name)}　|　${scoreForPosition(player, position)}점　[부]</option>`
         ).join("")}
       </optgroup>` : ""}`;
     return `<label class="tournament-member-slot">
@@ -569,8 +596,16 @@ function renderTeamSelectors(formSelector, containerSelector, initial = null) {
 
 function calculateFormScore(formSelector) {
   const form = $(formSelector);
-  const ids = POSITIONS.map((position) => form.elements[position]?.value).filter(Boolean);
-  const score = ids.reduce((sum, id) => sum + Number(playerById(id)?.score || 0), 0);
+  const selections = POSITIONS.map((position) => ({
+    position,
+    id: form.elements[position]?.value,
+  })).filter((selection) => selection.id);
+  const ids = selections.map((selection) => selection.id);
+  const score = selections.reduce(
+    (sum, selection) =>
+      sum + scoreForPosition(playerById(selection.id), selection.position),
+    0
+  );
   const limit = state.tournament.score_limit;
   const duplicate = ids.length !== new Set(ids).size;
   const complete = ids.length === POSITIONS.length;
@@ -901,6 +936,13 @@ async function pollState() {
 $$(".position-select").forEach((select) => {
   select.innerHTML = positionOptions(select.classList.contains("optional"));
 });
+["#manual-player-form", "#riot-player-form"].forEach((selector) => {
+  const form = $(selector);
+  form.elements.secondary_position.addEventListener("change", () =>
+    updateSecondaryScoreField(form)
+  );
+  updateSecondaryScoreField(form);
+});
 
 $$(".tab").forEach((button) => button.addEventListener("click", () => {
   $$(".tab").forEach((tab) => tab.classList.remove("active"));
@@ -941,7 +983,7 @@ $$(".login-tab").forEach((button) => button.addEventListener("click", () => {
   $("#pin-login-field").classList.toggle("hidden", loginRole === "spectator");
   $("#login-submit").textContent =
     loginRole === "host" ? "강사님으로 입장"
-      : loginRole === "captain" ? "팀장으로 입장" : "관전자로 입장";
+      : loginRole === "captain" ? "팀장으로 입장" : "참가자로 입장";
 }));
 
 $("#login-form").addEventListener("submit", async (event) => {
@@ -1057,10 +1099,14 @@ $("#manual-player-form").addEventListener("submit", async (event) => {
   delete data.tier_division;
   data.secondary_position ||= null;
   data.score = Number(data.score || 0);
+  data.secondary_score = data.secondary_position
+    ? Number(data.secondary_score || data.score || 0)
+    : data.score;
   try {
     await api("/api/players", { method: "POST", body: JSON.stringify(data) });
     event.target.reset();
     updateManualTierDivision();
+    updateSecondaryScoreField(event.target);
   } catch (error) { toast(error.message, true); }
 });
 
@@ -1069,12 +1115,16 @@ $("#riot-player-form").addEventListener("submit", async (event) => {
   const data = Object.fromEntries(new FormData(event.target));
   data.secondary_position ||= null;
   data.score = Number(data.score || 0);
+  data.secondary_score = data.secondary_position
+    ? Number(data.secondary_score || data.score || 0)
+    : data.score;
   const button = event.target.querySelector("button");
   button.disabled = true;
   button.textContent = "조회 중...";
   try {
     await api("/api/players/riot", { method: "POST", body: JSON.stringify(data) });
     event.target.reset();
+    updateSecondaryScoreField(event.target);
     toast("Riot 정보를 확인해 추가했습니다.");
   } catch (error) { toast(error.message, true); }
   finally {
@@ -1183,12 +1233,18 @@ document.addEventListener("click", async (event) => {
     event.target.closest("[data-save-player-score]")?.dataset.savePlayerScore;
   if (scorePlayerId) {
     const input = document.querySelector(`[data-player-score="${scorePlayerId}"]`);
+    const secondaryInput = document.querySelector(
+      `[data-player-secondary-score="${scorePlayerId}"]`
+    );
     try {
       await api(`/api/players/${scorePlayerId}/score`, {
         method: "PATCH",
-        body: JSON.stringify({ score: Number(input.value) }),
+        body: JSON.stringify({
+          score: Number(input.value),
+          secondary_score: secondaryInput ? Number(secondaryInput.value) : null,
+        }),
       });
-      toast("점수제 점수를 수정했습니다.");
+      toast("포지션별 점수를 수정했습니다.");
     } catch (error) { toast(error.message, true); }
     return;
   }
