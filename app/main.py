@@ -77,7 +77,7 @@ def read_session(token: str | None) -> dict:
 def require_host(request: Request) -> dict:
     viewer = read_session(request.cookies.get("auction_auth"))
     if viewer["role"] != "host":
-        raise HTTPException(403, "호스트만 사용할 수 있는 기능입니다.")
+        raise HTTPException(403, "강사님만 사용할 수 있는 기능입니다.")
     return viewer
 
 
@@ -219,8 +219,13 @@ async def index():
     return FileResponse(ROOT / "static" / "index.html")
 
 
+@app.get("/team-simulator")
+async def team_simulator_page():
+    return FileResponse(ROOT / "static" / "index.html")
+
+
 @app.get("/team-register")
-async def team_register_page():
+async def legacy_team_register_page():
     return FileResponse(ROOT / "static" / "index.html")
 
 
@@ -243,7 +248,7 @@ async def get_state(auction_auth: str | None = Cookie(default=None)):
 async def login(data: LoginInput, response: Response):
     if data.role == "host":
         if not secrets.compare_digest(data.pin, os.getenv("HOST_PIN", "1234")):
-            raise HTTPException(401, "호스트 PIN이 올바르지 않습니다.")
+            raise HTTPException(401, "강사님 PIN이 올바르지 않습니다.")
         viewer = {"role": "host", "captain_id": None, "authenticated": True}
     elif data.role == "captain":
         captain = next(

@@ -17,8 +17,8 @@ const TIER_STYLES = {
 };
 
 let state = null;
-let currentView = location.pathname === "/team-register"
-  ? "team-register"
+let currentView = ["/team-simulator", "/team-register"].includes(location.pathname)
+  ? "team-simulator"
   : location.pathname === "/tournament"
     ? "tournament"
     : "intro";
@@ -79,19 +79,19 @@ function setView(view) {
     view = "intro";
   }
   if (view === "auction" && state.auction.status === "setup") {
-    toast("호스트가 아직 경매를 시작하지 않았습니다.");
+    toast("강사님이 아직 경매를 시작하지 않았습니다.");
     view = "intro";
   }
   currentView = view;
   $("#intro-panel").classList.toggle("hidden", view !== "intro");
   $("#setup-panel").classList.toggle("hidden", view !== "setup");
-  $("#team-register-panel").classList.toggle("hidden", view !== "team-register");
+  $("#team-simulator-panel").classList.toggle("hidden", view !== "team-simulator");
   $("#tournament-panel").classList.toggle("hidden", view !== "tournament");
   $("#auction-panel").classList.toggle("hidden", view !== "auction");
   $$("[data-view]").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === view);
   });
-  const path = view === "team-register" ? "/team-register"
+  const path = view === "team-simulator" ? "/team-simulator"
     : view === "tournament" ? "/tournament" : "/";
   if (location.pathname !== path) {
     history.pushState({ view }, "", path);
@@ -100,14 +100,14 @@ function setView(view) {
 
 function renderRole() {
   const viewer = state.viewer;
-  const publicPage = ["/team-register", "/tournament"].includes(location.pathname);
+  const publicPage = ["/team-simulator", "/team-register", "/tournament"].includes(location.pathname);
   $("#login-overlay").classList.toggle("hidden", viewer.authenticated || publicPage);
   $("#main-nav").classList.toggle("hidden", !viewer.authenticated && !publicPage);
   $("#logout-button").classList.toggle("hidden", !viewer.authenticated);
   $("#setup-nav").classList.toggle("hidden", viewer.role !== "host");
 
   let label = "관전자";
-  if (viewer.role === "host") label = "호스트";
+  if (viewer.role === "host") label = "강사님";
   if (viewer.role === "captain") {
     label = `${captainById(viewer.captain_id)?.name || "팀장"} 팀`;
   }
@@ -127,7 +127,7 @@ function renderIntro() {
     introIndex = 0;
     introPlayerId = null;
     $("#intro-players").innerHTML =
-      '<div class="intro-empty">호스트가 참가자를 등록하면 이곳에 소개 카드가 나타납니다.</div>';
+      '<div class="intro-empty">강사님이 참가자를 등록하면 이곳에 소개 카드가 나타납니다.</div>';
     $("#intro-position-nav").innerHTML = "";
     $("#intro-progress").innerHTML = "";
     $("#intro-prev").disabled = true;
@@ -256,38 +256,21 @@ function renderTournament() {
       : tournament.status === "running" ? "TOURNAMENT LIVE" : "TOURNAMENT FINISHED";
   $("#tournament-team-form").classList.toggle("hidden", !registrationOpen);
   $("#team-registration-closed").classList.toggle("hidden", registrationOpen);
+  $("#tournament-registration-area").classList.toggle("hidden", !registrationOpen);
+  $("#team-registration-closed-tournament").classList.toggle("hidden", registrationOpen);
   $("#tournament-bracket-section").classList.toggle("hidden", registrationOpen);
   $("#tournament-host-controls").classList.toggle("hidden", !isHost);
   $("#tournament-score-limit-input").value = tournament.score_limit;
   $("#team-score-limit").textContent = tournament.score_limit;
+  $("#simulator-score-limit").textContent = tournament.score_limit;
   $("#open-team-register").classList.toggle("hidden", !registrationOpen);
 
-  const currentSelections = Object.fromEntries(
-    POSITIONS.map((position) => [
-      position,
-      $("#tournament-team-form").elements[position]?.value || "",
-    ])
+  renderTeamSelectors(
+    "#tournament-team-form",
+    "#tournament-member-selects",
+    loadSimulationDraft()
   );
-  $("#tournament-member-selects").innerHTML = POSITIONS.map((position) => {
-    const candidates = state.players.filter((player) =>
-      player.primary_position === position || player.secondary_position === position
-    ).sort((a, b) => a.name.localeCompare(b.name, "ko-KR"));
-    return `<label class="tournament-member-slot">
-      <strong>${position} · ${POSITION_NAMES[position]}</strong>
-      <select name="${position}" required>
-        <option value="">선수 선택</option>
-        ${candidates.map((player) =>
-          `<option value="${player.id}">${escapeHtml(player.name)} · ${Number(player.score || 0)}점${player.primary_position !== position ? " (부)" : ""}</option>`
-        ).join("")}
-      </select>
-    </label>`;
-  }).join("");
-  POSITIONS.forEach((position) => {
-    const select = $("#tournament-team-form").elements[position];
-    if ([...select.options].some((option) => option.value === currentSelections[position])) {
-      select.value = currentSelections[position];
-    }
-  });
+  renderTeamSelectors("#team-simulator-form", "#simulator-member-selects");
 
   $("#tournament-team-list").innerHTML = tournament.teams.length
     ? tournament.teams.map((team) => `
@@ -313,18 +296,55 @@ function renderTournament() {
       </article>`).join("")
     : '<div class="empty-message">아직 등록된 팀이 없습니다.</div>';
   updateTeamScore();
+  updateSimulatorScore();
   renderTournamentBracket();
 }
 
-function updateTeamScore() {
-  if (!state || state.tournament.status !== "registration") return;
-  const form = $("#tournament-team-form");
+function renderTeamSelectors(formSelector, containerSelector, initial = null) {
+  const form = $(formSelector);
+  const currentSelections = Object.fromEntries(
+    POSITIONS.map((position) => [
+      position,
+      form.elements[position]?.value || initial?.[position] || "",
+    ])
+  );
+  $(containerSelector).innerHTML = POSITIONS.map((position) => {
+    const candidates = state.players.filter((player) =>
+      player.primary_position === position || player.secondary_position === position
+    ).sort((a, b) => a.name.localeCompare(b.name, "ko-KR"));
+    return `<label class="tournament-member-slot">
+      <strong>${position} · ${POSITION_NAMES[position]}</strong>
+      <select name="${position}" required>
+        <option value="">선수 선택</option>
+        ${candidates.map((player) =>
+          `<option value="${player.id}">${escapeHtml(player.name)} · ${Number(player.score || 0)}점${player.primary_position !== position ? " (부)" : ""}</option>`
+        ).join("")}
+      </select>
+    </label>`;
+  }).join("");
+  POSITIONS.forEach((position) => {
+    const select = form.elements[position];
+    if ([...select.options].some((option) => option.value === currentSelections[position])) {
+      select.value = currentSelections[position];
+    }
+  });
+}
+
+function calculateFormScore(formSelector) {
+  const form = $(formSelector);
   const ids = POSITIONS.map((position) => form.elements[position]?.value).filter(Boolean);
   const score = ids.reduce((sum, id) => sum + Number(playerById(id)?.score || 0), 0);
   const limit = state.tournament.score_limit;
   const duplicate = ids.length !== new Set(ids).size;
   const complete = ids.length === POSITIONS.length;
   const over = score > limit;
+  return { ids, score, limit, duplicate, complete, over };
+}
+
+function updateTeamScore() {
+  if (!state || state.tournament.status !== "registration") return;
+  const { score, limit, duplicate, complete, over } =
+    calculateFormScore("#tournament-team-form");
   $("#team-current-score").textContent = score;
   const bar = $("#team-score-bar");
   bar.style.width = `${Math.min(100, limit ? score / limit * 100 : 0)}%`;
@@ -336,6 +356,31 @@ function updateTeamScore() {
       : complete ? `등록 가능 · ${limit - score}점 여유`
         : "다섯 포지션의 선수를 선택해 주세요.";
   $("#team-register-button").disabled = !complete || over || duplicate;
+}
+
+function updateSimulatorScore() {
+  if (!state) return;
+  const { score, limit, duplicate, complete, over } =
+    calculateFormScore("#team-simulator-form");
+  $("#simulator-current-score").textContent = score;
+  const bar = $("#simulator-score-bar");
+  bar.style.width = `${Math.min(100, limit ? score / limit * 100 : 0)}%`;
+  bar.classList.toggle("over", over);
+  const message = $("#simulator-score-message");
+  message.classList.toggle("over", over || duplicate);
+  message.textContent = duplicate ? "같은 선수를 두 포지션에 넣을 수 없습니다."
+    : over ? `제한을 ${score - limit}점 초과했습니다.`
+      : complete ? `사용 가능한 조합 · ${limit - score}점 여유`
+        : "다섯 포지션의 선수를 선택해 주세요.";
+  $("#use-simulation-button").disabled = !complete || over || duplicate;
+}
+
+function loadSimulationDraft() {
+  try {
+    return JSON.parse(sessionStorage.getItem("tournament-team-draft") || "null");
+  } catch {
+    return null;
+  }
 }
 
 function renderTournamentBracket() {
@@ -392,7 +437,7 @@ function renderAuction() {
   $("#bid-identity").textContent = viewerCaptain
     ? `${viewerCaptain.name} 팀 · 잔여 ${viewerCaptain.remaining_budget.toLocaleString()} P`
     : state.viewer.role === "host"
-      ? "호스트는 진행만 관리하며 입찰하지 않습니다."
+      ? "강사님은 진행만 관리하며 입찰하지 않습니다."
       : "팀장으로 입장하면 자기 팀으로 직접 입찰할 수 있습니다.";
 
   const required = auction.highest_bid
@@ -566,8 +611,8 @@ $$("[data-view]").forEach((button) => {
 });
 
 window.addEventListener("popstate", () => {
-  currentView = location.pathname === "/team-register"
-    ? "team-register"
+  currentView = ["/team-simulator", "/team-register"].includes(location.pathname)
+    ? "team-simulator"
     : location.pathname === "/tournament" ? "tournament" : "intro";
   if (state) setView(currentView);
 });
@@ -578,7 +623,7 @@ $$(".login-tab").forEach((button) => button.addEventListener("click", () => {
   $("#captain-login-fields").classList.toggle("hidden", loginRole !== "captain");
   $("#pin-login-field").classList.toggle("hidden", loginRole === "spectator");
   $("#login-submit").textContent =
-    loginRole === "host" ? "호스트로 입장"
+    loginRole === "host" ? "강사님으로 입장"
       : loginRole === "captain" ? "팀장으로 입장" : "관전자로 입장";
 }));
 
@@ -667,6 +712,7 @@ $("#tournament-team-form").addEventListener("submit", async (event) => {
         members,
       }),
     });
+    sessionStorage.removeItem("tournament-team-draft");
     event.target.reset();
     updateTeamScore();
     toast("팀 등록을 신청했습니다.");
@@ -676,6 +722,16 @@ $("#tournament-team-form").addEventListener("submit", async (event) => {
 });
 
 $("#tournament-member-selects").addEventListener("change", updateTeamScore);
+$("#simulator-member-selects").addEventListener("change", updateSimulatorScore);
+$("#team-simulator-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.target));
+  const members = Object.fromEntries(
+    POSITIONS.map((position) => [position, data[position]])
+  );
+  sessionStorage.setItem("tournament-team-draft", JSON.stringify(members));
+  location.href = "/tournament";
+});
 $("#save-tournament-settings").addEventListener("click", async () => {
   try {
     await api("/api/tournament/settings", {
