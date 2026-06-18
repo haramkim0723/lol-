@@ -19,6 +19,8 @@ const TIER_STYLES = {
 let state = null;
 let currentView = "intro";
 let loginRole = "spectator";
+let introIndex = 0;
+let introPlayerId = null;
 let toastTimer = null;
 
 const $ = (selector) => document.querySelector(selector);
@@ -104,26 +106,76 @@ function renderRole() {
 }
 
 function renderIntro() {
-  $("#intro-count").textContent = `${state.players.length} PLAYERS`;
-  $("#intro-players").innerHTML = state.players.length
-    ? state.players.map((player) => {
-      const key = tierKey(player.tier);
-      const [color, light, dark, glow] = TIER_STYLES[key];
-      return `
-        <article class="intro-player" style="--tier-color:${color};--tier-light:${light};--tier-dark:${dark};--tier-glow:${glow}">
-          <div class="tier-emblem" data-tier="${key}"></div>
-          <div class="intro-player-content">
-            <h3>${escapeHtml(player.name)}</h3>
-            <span class="riot-name">${escapeHtml(player.riot_id || "Riot ID 미등록")}</span>
-            <div class="intro-tier">${escapeHtml(player.tier)}</div>
-            <div class="intro-positions">
-              <span class="pos">${player.primary_position} · ${POSITION_NAMES[player.primary_position]}</span>
-              ${player.secondary_position ? `<span class="pos">${player.secondary_position} · ${POSITION_NAMES[player.secondary_position]}</span>` : ""}
-            </div>
-          </div>
-        </article>`;
-    }).join("")
-    : '<div class="intro-empty">호스트가 참가자를 등록하면 이곳에 소개 카드가 나타납니다.</div>';
+  const players = sortedIntroPlayers();
+  $("#intro-count").textContent = `${players.length} PLAYERS`;
+  if (!players.length) {
+    introIndex = 0;
+    introPlayerId = null;
+    $("#intro-players").innerHTML =
+      '<div class="intro-empty">호스트가 참가자를 등록하면 이곳에 소개 카드가 나타납니다.</div>';
+    $("#intro-position-nav").innerHTML = "";
+    $("#intro-progress").innerHTML = "";
+    $("#intro-prev").disabled = true;
+    $("#intro-next").disabled = true;
+    return;
+  }
+
+  const preservedIndex = players.findIndex((player) => player.id === introPlayerId);
+  if (preservedIndex >= 0) introIndex = preservedIndex;
+  introIndex = Math.min(Math.max(introIndex, 0), players.length - 1);
+  const player = players[introIndex];
+  introPlayerId = player.id;
+  const key = tierKey(player.tier);
+  const [color, light, dark, glow] = TIER_STYLES[key];
+
+  $("#intro-players").innerHTML = `
+    <article class="intro-player" data-position="${player.primary_position}" style="--tier-color:${color};--tier-light:${light};--tier-dark:${dark};--tier-glow:${glow}">
+      <div class="intro-visual">
+        <div class="tier-emblem" data-tier="${key}"></div>
+      </div>
+      <div class="intro-player-content">
+        <div class="intro-index">${String(introIndex + 1).padStart(2, "0")} / ${String(players.length).padStart(2, "0")} · ${POSITION_NAMES[player.primary_position]}</div>
+        <h3>${escapeHtml(player.name)}</h3>
+        <span class="riot-name">${escapeHtml(player.riot_id || "Riot ID 미등록")}</span>
+        <div class="intro-tier">${escapeHtml(player.tier)}</div>
+        <div class="intro-positions">
+          <span class="pos">${player.primary_position} · ${POSITION_NAMES[player.primary_position]}</span>
+          ${player.secondary_position ? `<span class="pos">${player.secondary_position} · ${POSITION_NAMES[player.secondary_position]}</span>` : ""}
+          ${player.status === "captain" ? '<span class="pos">CAPTAIN</span>' : ""}
+        </div>
+      </div>
+    </article>`;
+
+  $("#intro-position-nav").innerHTML = POSITIONS.map((position) => {
+    const count = players.filter((item) => item.primary_position === position).length;
+    return `<button class="intro-position-button${player.primary_position === position ? " active" : ""}" type="button" data-intro-position="${position}" ${count ? "" : "disabled"}>
+      ${POSITION_NAMES[position]} <span>${count}</span>
+    </button>`;
+  }).join("");
+  $("#intro-progress").innerHTML = players.map((item, index) =>
+    `<button type="button" class="${index === introIndex ? "active" : ""}" data-intro-index="${index}" aria-label="${escapeHtml(item.name)}"></button>`
+  ).join("");
+  $("#intro-prev").disabled = introIndex === 0;
+  $("#intro-next").disabled = introIndex === players.length - 1;
+}
+
+function sortedIntroPlayers() {
+  return [...state.players].sort((left, right) => {
+    const positionDifference =
+      POSITIONS.indexOf(left.primary_position) - POSITIONS.indexOf(right.primary_position);
+    if (positionDifference !== 0) return positionDifference;
+    return left.name.localeCompare(right.name, "ko-KR", {
+      sensitivity: "base",
+      numeric: true,
+    });
+  });
+}
+
+function moveIntro(direction) {
+  const players = sortedIntroPlayers();
+  introIndex = Math.min(Math.max(introIndex + direction, 0), players.length - 1);
+  introPlayerId = players[introIndex]?.id || null;
+  renderIntro();
 }
 
 function renderSetup() {
@@ -423,12 +475,35 @@ $("#riot-player-form").addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("click", async (event) => {
+  const introPosition = event.target.closest("[data-intro-position]")?.dataset.introPosition;
+  const requestedIntroIndex = event.target.closest("[data-intro-index]")?.dataset.introIndex;
+  if (introPosition) {
+    const players = sortedIntroPlayers();
+    introIndex = players.findIndex((player) => player.primary_position === introPosition);
+    introPlayerId = players[introIndex]?.id || null;
+    renderIntro();
+    return;
+  }
+  if (requestedIntroIndex !== undefined) {
+    introIndex = Number(requestedIntroIndex);
+    introPlayerId = sortedIntroPlayers()[introIndex]?.id || null;
+    renderIntro();
+    return;
+  }
   const captainId = event.target.dataset.deleteCaptain;
   const playerId = event.target.dataset.deletePlayer;
   try {
     if (captainId) await api(`/api/captains/${captainId}`, { method: "DELETE" });
     if (playerId) await api(`/api/players/${playerId}`, { method: "DELETE" });
   } catch (error) { toast(error.message, true); }
+});
+
+$("#intro-prev").addEventListener("click", () => moveIntro(-1));
+$("#intro-next").addEventListener("click", () => moveIntro(1));
+document.addEventListener("keydown", (event) => {
+  if (currentView !== "intro" || !state?.viewer?.authenticated) return;
+  if (event.key === "ArrowLeft") moveIntro(-1);
+  if (event.key === "ArrowRight") moveIntro(1);
 });
 
 $("#start-button").addEventListener("click", async () => {
