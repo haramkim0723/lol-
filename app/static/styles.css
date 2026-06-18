@@ -506,10 +506,12 @@ aside { display: grid; gap: 18px; }
 .tournament-team-form label, .tournament-host-controls label { color: var(--muted); font-size: 10px; font-weight: 700; }
 .tournament-team-form input, .tournament-host-controls input { display: block; width: 100%; margin-top: 6px; padding: 11px; border: 1px solid var(--line); border-radius: 9px; color: #fff; background: #080e15; outline: 0; }
 .tournament-member-selects { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 8px; margin: 16px 0; }
-.tournament-member-slot { padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: rgba(5,10,16,.45); }
-.tournament-member-slot strong { display: block; margin-bottom: 7px; color: var(--cyan); font-size: 11px; }
-.tournament-member-slot select { width: 100%; padding: 9px 7px; border: 1px solid var(--line); border-radius: 8px; color: #fff; background: #080e15; font-size: 11px; }
-.tournament-member-slot select option { color: #111821; }
+.tournament-member-slot { padding: 13px; border: 1px solid rgba(153,176,204,.2); border-radius: 12px; background: rgba(5,10,16,.62); }
+.tournament-member-slot strong { display: flex; align-items: center; gap: 7px; margin-bottom: 9px; color: #f2f5f8; font-size: 13px; }
+.tournament-member-slot strong span { color: var(--cyan); font-size: 11px; letter-spacing: .04em; }
+.tournament-member-slot select { width: 100%; min-height: 43px; padding: 10px 12px; border: 1px solid rgba(153,176,204,.24); border-radius: 9px; color: #fff; background: #080e15; font-size: 13px; font-weight: 700; }
+.tournament-member-slot select option { color: #111821; background: #fff; font-size: 14px; }
+.tournament-member-slot > small { display: block; margin-top: 7px; color: #7f8da0; font-size: 9px; }
 .team-score-meter { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(4,9,15,.45); }
 .team-score-meter > div:first-child { display: flex; justify-content: space-between; align-items: center; }
 .team-score-meter span { color: var(--muted); font-size: 9px; font-weight: 900; letter-spacing: .1em; }

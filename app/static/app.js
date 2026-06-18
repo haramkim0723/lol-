@@ -522,6 +522,7 @@ function renderTournament() {
 
 function renderTeamSelectors(formSelector, containerSelector, initial = null) {
   const form = $(formSelector);
+  const isSimulator = formSelector === "#team-simulator-form";
   const currentSelections = Object.fromEntries(
     POSITIONS.map((position) => [
       position,
@@ -529,17 +530,33 @@ function renderTeamSelectors(formSelector, containerSelector, initial = null) {
     ])
   );
   $(containerSelector).innerHTML = POSITIONS.map((position) => {
-    const candidates = state.players.filter((player) =>
-      player.primary_position === position || player.secondary_position === position
-    ).sort((a, b) => a.name.localeCompare(b.name, "ko-KR"));
-    return `<label class="tournament-member-slot">
-      <strong>${position} · ${POSITION_NAMES[position]}</strong>
-      <select name="${position}" required>
-        <option value="">선수 선택</option>
-        ${candidates.map((player) =>
-          `<option value="${player.id}">${escapeHtml(player.name)} · ${Number(player.score || 0)}점${player.primary_position !== position ? " (부)" : ""}</option>`
+    const primaryCandidates = state.players
+      .filter((player) => player.primary_position === position)
+      .sort((a, b) => a.name.localeCompare(b.name, "ko-KR"));
+    const secondaryCandidates = state.players
+      .filter((player) =>
+        player.primary_position !== position &&
+        player.secondary_position === position
+      )
+      .sort((a, b) => a.name.localeCompare(b.name, "ko-KR"));
+    const candidateOptions = `
+      ${primaryCandidates.length ? `<optgroup label="${POSITION_NAMES[position]} 주 포지션">
+        ${primaryCandidates.map((player) =>
+          `<option value="${player.id}">${escapeHtml(player.name)}　|　${Number(player.score || 0)}점　[주]</option>`
         ).join("")}
+      </optgroup>` : ""}
+      ${secondaryCandidates.length ? `<optgroup label="${POSITION_NAMES[position]} 부 포지션 가능">
+        ${secondaryCandidates.map((player) =>
+          `<option value="${player.id}">${escapeHtml(player.name)}　|　${Number(player.score || 0)}점　[부]</option>`
+        ).join("")}
+      </optgroup>` : ""}`;
+    return `<label class="tournament-member-slot">
+      <strong><span>${position}</span>${POSITION_NAMES[position]} 배치</strong>
+      <select name="${position}" ${isSimulator ? "" : "required"}>
+        <option value="">${POSITION_NAMES[position]} 선수 선택</option>
+        ${candidateOptions}
       </select>
+      <small>주 ${primaryCandidates.length}명 · 부 ${secondaryCandidates.length}명</small>
     </label>`;
   }).join("");
   POSITIONS.forEach((position) => {

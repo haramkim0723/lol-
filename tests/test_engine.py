@@ -125,6 +125,36 @@ class TournamentEngineTest(unittest.TestCase):
         self.assertEqual(recommendations[0]["score_difference"], 0)
         self.assertTrue(recommendations[0]["lineup"]["TOP"]["is_locked"])
 
+    def test_recommendations_can_use_secondary_position(self):
+        secondary_only = engine.add_player(
+            self.state,
+            "미드가 부포지션",
+            "",
+            "GOLD",
+            "TOP",
+            secondary_position="MID",
+            score=10,
+        )
+        recommendations = engine.recommend_team_combinations(
+            self.state,
+            {"TOP": None, "JUG": None, "MID": None, "ADC": None, "SUP": None},
+            target_score=40,
+        )
+        self.assertTrue(recommendations)
+        locked_secondary = engine.recommend_team_combinations(
+            self.state,
+            {
+                "TOP": None,
+                "JUG": None,
+                "MID": secondary_only["id"],
+                "ADC": None,
+                "SUP": None,
+            },
+            target_score=40,
+        )
+        self.assertTrue(locked_secondary)
+        self.assertTrue(locked_secondary[0]["lineup"]["MID"]["is_off_position"])
+
     def test_approved_teams_create_bracket_and_winner_advances(self):
         first = engine.register_tournament_team(
             self.state, "A팀", self.members, "1234"
