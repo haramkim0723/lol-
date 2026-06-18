@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LoL Auction</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="background-glow"></div>
+    <header>
+      <div>
+        <p class="eyebrow">SUMMONER'S AUCTION</p>
+        <h1 id="room-title">장원혁의 협곡 경매</h1>
+      </div>
+      <div class="header-actions">
+        <nav id="main-nav" class="main-nav hidden">
+          <button type="button" data-view="intro">선수 소개</button>
+          <button id="setup-nav" type="button" data-view="setup">호스트 설정</button>
+          <button type="button" data-view="auction">경매장</button>
+        </nav>
+        <div id="role-badge" class="role-badge">관전자</div>
+        <button id="logout-button" class="ghost small-button" type="button">나가기</button>
+        <div class="connection"><span id="socket-dot"></span><span id="socket-text">연결 중</span></div>
+      </div>
+    </header>
+
+    <main>
+      <section id="intro-panel" class="intro-panel hidden">
+        <div class="intro-heading">
+          <div>
+            <p class="eyebrow">PLAYER SHOWCASE</p>
+            <h2>오늘의 경매 참가자</h2>
+            <p>티어와 포지션을 살펴보고 어떤 팀이 만들어질지 예상해 보세요.</p>
+          </div>
+          <div id="intro-count" class="intro-count">0 PLAYERS</div>
+        </div>
+        <div id="intro-players" class="intro-grid"></div>
+      </section>
+
+      <section id="setup-panel" class="setup-grid">
+        <article class="panel settings-panel">
+          <div class="panel-title"><span>01</span><h2>경매 설정</h2></div>
+          <form id="settings-form" class="form-grid">
+            <label class="wide">방 이름<input name="room_name" required /></label>
+            <label>카운트다운(초)<input name="countdown_seconds" type="number" min="5" required /></label>
+            <label>최소 입찰가<input name="minimum_bid" type="number" min="0" required /></label>
+            <label>최소 상승폭<input name="bid_increment" type="number" min="1" required /></label>
+            <label>연장 발동(초)<input name="extension_trigger_seconds" type="number" min="0" required /></label>
+            <label>연장 시간(초)<input name="extension_seconds" type="number" min="0" required /></label>
+            <button class="primary wide" type="submit">설정 저장</button>
+          </form>
+        </article>
+
+        <article class="panel">
+          <div class="panel-title"><span>02</span><h2>팀장과 예산</h2></div>
+          <form id="captain-form" class="inline-form">
+            <select id="captain-player" name="player_id" required></select>
+            <input name="budget" type="number" min="0" placeholder="총 예산" required />
+            <input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" placeholder="입장 PIN" required />
+            <button class="accent" type="submit">추가</button>
+          </form>
+          <div id="captain-setup-list" class="stack-list empty-message">등록된 팀장이 없습니다.</div>
+        </article>
+
+        <article class="panel players-panel">
+          <div class="panel-title"><span>03</span><h2>참가자 등록</h2></div>
+          <div class="tabs">
+            <button class="tab active" data-tab="manual" type="button">직접 입력</button>
+            <button class="tab" data-tab="riot" type="button">Riot API 조회</button>
+          </div>
+          <form id="manual-player-form" class="form-grid player-form">
+            <label>표시 이름<input name="name" required placeholder="참가자 이름" /></label>
+            <label>Riot ID<input name="riot_id" placeholder="게임이름#KR1" /></label>
+            <label>티어<input name="tier" value="UNRANKED" /></label>
+            <label>주 포지션<select name="primary_position" class="position-select"></select></label>
+            <label>부 포지션<select name="secondary_position" class="position-select optional"></select></label>
+            <button class="accent" type="submit">참가자 추가</button>
+          </form>
+          <form id="riot-player-form" class="form-grid player-form hidden">
+            <label class="wide">Riot ID<input name="riot_id" required placeholder="게임이름#KR1" /></label>
+            <label>주 포지션<select name="primary_position" class="position-select"></select></label>
+            <label>부 포지션<select name="secondary_position" class="position-select optional"></select></label>
+            <button class="accent wide" type="submit">티어 조회 후 추가</button>
+          </form>
+          <div id="player-setup-list" class="player-cards empty-message">등록된 참가자가 없습니다.</div>
+          <button id="start-button" class="start-button" type="button">순서를 섞고 경매 시작</button>
+        </article>
+      </section>
+
+      <section id="auction-panel" class="auction-layout hidden">
+        <div class="auction-stage">
+          <article class="current-card">
+            <div class="round-label">ROUND <span id="round-number">1</span></div>
+            <div id="timer" class="timer">00</div>
+            <div id="current-player"></div>
+            <div id="highest-bid" class="highest-bid">아직 입찰이 없습니다</div>
+          </article>
+
+          <article class="bid-panel panel">
+            <div class="panel-title"><span>LIVE</span><h2>직접 입찰</h2></div>
+            <form id="bid-form" class="bid-form">
+              <div id="bid-identity" class="bid-identity">팀장으로 입장하면 직접 입찰할 수 있습니다.</div>
+              <div class="amount-wrap"><input id="bid-amount" name="amount" type="number" min="0" required /><span>POINT</span></div>
+              <button class="bid-button" type="submit">입찰하기</button>
+            </form>
+            <p id="bid-guide" class="guide"></p>
+            <div class="host-controls">
+              <button id="pause-button" class="ghost" type="button">일시정지</button>
+              <button id="resume-button" class="ghost hidden" type="button">재개</button>
+              <button id="reauction-button" class="accent hidden" type="button">유찰자 재경매 시작</button>
+            </div>
+          </article>
+        </div>
+
+        <aside>
+          <article class="panel">
+            <div class="panel-title"><span>TEAMS</span><h2>팀 현황</h2></div>
+            <div id="teams" class="teams"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-title"><span>QUEUE</span><h2>남은 순서</h2></div>
+            <div id="queue" class="queue-list"></div>
+          </article>
+          <article class="panel unsold-panel">
+            <div class="panel-title"><span>RE</span><h2>유찰 명단</h2></div>
+            <div id="unsold" class="queue-list"></div>
+          </article>
+        </aside>
+      </section>
+    </main>
+
+    <div id="login-overlay" class="login-overlay">
+      <div class="login-card">
+        <p class="eyebrow">ENTER THE AUCTION</p>
+        <h2>어떻게 입장할까요?</h2>
+        <p class="login-copy">호스트는 경매를 관리하고, 팀장은 자기 팀 예산으로 직접 입찰합니다.</p>
+        <div class="login-tabs">
+          <button class="login-tab active" data-login-role="spectator" type="button">관전자</button>
+          <button class="login-tab" data-login-role="captain" type="button">팀장</button>
+          <button class="login-tab" data-login-role="host" type="button">호스트</button>
+        </div>
+        <form id="login-form">
+          <div id="captain-login-fields" class="hidden">
+            <label>내 팀<select id="login-captain" name="captain_id"></select></label>
+          </div>
+          <div id="pin-login-field" class="hidden">
+            <label>입장 PIN<input name="pin" type="password" inputmode="numeric" placeholder="PIN 입력" /></label>
+          </div>
+          <button id="login-submit" class="primary" type="submit">관전자로 입장</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

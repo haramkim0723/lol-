@@ -1,0 +1,16 @@
+services:
+  auction:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      RIOT_API_KEY: ${RIOT_API_KEY:-}
+      DATA_FILE: /data/state.json
+      HOST_PIN: ${HOST_PIN:-1234}
+      SESSION_SECRET: ${SESSION_SECRET:-local-development-secret}
+    volumes:
+      - auction-data:/data
+    restart: unless-stopped
+
+volumes:
+  auction-data:
