@@ -353,11 +353,6 @@ async def reauction(request: Request):
 
 
 @app.post("/api/auction/bid")
-async def bid(data: BidInput):
-    raise HTTPException(500, "unreachable")
-
-
-@app.post("/api/auction/captain-bid")
 async def captain_bid(data: BidInput, request: Request):
     viewer = require_captain(request)
     return await mutate(
