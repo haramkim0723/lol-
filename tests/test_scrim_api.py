@@ -163,6 +163,13 @@ class ScrimApiTest(unittest.TestCase):
             )
             self.assertEqual(new_after_reset.status_code, 200)
 
+    def test_scrim_management_page_loads(self):
+        with TestClient(app) as client:
+            response = client.get("/scrim")
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("스크림 관리", response.text)
+            self.assertIn("/static/scrim.js", response.text)
+
 
 if __name__ == "__main__":
     unittest.main()

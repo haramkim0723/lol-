@@ -287,6 +287,11 @@ async def tournament_page():
     return FileResponse(ROOT / "static" / "index.html")
 
 
+@app.get("/scrim")
+async def scrim_management_page():
+    return FileResponse(ROOT / "static" / "scrim.html")
+
+
 @app.get("/api/state")
 async def get_state(auction_auth: str | None = Cookie(default=None)):
     result = engine.public_state(store.state, read_session(auction_auth))
