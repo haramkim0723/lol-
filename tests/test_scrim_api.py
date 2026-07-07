@@ -99,10 +99,10 @@ class ScrimApiTest(unittest.TestCase):
                 )
                 self.assertEqual(member_schedule.status_code, 403)
 
-    def test_scrim_session_is_separate_from_auction_session(self):
+    def test_invalid_session_cookie_is_rejected(self):
         with TestClient(app) as client:
             client.get("/api/scrim/health")
-            client.cookies.set("auction_auth", "not-a-scrim-session")
+            client.cookies.set("scrim_auth", "not-a-valid-session")
             response = client.get("/api/scrim/me")
             self.assertEqual(response.status_code, 401)
 
@@ -163,12 +163,12 @@ class ScrimApiTest(unittest.TestCase):
             )
             self.assertEqual(new_after_reset.status_code, 200)
 
-    def test_scrim_management_page_loads(self):
+    def test_scrim_page_serves_main_spa_with_scrim_tab(self):
         with TestClient(app) as client:
             response = client.get("/scrim")
             self.assertEqual(response.status_code, 200)
-            self.assertIn("스크림 관리", response.text)
-            self.assertIn("/static/scrim.js", response.text)
+            self.assertIn('data-view="scrim"', response.text)
+            self.assertIn("/static/app.js", response.text)
 
 
 if __name__ == "__main__":

@@ -1,13 +1,31 @@
 import os
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
-os.environ["DATA_FILE"] = str(Path(tempfile.gettempdir()) / "lol-auction-api-test.json")
+_DATA_FILE = Path(tempfile.gettempdir()) / "lol-auction-api-test.json"
+if _DATA_FILE.exists():
+    _DATA_FILE.unlink()
+os.environ["DATA_FILE"] = str(_DATA_FILE)
+os.environ["SCRIM_DB_FILE"] = str(
+    Path(tempfile.gettempdir()) / f"lol-auction-api-test-scrim-{uuid.uuid4().hex}.db"
+)
 
 from fastapi.testclient import TestClient
 
 from app.main import app, store
+from app.scrim_db import db_path as scrim_db_path
+
+ADMIN_RIOT_ID = "장원혁#ADMIN"
+ADMIN_PASSWORD = "1234"
+
+
+def login_as_host(client: TestClient):
+    return client.post(
+        "/api/scrim/auth/login",
+        json={"riot_id": ADMIN_RIOT_ID, "password": ADMIN_PASSWORD},
+    )
 
 
 class ApiFlowTest(unittest.TestCase):
@@ -15,6 +33,9 @@ class ApiFlowTest(unittest.TestCase):
         store.reset()
         store.active_competition["mode"] = "auction"
         store.save()
+        path = scrim_db_path()
+        if path.exists():
+            path.unlink()
 
     def test_setup_and_start_flow(self):
         with TestClient(app) as client:
@@ -22,10 +43,7 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(root.status_code, 200)
             self.assertIn("SUMMONER'S AUCTION", root.text)
 
-            login = client.post(
-                "/api/login",
-                json={"role": "host", "pin": "1234", "captain_id": None},
-            )
+            login = login_as_host(client)
             self.assertEqual(login.status_code, 200)
 
             settings = client.put(
@@ -53,15 +71,27 @@ class ApiFlowTest(unittest.TestCase):
             )
             self.assertEqual(captain_player.status_code, 200)
 
+            captain_client = TestClient(app)
+            signup = captain_client.post(
+                "/api/scrim/users",
+                json={
+                    "name": "탑팀장",
+                    "riot_id": "탑팀장#KR1",
+                    "password": "captainpw",
+                },
+            )
+            self.assertEqual(signup.status_code, 200)
+
             captain = client.post(
                 "/api/captains",
                 json={
                     "player_id": captain_player.json()["id"],
                     "budget": 100,
-                    "pin": "5678",
+                    "riot_id": "탑팀장#KR1",
                 },
             )
             self.assertEqual(captain.status_code, 200)
+            self.assertNotIn("user_id", captain.json())
 
             player = client.post(
                 "/api/players",
@@ -84,16 +114,6 @@ class ApiFlowTest(unittest.TestCase):
             timer_started = client.post("/api/auction/timer/start")
             self.assertEqual(timer_started.status_code, 200)
 
-            captain_client = TestClient(app)
-            captain_login = captain_client.post(
-                "/api/login",
-                json={
-                    "role": "captain",
-                    "pin": "5678",
-                    "captain_id": captain.json()["id"],
-                },
-            )
-            self.assertEqual(captain_login.status_code, 200)
             bid = captain_client.post(
                 "/api/auction/bid",
                 json={"amount": 20},
@@ -103,23 +123,16 @@ class ApiFlowTest(unittest.TestCase):
 
             state = captain_client.get("/api/state").json()
             self.assertEqual(state["viewer"]["role"], "captain")
-            self.assertNotIn("pin", state["captains"][0])
+            self.assertNotIn("user_id", state["captains"][0])
 
     def test_spectator_cannot_start_auction(self):
         with TestClient(app) as client:
-            client.post(
-                "/api/login",
-                json={"role": "spectator", "pin": "", "captain_id": None},
-            )
             response = client.post("/api/auction/start")
             self.assertEqual(response.status_code, 403)
 
     def test_teacher_manages_competitions_and_delete_cascades(self):
         with TestClient(app) as client:
-            client.post(
-                "/api/login",
-                json={"role": "host", "pin": "1234", "captain_id": None},
-            )
+            login_as_host(client)
             created = client.post(
                 "/api/competitions",
                 json={"name": "여름 멸망전", "mode": "tournament"},
@@ -154,69 +167,81 @@ class ApiFlowTest(unittest.TestCase):
             )
             self.assertEqual(len(after["players"]), 0)
 
-    def test_competition_mode_controls_captain_login(self):
+    def test_captain_role_does_not_leak_across_competitions(self):
         with TestClient(app) as client:
+            login_as_host(client)
             client.post(
-                "/api/login",
-                json={"role": "host", "pin": "1234", "captain_id": None},
-            )
-            created = client.post(
                 "/api/competitions",
-                json={"name": "멸망전 전용", "mode": "tournament"},
+                json={"name": "팀장 배정 대회", "mode": "auction"},
             )
-            self.assertEqual(created.status_code, 200)
-            state = client.get("/api/state").json()
-            current = next(
-                item
-                for item in state["competition_registry"]["competitions"]
-                if item["id"] == created.json()["id"]
-            )
-            self.assertEqual(current["mode"], "tournament")
-            client.post("/api/logout")
-            captain_login = client.post(
-                "/api/login",
+            player = client.post(
+                "/api/players",
                 json={
-                    "role": "captain",
-                    "pin": "1234",
-                    "captain_id": "missing",
+                    "name": "팀장후보",
+                    "riot_id": "",
+                    "tier": "GOLD",
+                    "primary_position": "TOP",
+                    "secondary_position": None,
+                },
+            ).json()
+
+            captain_client = TestClient(app)
+            captain_client.post(
+                "/api/scrim/users",
+                json={
+                    "name": "팀장후보",
+                    "riot_id": "팀장후보#KR1",
+                    "password": "pw1234",
                 },
             )
-            self.assertEqual(captain_login.status_code, 400)
+            captain = client.post(
+                "/api/captains",
+                json={
+                    "player_id": player["id"],
+                    "budget": 100,
+                    "riot_id": "팀장후보#KR1",
+                },
+            )
+            self.assertEqual(captain.status_code, 200)
 
-    def test_teacher_can_change_pin_and_old_pin_stops_working(self):
+            state = captain_client.get("/api/state").json()
+            self.assertEqual(state["viewer"]["role"], "captain")
+
+            created = client.post(
+                "/api/competitions",
+                json={"name": "다른 대회", "mode": "tournament"},
+            )
+            self.assertEqual(created.status_code, 200)
+
+            state_after_switch = captain_client.get("/api/state").json()
+            self.assertEqual(state_after_switch["viewer"]["role"], "spectator")
+
+    def test_creating_captain_requires_existing_account(self):
         with TestClient(app) as client:
-            client.post(
-                "/api/login",
-                json={"role": "host", "pin": "1234", "captain_id": None},
+            login_as_host(client)
+            player = client.post(
+                "/api/players",
+                json={
+                    "name": "미가입자",
+                    "riot_id": "",
+                    "tier": "GOLD",
+                    "primary_position": "TOP",
+                    "secondary_position": None,
+                },
+            ).json()
+            response = client.post(
+                "/api/captains",
+                json={
+                    "player_id": player["id"],
+                    "budget": 100,
+                    "riot_id": "존재하지않음#KR1",
+                },
             )
-            changed = client.post(
-                "/api/teacher/pin",
-                json={"current_pin": "1234", "new_pin": "9876"},
-            )
-            self.assertEqual(changed.status_code, 200)
-            old_login = client.post(
-                "/api/login",
-                json={"role": "host", "pin": "1234", "captain_id": None},
-            )
-            self.assertEqual(old_login.status_code, 401)
-            new_login = client.post(
-                "/api/login",
-                json={"role": "host", "pin": "9876", "captain_id": None},
-            )
-            self.assertEqual(new_login.status_code, 200)
-            # 다음 테스트들을 위해 기본 PIN으로 복원한다.
-            restored = client.post(
-                "/api/teacher/pin",
-                json={"current_pin": "9876", "new_pin": "1234"},
-            )
-            self.assertEqual(restored.status_code, 200)
+            self.assertEqual(response.status_code, 400)
 
     def test_teacher_can_edit_player_doomsday_score(self):
         with TestClient(app) as client:
-            client.post(
-                "/api/login",
-                json={"role": "host", "pin": "1234", "captain_id": None},
-            )
+            login_as_host(client)
             player = client.post(
                 "/api/players",
                 json={
@@ -237,10 +262,7 @@ class ApiFlowTest(unittest.TestCase):
 
     def test_teacher_can_set_team_total_score_limit(self):
         with TestClient(app) as client:
-            client.post(
-                "/api/login",
-                json={"role": "host", "pin": "1234", "captain_id": None},
-            )
+            login_as_host(client)
             response = client.put(
                 "/api/tournament/settings", json={"score_limit": 55}
             )
@@ -250,10 +272,7 @@ class ApiFlowTest(unittest.TestCase):
 
     def test_public_simulator_recommends_from_partial_lineup(self):
         with TestClient(app) as client:
-            client.post(
-                "/api/login",
-                json={"role": "host", "pin": "1234", "captain_id": None},
-            )
+            login_as_host(client)
             ids = {}
             for position, score in zip(
                 ("TOP", "JUG", "MID", "ADC", "SUP"), (8, 7, 10, 9, 6)
@@ -270,7 +289,7 @@ class ApiFlowTest(unittest.TestCase):
                     },
                 ).json()
                 ids[position] = player["id"]
-            client.post("/api/logout")
+            client.post("/api/scrim/auth/logout")
             response = client.post(
                 "/api/tournament/recommend",
                 json={
@@ -305,10 +324,7 @@ class ApiFlowTest(unittest.TestCase):
 
     def test_participant_registers_team_and_host_sets_score_limit(self):
         with TestClient(app) as client:
-            client.post(
-                "/api/login",
-                json={"role": "host", "pin": "1234", "captain_id": None},
-            )
+            login_as_host(client)
             settings = client.put(
                 "/api/tournament/settings", json={"score_limit": 40}
             )
@@ -334,7 +350,7 @@ class ApiFlowTest(unittest.TestCase):
                 )
                 players[position] = response.json()["id"]
 
-            client.post("/api/logout")
+            client.post("/api/scrim/auth/logout")
             response = client.post(
                 "/api/tournament/teams",
                 json={
@@ -355,10 +371,6 @@ class ApiFlowTest(unittest.TestCase):
 
     def test_websocket_sends_initial_state(self):
         with TestClient(app) as client:
-            client.post(
-                "/api/login",
-                json={"role": "spectator", "pin": "", "captain_id": None},
-            )
             with client.websocket_connect("/ws") as websocket:
                 message = websocket.receive_json()
                 self.assertEqual(message["type"], "state")

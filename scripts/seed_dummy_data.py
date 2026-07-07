@@ -64,7 +64,6 @@ def build_document() -> dict:
     competition_id = uuid.uuid4().hex
     return {
         "version": 2,
-        "teacher_auth": None,
         "active_competition_id": competition_id,
         "competitions": [
             {

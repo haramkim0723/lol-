@@ -26,6 +26,7 @@
           <button type="button" data-view="team-register">팀 등록</button>
           <button id="tournament-nav" type="button" data-view="tournament">점수제</button>
           <button type="button" data-view="auction">경매장</button>
+          <button type="button" data-view="scrim">스크림</button>
         </nav>
         <div id="role-badge" class="role-badge">참가자</div>
         <button id="logout-button" class="ghost small-button" type="button">역할 전환</button>
@@ -79,16 +80,6 @@
           <div id="competition-list" class="competition-list"></div>
           <p class="danger-guide">대회를 삭제하면 해당 참가자, 팀, 경매 기록과 대진표가 모두 삭제됩니다.</p>
         </article>
-        <article class="panel teacher-security-panel">
-          <div class="panel-title"><span>SECURITY</span><h2>강사님 PIN 변경</h2></div>
-          <form id="teacher-pin-form" class="teacher-pin-form">
-            <label>현재 PIN<input name="current_pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" required placeholder="현재 PIN" /></label>
-            <label>새 PIN<input name="new_pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" required placeholder="숫자 4~12자리" /></label>
-            <label>새 PIN 확인<input name="confirm_pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" required placeholder="새 PIN 다시 입력" /></label>
-            <button class="primary" type="submit">PIN 변경</button>
-          </form>
-          <p class="security-guide">변경 후 자동으로 로그아웃되며 새 PIN으로 다시 입장해야 합니다.</p>
-        </article>
         <article class="panel tournament-score-settings">
           <div class="panel-title"><span>SCORE</span><h2>점수제 팀 총점 설정</h2></div>
           <form id="teacher-score-limit-form" class="score-limit-form">
@@ -138,10 +129,10 @@
               </div>
             </label>
             <label class="captain-field">
-              <span class="field-caption">팀장 입장 PIN</span>
+              <span class="field-caption">팀장 계정 Riot ID</span>
               <div class="input-with-icon">
-                <input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" placeholder="숫자 4~12자리" required />
-                <span>••••</span>
+                <input name="riot_id" type="text" placeholder="가입된 Riot ID 입력 (예: 닉네임#KR1)" required minlength="3" maxlength="80" />
+                <span>ID</span>
               </div>
             </label>
             <button class="captain-add-button" type="submit">
@@ -377,27 +368,92 @@
           </article>
         </aside>
       </section>
+
+      <section id="scrim-panel" class="scrim-shell hidden">
+        <section class="dashboard-main">
+          <article class="panel">
+            <div class="panel-title">
+              <span>MY TEAM</span>
+              <h2>팀 생성</h2>
+            </div>
+            <form id="team-create-form" class="scrim-form compact">
+              <label>팀명
+                <input name="name" maxlength="100" required placeholder="팀 이름" />
+              </label>
+              <div class="inline-fields">
+                <label>탑레
+                  <input name="top_rank" maxlength="50" placeholder="예: Emerald II" />
+                </label>
+                <label>판수
+                  <input name="game_count" type="number" min="0" value="0" />
+                </label>
+              </div>
+              <button class="primary" type="submit">팀 만들기</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-title">
+              <span>JOIN</span>
+              <h2>팀 코드 가입</h2>
+            </div>
+            <form id="team-join-form" class="scrim-form compact">
+              <label>초대 코드
+                <input name="invite_code" required placeholder="팀 코드 입력" />
+              </label>
+              <button class="secondary" type="submit">가입하기</button>
+            </form>
+          </article>
+
+          <article class="panel wide">
+            <div class="panel-title row">
+              <div>
+                <span>TEAMS</span>
+                <h2>팀 목록</h2>
+              </div>
+              <button id="refresh-teams" class="ghost" type="button">새로고침</button>
+            </div>
+            <div id="team-list" class="team-list"></div>
+          </article>
+        </section>
+
+        <aside id="admin-panel" class="panel admin-panel hidden">
+          <div class="panel-title">
+            <span>ADMIN</span>
+            <h2>회원 관리</h2>
+          </div>
+          <form id="admin-search-form" class="scrim-form compact">
+            <label>회원 검색
+              <input name="query" placeholder="이름 또는 롤 아이디" />
+            </label>
+            <button class="secondary" type="submit">검색</button>
+          </form>
+          <div id="admin-user-list" class="admin-user-list"></div>
+        </aside>
+      </section>
     </main>
 
     <div id="login-overlay" class="login-overlay">
       <div class="login-card">
         <p class="eyebrow">ENTER THE AUCTION</p>
-        <h2>어떻게 입장할까요?</h2>
-        <p class="login-copy">강사님은 전체 진행을 관리하고, 팀장은 자기 팀 예산으로 직접 입찰합니다.</p>
+        <h2>Riot ID로 입장하세요</h2>
+        <p class="login-copy">계정 하나로 강사님·팀장·스크림 팀 관리까지 모두 이용할 수 있습니다. 역할은 로그인 후 서버가 자동으로 판단합니다.</p>
         <div class="login-tabs">
-          <button class="login-tab active" data-login-role="spectator" type="button">참가자</button>
-          <button class="login-tab" data-login-role="captain" type="button">팀장</button>
-          <button class="login-tab" data-login-role="host" type="button">강사님</button>
+          <button id="show-login" class="login-tab active" type="button">로그인</button>
+          <button id="show-signup" class="login-tab" type="button">회원가입</button>
         </div>
         <form id="login-form">
-          <div id="captain-login-fields" class="hidden">
-            <label>내 팀<select id="login-captain" name="captain_id"></select></label>
-          </div>
-          <div id="pin-login-field" class="hidden">
-            <label>입장 PIN<input name="pin" type="password" inputmode="numeric" placeholder="PIN 입력" /></label>
-          </div>
-          <button id="login-submit" class="primary" type="submit">참가자로 입장</button>
+          <label>롤 아이디<input name="riot_id" autocomplete="username" required placeholder="닉네임#KR1" /></label>
+          <label>비밀번호<input name="password" type="password" autocomplete="current-password" minlength="4" required /></label>
+          <button class="primary" type="submit">로그인</button>
         </form>
+        <form id="signup-form" class="hidden">
+          <label>이름<input name="name" autocomplete="name" maxlength="50" required placeholder="홍길동" /></label>
+          <label>롤 아이디<input name="riot_id" autocomplete="username" maxlength="80" required placeholder="닉네임#KR1" /></label>
+          <label>비밀번호<input name="password" type="password" autocomplete="new-password" minlength="4" maxlength="128" required /></label>
+          <button class="primary" type="submit">회원가입</button>
+        </form>
+        <button id="guest-browse-button" class="ghost login-guest-button" type="button">로그인 없이 둘러보기</button>
       </div>
     </div>
 

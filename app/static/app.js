@@ -29,8 +29,11 @@ let currentView = location.pathname === "/score-players"
     ? "team-register"
   : location.pathname === "/tournament"
     ? "tournament"
+  : location.pathname === "/scrim"
+    ? "scrim"
     : "intro";
-let loginRole = "spectator";
+let guestBrowsing = false;
+let authMode = "login";
 let introIndex = 0;
 let introPlayerId = null;
 let scoreIntroIndex = 0;
@@ -132,16 +135,19 @@ function setView(view) {
   $("#team-register-panel").classList.toggle("hidden", view !== "team-register");
   $("#tournament-panel").classList.toggle("hidden", view !== "tournament");
   $("#auction-panel").classList.toggle("hidden", view !== "auction");
+  $("#scrim-panel").classList.toggle("hidden", view !== "scrim");
   $$("[data-view]").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === view);
   });
   const path = view === "team-simulator" ? "/team-simulator"
     : view === "score-intro" ? "/score-players"
     : view === "team-register" ? "/team-register"
-    : view === "tournament" ? "/tournament" : "/";
+    : view === "tournament" ? "/tournament"
+    : view === "scrim" ? "/scrim" : "/";
   if (location.pathname !== path) {
     history.pushState({ view }, "", path);
   }
+  if (view === "scrim") loadScrimData();
 }
 
 async function enterAuctionView() {
@@ -167,15 +173,14 @@ async function enterAuctionView() {
 
 function renderRole() {
   const viewer = state.viewer;
-  const publicPage = ["/score-players", "/team-simulator", "/team-register", "/tournament"].includes(location.pathname);
-  $("#login-overlay").classList.toggle("hidden", viewer.authenticated || publicPage);
-  $("#main-nav").classList.toggle("hidden", !viewer.authenticated && !publicPage);
+  const publicPage = ["/score-players", "/team-simulator", "/team-register", "/tournament", "/scrim"].includes(location.pathname);
+  const browsable = viewer.authenticated || publicPage || guestBrowsing;
+  $("#login-overlay").classList.toggle("hidden", browsable);
+  $("#main-nav").classList.toggle("hidden", !browsable);
   $("#logout-button").classList.toggle("hidden", !viewer.authenticated);
   $("#setup-nav").classList.toggle("hidden", viewer.role !== "host");
-  $("#competition-switcher").classList.toggle(
-    "hidden",
-    !viewer.authenticated && !publicPage
-  );
+  $("#admin-panel").classList.toggle("hidden", viewer.role !== "host");
+  $("#competition-switcher").classList.toggle("hidden", !browsable);
 
   let label = "참가자";
   if (viewer.role === "host") label = "강사님";
@@ -183,12 +188,6 @@ function renderRole() {
     label = `${captainById(viewer.captain_id)?.name || "팀장"} 팀`;
   }
   $("#role-badge").textContent = label;
-
-  $("#login-captain").innerHTML = state.captains.length
-    ? state.captains.map((captain) =>
-      `<option value="${captain.id}">${escapeHtml(captain.name)}</option>`
-    ).join("")
-    : '<option value="">등록된 팀장이 없습니다</option>';
 }
 
 function renderCompetitions() {
@@ -231,7 +230,6 @@ function applyCompetitionMode() {
   $$('[data-view="score-intro"], [data-view="team-simulator"], [data-view="team-register"], [data-view="tournament"]').forEach((button) => {
     button.classList.toggle("hidden", isAuction);
   });
-  $('[data-login-role="captain"]').classList.toggle("hidden", !isAuction);
   $(".tournament-score-settings").classList.toggle("hidden", isAuction);
   $(".settings-panel").classList.toggle("hidden", !isAuction);
   $(".captain-panel").classList.toggle("hidden", !isAuction);
@@ -438,7 +436,7 @@ function renderSetup() {
         <div class="captain-row-avatar">${escapeHtml(captain.name.slice(0, 1))}</div>
         <div class="captain-row-copy">
           <strong>${escapeHtml(captain.name)} 팀</strong>
-          <small>${escapeHtml(playerById(captain.player_id)?.primary_position || "POSITION")} 자동 배치 · PIN 입장</small>
+          <small>${escapeHtml(playerById(captain.player_id)?.primary_position || "POSITION")} 자동 배치 · 계정 로그인</small>
         </div>
         <div class="captain-budget">
           <strong>${captain.initial_budget.toLocaleString()} P</strong>
@@ -972,30 +970,42 @@ window.addEventListener("popstate", () => {
     : location.pathname === "/team-simulator"
     ? "team-simulator"
     : location.pathname === "/team-register" ? "team-register"
-    : location.pathname === "/tournament" ? "tournament" : "intro";
+    : location.pathname === "/tournament" ? "tournament"
+    : location.pathname === "/scrim" ? "scrim" : "intro";
   if (state) setView(currentView);
 });
 
-$$(".login-tab").forEach((button) => button.addEventListener("click", () => {
-  loginRole = button.dataset.loginRole;
-  $$(".login-tab").forEach((tab) => tab.classList.toggle("active", tab === button));
-  $("#captain-login-fields").classList.toggle("hidden", loginRole !== "captain");
-  $("#pin-login-field").classList.toggle("hidden", loginRole === "spectator");
-  $("#login-submit").textContent =
-    loginRole === "host" ? "강사님으로 입장"
-      : loginRole === "captain" ? "팀장으로 입장" : "참가자로 입장";
-}));
+function setAuthMode(mode) {
+  authMode = mode;
+  $("#login-form").classList.toggle("hidden", mode !== "login");
+  $("#signup-form").classList.toggle("hidden", mode !== "signup");
+  $("#show-login").classList.toggle("active", mode === "login");
+  $("#show-signup").classList.toggle("active", mode === "signup");
+}
+$("#show-login").addEventListener("click", () => setAuthMode("login"));
+$("#show-signup").addEventListener("click", () => setAuthMode("signup"));
+
+$("#guest-browse-button").addEventListener("click", () => {
+  guestBrowsing = true;
+  renderRole();
+});
 
 $("#login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const form = new FormData(event.target);
-  const payload = {
-    role: loginRole,
-    pin: form.get("pin") || "",
-    captain_id: loginRole === "captain" ? form.get("captain_id") : null,
-  };
+  const payload = Object.fromEntries(new FormData(event.target));
   try {
-    await api("/api/login", { method: "POST", body: JSON.stringify(payload) });
+    await api("/api/scrim/auth/login", { method: "POST", body: JSON.stringify(payload) });
+    location.reload();
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
+
+$("#signup-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const payload = Object.fromEntries(new FormData(event.target));
+  try {
+    await api("/api/scrim/users", { method: "POST", body: JSON.stringify(payload) });
     location.reload();
   } catch (error) {
     toast(error.message, true);
@@ -1003,7 +1013,7 @@ $("#login-form").addEventListener("submit", async (event) => {
 });
 
 $("#logout-button").addEventListener("click", async () => {
-  await api("/api/logout", { method: "POST" });
+  await api("/api/scrim/auth/logout", { method: "POST" });
   location.href = "/";
 });
 
@@ -1017,27 +1027,6 @@ $("#competition-form").addEventListener("submit", async (event) => {
     });
     event.target.reset();
     toast("새 대회를 만들고 현재 대회로 선택했습니다.");
-  } catch (error) { toast(error.message, true); }
-});
-
-$("#teacher-pin-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const data = Object.fromEntries(new FormData(event.target));
-  if (data.new_pin !== data.confirm_pin) {
-    toast("새 PIN 확인이 일치하지 않습니다.", true);
-    return;
-  }
-  try {
-    await api("/api/teacher/pin", {
-      method: "POST",
-      body: JSON.stringify({
-        current_pin: data.current_pin,
-        new_pin: data.new_pin,
-      }),
-    });
-    event.target.reset();
-    alert("강사님 PIN이 변경되었습니다. 새 PIN으로 다시 입장해 주세요.");
-    location.href = "/";
   } catch (error) { toast(error.message, true); }
 });
 
@@ -1376,6 +1365,123 @@ $("#bid-form").addEventListener("submit", async (event) => {
   const data = { amount: Number($("#bid-amount").value) };
   try {
     await api("/api/auction/bid", { method: "POST", body: JSON.stringify(data) });
+  } catch (error) { toast(error.message, true); }
+});
+
+function renderScrimTeams(teams) {
+  const list = $("#team-list");
+  if (!teams.length) {
+    list.innerHTML = '<div class="empty-state">아직 등록된 팀이 없습니다.</div>';
+    return;
+  }
+  list.innerHTML = teams.map((team) => `
+    <article class="team-item">
+      <div class="team-head">
+        <div>
+          <strong>${escapeHtml(team.name)}</strong>
+          <div class="meta">${team.status} · ${team.active_member_count ?? team.members?.length ?? 0}명</div>
+        </div>
+        <span class="code-pill">${escapeHtml(team.invite_code)}</span>
+      </div>
+      ${team.members ? `
+        <div class="member-list">
+          ${team.members.map((member) =>
+            `<span>${escapeHtml(member.name)}${member.role === "LEADER" ? " · 팀장" : ""}</span>`
+          ).join("")}
+        </div>` : ""}
+    </article>
+  `).join("");
+}
+
+function renderScrimAdminUsers(users) {
+  const list = $("#admin-user-list");
+  if (!users.length) {
+    list.innerHTML = '<div class="empty-state">검색 결과가 없습니다.</div>';
+    return;
+  }
+  list.innerHTML = users.map((user) => `
+    <article class="admin-user">
+      <div class="admin-user-head">
+        <div>
+          <strong>${escapeHtml(user.name)}</strong>
+          <div class="meta">${escapeHtml(user.riot_id)} · ${user.role}</div>
+        </div>
+      </div>
+      <form data-password-reset="${user.id}">
+        <input name="new_password" type="password" minlength="4" maxlength="128" placeholder="새 비밀번호" required />
+        <button class="ghost" type="submit">재설정</button>
+      </form>
+    </article>
+  `).join("");
+}
+
+async function loadScrimTeams() {
+  const data = await api("/api/scrim/teams");
+  renderScrimTeams(data.teams);
+}
+
+async function searchScrimUsers(query) {
+  const data = await api(`/api/scrim/admin/users?query=${encodeURIComponent(query)}`);
+  renderScrimAdminUsers(data.users);
+}
+
+async function loadScrimData() {
+  try {
+    await loadScrimTeams();
+    if (state.viewer.role === "host") await searchScrimUsers("");
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+$("#team-create-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const payload = Object.fromEntries(new FormData(event.target));
+  payload.game_count = Number(payload.game_count || 0);
+  payload.top_rank ||= null;
+  try {
+    await api("/api/scrim/teams", { method: "POST", body: JSON.stringify(payload) });
+    event.target.reset();
+    await loadScrimTeams();
+    toast("팀을 만들었습니다.");
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#team-join-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await api("/api/scrim/teams/join", {
+      method: "POST",
+      body: JSON.stringify(Object.fromEntries(new FormData(event.target))),
+    });
+    event.target.reset();
+    await loadScrimTeams();
+    toast("팀에 가입했습니다.");
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#refresh-teams").addEventListener("click", () =>
+  loadScrimTeams().then(() => toast("팀 목록을 새로고침했습니다.")).catch((error) => toast(error.message, true))
+);
+
+$("#admin-search-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await searchScrimUsers(new FormData(event.target).get("query") || "");
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#admin-user-list").addEventListener("submit", async (event) => {
+  const form = event.target.closest("[data-password-reset]");
+  if (!form) return;
+  event.preventDefault();
+  try {
+    await api(`/api/scrim/admin/users/${form.dataset.passwordReset}/password`, {
+      method: "PATCH",
+      body: JSON.stringify(Object.fromEntries(new FormData(form))),
+    });
+    form.reset();
+    toast("비밀번호를 재설정했습니다.");
   } catch (error) { toast(error.message, true); }
 });
 

@@ -49,7 +49,7 @@ def public_state(
 ) -> dict[str, Any]:
     result = deepcopy(state)
     for captain in result["captains"]:
-        captain.pop("pin", None)
+        captain.pop("user_id", None)
     tournament = result.setdefault(
         "tournament",
         {
@@ -73,7 +73,7 @@ def public_state(
 
 
 def add_captain(
-    state: dict[str, Any], player_id: str, budget: int, pin: str
+    state: dict[str, Any], player_id: str, budget: int, user_id: int
 ) -> dict[str, Any]:
     player = next(
         (item for item in state["players"] if item["id"] == player_id), None
@@ -88,7 +88,7 @@ def add_captain(
         "player_id": player_id,
         "initial_budget": budget,
         "remaining_budget": budget,
-        "pin": pin,
+        "user_id": user_id,
         "team": {position: None for position in POSITIONS},
         "bench": [],
     }

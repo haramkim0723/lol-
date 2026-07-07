@@ -54,14 +54,14 @@ python -m venv .venv
 ```env
 RIOT_API_KEY=
 DATA_FILE=/data/state.json
-HOST_PIN=1234
-SESSION_SECRET=충분히-긴-임의-문자열
+SCRIM_ADMIN_PASSWORD=1234
+SCRIM_SESSION_SECRET=충분히-긴-임의-문자열
 UPSTASH_REDIS_REST_URL=
 UPSTASH_REDIS_REST_TOKEN=
 STATE_REDIS_KEY=lol-auction:state
 ```
 
-운영 환경에서는 반드시 `HOST_PIN`과 `SESSION_SECRET`을 변경해.
+로그인은 Riot ID + 비밀번호 계정 하나로 통합돼 있어. 강사님은 `SCRIM_ADMIN_PASSWORD`로 시드되는 관리자 계정(예: `장원혁#ADMIN`)으로 로그인하고, 팀장은 회원가입한 계정의 Riot ID를 강사님이 팀장 등록 화면에 입력해 지정해. 운영 환경에서는 반드시 `SCRIM_ADMIN_PASSWORD`와 `SCRIM_SESSION_SECRET`을 변경해.
 
 ## 더미 데이터
 

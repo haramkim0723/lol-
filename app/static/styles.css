@@ -76,14 +76,10 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 36px 60px; }
 }
 .players-panel { grid-column: 1 / -1; }
 .competition-manager { grid-column: 1 / -1; }
-.teacher-security-panel { grid-column: 1 / -1; }
 .tournament-score-settings { grid-column: 1 / -1; }
 .score-limit-form { display: grid; grid-template-columns: minmax(220px,360px) auto; gap: 9px; align-items: end; }
 .score-limit-form input { width: 100%; height: 40px; margin: 0; padding: 8px 55px 8px 11px; border: 1px solid var(--line); border-radius: 9px; color: var(--gold-light); background: #080e15; outline: 0; font-weight: 900; }
 .score-limit-form button { width: fit-content; min-width: 104px; height: 40px; padding: 8px 13px; font-size: 10px; }
-.teacher-pin-form { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)) auto; gap: 9px; align-items: end; }
-.teacher-pin-form label { color: var(--muted); font-size: 10px; font-weight: 700; }
-.teacher-pin-form input { display: block; width: 100%; margin-top: 6px; padding: 11px; border: 1px solid var(--line); border-radius: 9px; color: #fff; background: #080e15; outline: 0; }
 .security-guide { margin: 9px 0 0; color: var(--muted); font-size: 9px; }
 .competition-create-form { display: grid; grid-template-columns: 1fr 180px auto; gap: 8px; }
 .competition-create-form input, .competition-create-form select { padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; color: #fff; background: #080e15; outline: 0; }
@@ -582,15 +578,63 @@ aside { display: grid; gap: 18px; }
 .login-card { width: min(430px, 100%); border: 1px solid rgba(217,169,79,.25); border-radius: 20px; padding: 28px; background: linear-gradient(145deg, #172130, #0a0f17); box-shadow: 0 25px 100px rgba(0,0,0,.55); }
 .login-card h2 { margin: 0; font-size: 28px; }
 .login-copy { color: var(--muted); font-size: 13px; line-height: 1.7; }
-.login-tabs { display: grid; grid-template-columns: repeat(3,1fr); gap: 5px; margin: 22px 0 15px; padding: 4px; border-radius: 11px; background: #080d14; }
+.login-tabs { display: grid; grid-template-columns: repeat(2,1fr); gap: 5px; margin: 22px 0 15px; padding: 4px; border-radius: 11px; background: #080d14; }
+.login-guest-button { width: 100%; margin-top: 12px; }
 .login-tab { background: transparent; color: var(--muted); padding: 9px; }
 .login-tab.active { color: #15100a; background: var(--gold-light); }
 .login-card label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 11px; }
 .login-card input, .login-card select { display: block; width: 100%; margin-top: 7px; padding: 12px; border-radius: 10px; border: 1px solid var(--line); color: #fff; background: #080d14; }
 .login-card form > button { width: 100%; margin-top: 7px; }
 
+.scrim-shell { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+.dashboard-main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.panel-title.row { justify-content: space-between; align-items: flex-start; }
+.scrim-form { display: grid; gap: 14px; }
+.scrim-form label { color: var(--muted); font-size: 12px; font-weight: 600; }
+.scrim-form.compact { gap: 12px; }
+.inline-fields { display: grid; grid-template-columns: 1fr 110px; gap: 10px; }
+.team-list, .admin-user-list { display: grid; gap: 10px; }
+.empty-state {
+  padding: 20px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  text-align: center;
+}
+.team-item, .admin-user {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255,255,255,.03);
+}
+.team-head, .admin-user-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.team-head strong, .admin-user-head strong { font-size: 15px; }
+.meta { color: var(--muted); font-size: 12px; }
+.code-pill {
+  user-select: all;
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: var(--cyan);
+  background: rgba(39,211,211,.09);
+  font-size: 11px;
+  font-weight: 900;
+}
+.member-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.member-list span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255,255,255,.05);
+  font-size: 11px;
+}
+.admin-user form { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
+.admin-user form input { margin-top: 0; }
+
 @media (max-width: 980px) {
-  .setup-grid, .auction-layout { grid-template-columns: 1fr; }
+  .setup-grid, .auction-layout, .scrim-shell { grid-template-columns: 1fr; }
+  .dashboard-main { grid-template-columns: 1fr; }
   .auction-stage { position: static; }
   .player-form { grid-template-columns: repeat(2, 1fr); }
   .player-form button { grid-column: 1 / -1; }
@@ -647,7 +691,7 @@ aside { display: grid; gap: 18px; }
   .apply-recommendation { grid-column: 3; grid-row: 1 / span 6; }
   .tournament-registration-layout { grid-template-columns: 1fr; }
   .team-registration-head, .tournament-member-selects { grid-template-columns: 1fr; }
-  .teacher-pin-form { grid-template-columns: 1fr; }
+  .inline-fields, .admin-user form { grid-template-columns: 1fr; }
   .score-limit-form { grid-template-columns: 1fr auto; }
   .competition-create-form { grid-template-columns: 1fr; }
   .current-card { min-height: 370px; }

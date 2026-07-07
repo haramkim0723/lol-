@@ -111,15 +111,22 @@ def set_session_cookie(response: Response, user: dict) -> None:
     )
 
 
-def current_user_from_cookie(scrim_auth: str | None) -> dict:
+def current_user_or_none(scrim_auth: str | None) -> dict | None:
     session = read_session(scrim_auth)
     if session is None:
-        raise HTTPException(401, "로그인이 필요합니다.")
+        return None
     try:
         with scrim_db.connect() as connection:
             return scrim_db.get_user(connection, session["user_id"])
-    except ValueError as exc:
-        raise HTTPException(401, "유효하지 않은 세션입니다.") from exc
+    except ValueError:
+        return None
+
+
+def current_user_from_cookie(scrim_auth: str | None) -> dict:
+    user = current_user_or_none(scrim_auth)
+    if user is None:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    return user
 
 
 def require_admin(scrim_auth: str | None) -> dict:

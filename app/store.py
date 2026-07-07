@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import json
-import hashlib
-import hmac
 import os
-import secrets
 import tempfile
 import urllib.error
 import urllib.request
@@ -80,36 +77,6 @@ class JsonStore:
                 for competition in self.document["competitions"]
             ],
         }
-
-    def verify_teacher_pin(self, pin: str) -> bool:
-        auth = self.document.get("teacher_auth")
-        if not auth:
-            return secrets.compare_digest(
-                pin, os.getenv("HOST_PIN", "1234")
-            )
-        candidate = hashlib.pbkdf2_hmac(
-            "sha256",
-            pin.encode("utf-8"),
-            bytes.fromhex(auth["salt"]),
-            int(auth["iterations"]),
-        ).hex()
-        return hmac.compare_digest(candidate, auth["hash"])
-
-    def change_teacher_pin(self, new_pin: str) -> None:
-        salt = secrets.token_bytes(16)
-        iterations = 210_000
-        pin_hash = hashlib.pbkdf2_hmac(
-            "sha256",
-            new_pin.encode("utf-8"),
-            salt,
-            iterations,
-        ).hex()
-        self.document["teacher_auth"] = {
-            "salt": salt.hex(),
-            "hash": pin_hash,
-            "iterations": iterations,
-        }
-        self.save()
 
     def create_competition(
         self, name: str, mode: str = "auction", *, save: bool = True
@@ -233,7 +200,6 @@ class JsonStore:
                 ],
             }
         raw.setdefault("version", 2)
-        raw.setdefault("teacher_auth", None)
         for competition in raw["competitions"]:
             competition.setdefault("mode", "auction")
             competition["state"] = self._normalize_event(

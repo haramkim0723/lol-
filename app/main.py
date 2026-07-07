@@ -1,12 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import hashlib
-import hmac
-import json
 import os
-import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -16,7 +11,6 @@ from fastapi import (
     FastAPI,
     HTTPException,
     Request,
-    Response,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -24,9 +18,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import engine
+from . import engine, scrim_db
 from .riot import RiotApiError, lookup_kr_player
-from .scrim_api import router as scrim_router
+from .scrim_api import (
+    SCRIM_AUTH_COOKIE,
+    current_user_or_none,
+    router as scrim_router,
+)
 from .scrim_db import init_db as init_scrim_db
 from .store import JsonStore
 
@@ -54,60 +52,45 @@ def captain_presence() -> dict:
     }
 
 
-def _sign(payload: str) -> str:
-    secret = os.getenv("SESSION_SECRET", "local-development-secret").encode()
-    return hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
-
-
-def make_session(role: str, captain_id: str | None = None) -> str:
-    raw = json.dumps(
-        {"role": role, "captain_id": captain_id, "nonce": secrets.token_hex(4)},
-        separators=(",", ":"),
+def compute_viewer(token: str | None) -> dict:
+    user = current_user_or_none(token)
+    if user is None:
+        return {"role": "spectator", "captain_id": None, "authenticated": False}
+    if user["role"] == "ADMIN":
+        return {"role": "host", "captain_id": None, "authenticated": True}
+    captain = next(
+        (
+            c
+            for c in store.state["captains"]
+            if c.get("user_id") == user["id"]
+        ),
+        None,
     )
-    payload = base64.urlsafe_b64encode(raw.encode()).decode()
-    return f"{payload}.{_sign(payload)}"
-
-
-def read_session(token: str | None) -> dict:
-    fallback = {
-        "role": "spectator",
-        "captain_id": None,
-        "authenticated": False,
-    }
-    if not token or "." not in token:
-        return fallback
-    payload, signature = token.rsplit(".", 1)
-    if not hmac.compare_digest(signature, _sign(payload)):
-        return fallback
-    try:
-        data = json.loads(base64.urlsafe_b64decode(payload.encode()).decode())
-    except (ValueError, json.JSONDecodeError):
-        return fallback
-    if data.get("role") not in ("host", "captain", "spectator"):
-        return fallback
-    return {
-        "role": data["role"],
-        "captain_id": data.get("captain_id"),
-        "authenticated": True,
-    }
+    if captain:
+        return {
+            "role": "captain",
+            "captain_id": captain["id"],
+            "authenticated": True,
+        }
+    return {"role": "spectator", "captain_id": None, "authenticated": True}
 
 
 def require_host(request: Request) -> dict:
-    viewer = read_session(request.cookies.get("auction_auth"))
+    viewer = compute_viewer(request.cookies.get(SCRIM_AUTH_COOKIE))
     if viewer["role"] != "host":
         raise HTTPException(403, "강사님만 사용할 수 있는 기능입니다.")
     return viewer
 
 
 def require_captain(request: Request) -> dict:
-    viewer = read_session(request.cookies.get("auction_auth"))
+    viewer = compute_viewer(request.cookies.get(SCRIM_AUTH_COOKIE))
     if viewer["role"] != "captain" or not viewer["captain_id"]:
         raise HTTPException(403, "팀장으로 입장해야 입찰할 수 있습니다.")
     return viewer
 
 
 def require_authenticated(request: Request) -> dict:
-    viewer = read_session(request.cookies.get("auction_auth"))
+    viewer = compute_viewer(request.cookies.get(SCRIM_AUTH_COOKIE))
     if not viewer["authenticated"]:
         raise HTTPException(401, "먼저 입장해 주세요.")
     return viewer
@@ -184,7 +167,7 @@ class SettingsInput(BaseModel):
 class CaptainInput(BaseModel):
     player_id: str
     budget: int = Field(ge=0, le=10_000_000)
-    pin: str = Field(min_length=4, max_length=12, pattern=r"^[0-9]+$")
+    riot_id: str = Field(min_length=3, max_length=80)
 
 
 class PlayerInput(BaseModel):
@@ -213,12 +196,6 @@ class RiotPlayerInput(BaseModel):
 
 class BidInput(BaseModel):
     amount: int = Field(ge=0, le=10_000_000)
-
-
-class LoginInput(BaseModel):
-    role: Literal["host", "captain", "spectator"]
-    pin: str = ""
-    captain_id: str | None = None
 
 
 class TournamentSettingsInput(BaseModel):
@@ -257,11 +234,6 @@ class CompetitionInput(BaseModel):
     mode: Literal["auction", "tournament"]
 
 
-class TeacherPinChangeInput(BaseModel):
-    current_pin: str = Field(min_length=4, max_length=12, pattern=r"^[0-9]+$")
-    new_pin: str = Field(min_length=4, max_length=12, pattern=r"^[0-9]+$")
-
-
 @app.get("/")
 async def index():
     return FileResponse(ROOT / "static" / "index.html")
@@ -289,12 +261,12 @@ async def tournament_page():
 
 @app.get("/scrim")
 async def scrim_management_page():
-    return FileResponse(ROOT / "static" / "scrim.html")
+    return FileResponse(ROOT / "static" / "index.html")
 
 
 @app.get("/api/state")
-async def get_state(auction_auth: str | None = Cookie(default=None)):
-    result = engine.public_state(store.state, read_session(auction_auth))
+async def get_state(scrim_auth: str | None = Cookie(default=None)):
+    result = engine.public_state(store.state, compute_viewer(scrim_auth))
     result["competition_registry"] = store.competition_summary()
     result["captain_presence"] = captain_presence()
     result["deployment"] = {
@@ -342,70 +314,6 @@ async def delete_competition(competition_id: str, request: Request):
     return {"ok": True}
 
 
-@app.post("/api/login")
-async def login(data: LoginInput, response: Response):
-    if data.role == "host":
-        if not store.verify_teacher_pin(data.pin):
-            raise HTTPException(401, "강사님 PIN이 올바르지 않습니다.")
-        viewer = {"role": "host", "captain_id": None, "authenticated": True}
-    elif data.role == "captain":
-        if (
-            store.active_competition is None
-            or store.active_competition.get("mode", "auction") != "auction"
-        ):
-            raise HTTPException(
-                400, "팀장 입장은 경매 대회에서만 사용할 수 있습니다."
-            )
-        captain = next(
-            (c for c in store.state["captains"] if c["id"] == data.captain_id),
-            None,
-        )
-        if captain is None or not secrets.compare_digest(
-            captain.get("pin", ""), data.pin
-        ):
-            raise HTTPException(401, "팀장 또는 PIN이 올바르지 않습니다.")
-        viewer = {
-            "role": "captain",
-            "captain_id": captain["id"],
-            "authenticated": True,
-        }
-    else:
-        viewer = {
-            "role": "spectator",
-            "captain_id": None,
-            "authenticated": True,
-        }
-    response.set_cookie(
-        "auction_auth",
-        make_session(viewer["role"], viewer["captain_id"]),
-        httponly=True,
-        samesite="lax",
-        secure=bool(os.getenv("VERCEL")),
-    )
-    return viewer
-
-
-@app.post("/api/teacher/pin")
-async def change_teacher_pin(
-    data: TeacherPinChangeInput, request: Request, response: Response
-):
-    require_host(request)
-    if not store.verify_teacher_pin(data.current_pin):
-        raise HTTPException(401, "현재 강사님 PIN이 올바르지 않습니다.")
-    if data.current_pin == data.new_pin:
-        raise HTTPException(400, "새 PIN은 현재 PIN과 달라야 합니다.")
-    async with state_lock:
-        store.change_teacher_pin(data.new_pin)
-    response.delete_cookie("auction_auth")
-    return {"ok": True, "reauthenticate": True}
-
-
-@app.post("/api/logout")
-async def logout(response: Response):
-    response.delete_cookie("auction_auth")
-    return {"ok": True}
-
-
 @app.put("/api/settings")
 async def update_settings(data: SettingsInput, request: Request):
     require_host(request)
@@ -421,15 +329,21 @@ async def update_settings(data: SettingsInput, request: Request):
 @app.post("/api/captains")
 async def create_captain(data: CaptainInput, request: Request):
     require_host(request)
+    with scrim_db.connect() as connection:
+        user = scrim_db.get_user_by_riot_id(connection, data.riot_id)
+    if user is None:
+        raise HTTPException(
+            400, "해당 Riot ID로 가입된 계정이 없습니다. 먼저 회원가입해야 합니다."
+        )
     async with state_lock:
         if store.state["auction"]["status"] != "setup":
             raise HTTPException(409, "경매 시작 후에는 팀장을 추가할 수 없습니다.")
         captain = engine.add_captain(
-            store.state, data.player_id, data.budget, data.pin
+            store.state, data.player_id, data.budget, user["id"]
         )
         store.save()
     await broadcast()
-    return {key: value for key, value in captain.items() if key != "pin"}
+    return {key: value for key, value in captain.items() if key != "user_id"}
 
 
 @app.delete("/api/captains/{captain_id}")
@@ -694,7 +608,7 @@ async def reset(request: Request):
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     connections.add(websocket)
-    viewer = read_session(websocket.cookies.get("auction_auth"))
+    viewer = compute_viewer(websocket.cookies.get(SCRIM_AUTH_COOKIE))
     connection_viewers[websocket] = viewer
     await broadcast()
     try:

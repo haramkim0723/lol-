@@ -17,7 +17,7 @@ class AuctionEngineTest(unittest.TestCase):
             self.state, "팀장", "팀장#KR1", "PLATINUM IV", "TOP"
         )
         self.captain = engine.add_captain(
-            self.state, self.captain_player["id"], 100, "1234"
+            self.state, self.captain_player["id"], 100, 1
         )
 
     def test_captain_is_assigned_to_own_position_without_cost(self):
