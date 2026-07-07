@@ -171,6 +171,8 @@ class JsonStore:
     def _normalize_event(self, state: dict[str, Any]) -> dict[str, Any]:
         defaults = new_state()
         state.setdefault("tournament", defaults["tournament"])
+        state.setdefault("participation", defaults["participation"])
+        state.setdefault("scrim_results", defaults["scrim_results"])
         state.setdefault("settings", defaults["settings"])
         state.setdefault("captains", [])
         state.setdefault("players", [])

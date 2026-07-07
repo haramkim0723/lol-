@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
   phone TEXT,
   role TEXT NOT NULL DEFAULT 'USER'
     CHECK (role IN ('USER', 'ADMIN')),
+  approved INTEGER NOT NULL DEFAULT 0,
   is_active INTEGER NOT NULL DEFAULT 1,
   last_login_at TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -276,6 +277,8 @@ def init_db(path: str | Path | None = None) -> None:
         connection.executescript(schema_sql(connection))
         if db_dialect(connection) == "sqlite":
             migrate_db(connection)
+        else:
+            migrate_postgres_db(connection)
         seed_admins(connection)
 
 
@@ -309,9 +312,19 @@ def migrate_db(connection) -> None:
             WHERE riot_id IS NOT NULL
             """
         )
+    if "approved" not in columns:
+        connection.execute("ALTER TABLE users ADD COLUMN approved INTEGER NOT NULL DEFAULT 0")
+        connection.execute("UPDATE users SET approved = 1 WHERE role = 'ADMIN'")
     email_column = next((row for row in user_columns if row["name"] == "email"), None)
     if email_column is not None and email_column["notnull"]:
         rebuild_users_without_required_email(connection)
+
+
+def migrate_postgres_db(connection) -> None:
+    connection.execute(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS approved INTEGER NOT NULL DEFAULT 0"
+    )
+    connection.execute("UPDATE users SET approved = 1 WHERE role = 'ADMIN'")
 
 
 def rebuild_users_without_required_email(connection) -> None:
@@ -327,6 +340,7 @@ def rebuild_users_without_required_email(connection) -> None:
           phone TEXT,
           role TEXT NOT NULL DEFAULT 'USER'
             CHECK (role IN ('USER', 'ADMIN')),
+          approved INTEGER NOT NULL DEFAULT 0,
           is_active INTEGER NOT NULL DEFAULT 1,
           last_login_at TEXT,
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -344,6 +358,7 @@ def rebuild_users_without_required_email(connection) -> None:
           nickname,
           phone,
           role,
+          approved,
           is_active,
           last_login_at,
           created_at,
@@ -357,6 +372,7 @@ def rebuild_users_without_required_email(connection) -> None:
           nickname,
           phone,
           role,
+          CASE WHEN role = 'ADMIN' THEN 1 ELSE 0 END,
           is_active,
           last_login_at,
           created_at,
@@ -379,8 +395,8 @@ def seed_admins(connection: sqlite3.Connection) -> None:
         if db_dialect(connection) == "postgres":
             connection.execute(
                 """
-                INSERT INTO users (riot_id, password_hash, name, role)
-                VALUES (?, ?, ?, 'ADMIN')
+                INSERT INTO users (riot_id, password_hash, name, role, approved)
+                VALUES (?, ?, ?, 'ADMIN', 1)
                 ON CONFLICT (riot_id) DO NOTHING
                 """,
                 (riot_id, admin_password_hash, name),
@@ -388,16 +404,17 @@ def seed_admins(connection: sqlite3.Connection) -> None:
         else:
             connection.execute(
                 """
-                INSERT OR IGNORE INTO users (riot_id, password_hash, name, role)
-                VALUES (?, ?, ?, 'ADMIN')
+                INSERT OR IGNORE INTO users (riot_id, password_hash, name, role, approved)
+                VALUES (?, ?, ?, 'ADMIN', 1)
                 """,
                 (riot_id, admin_password_hash, name),
             )
         connection.execute(
             """
             UPDATE users
-            SET password_hash = ?
-            WHERE riot_id = ? AND password_hash = 'CHANGE_ME_HASH'
+            SET password_hash = ?,
+                approved = 1
+            WHERE riot_id = ? AND (password_hash = 'CHANGE_ME_HASH' OR approved = 0)
             """,
             (admin_password_hash, riot_id),
         )
@@ -541,6 +558,27 @@ def reset_user_password(
         WHERE id = ?
         """,
         (hash_password(new_password), user_id),
+    )
+    return get_user(connection, user_id)
+
+
+def set_user_approval(
+    connection,
+    *,
+    user_id: int,
+    approved: bool,
+) -> dict:
+    user = get_user(connection, user_id)
+    if user["role"] == "ADMIN" and not approved:
+        raise ValueError("관리자 승인은 해제할 수 없습니다.")
+    connection.execute(
+        """
+        UPDATE users
+        SET approved = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (1 if approved else 0, user_id),
     )
     return get_user(connection, user_id)
 

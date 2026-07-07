@@ -54,6 +54,10 @@ class PasswordResetInput(BaseModel):
     new_password: str = Field(min_length=4, max_length=128)
 
 
+class UserApprovalInput(BaseModel):
+    approved: bool
+
+
 def _sign(payload: str) -> str:
     secret = os.getenv("SCRIM_SESSION_SECRET") or os.getenv(
         "SESSION_SECRET", "local-development-secret"
@@ -95,6 +99,7 @@ def public_user(user: dict) -> dict:
         "name": user["name"],
         "riot_id": user["riot_id"],
         "role": user["role"],
+        "approved": bool(user.get("approved", False)),
         "is_active": bool(user["is_active"]),
         "last_login_at": user["last_login_at"],
         "created_at": user["created_at"],
@@ -205,6 +210,22 @@ async def admin_reset_user_password(
             connection,
             user_id=user_id,
             new_password=data.new_password,
+        )
+        return public_user(user)
+
+
+@router.patch("/admin/users/{user_id}/approval")
+async def admin_set_user_approval(
+    user_id: int,
+    data: UserApprovalInput,
+    scrim_auth: str | None = Cookie(default=None),
+):
+    require_admin(scrim_auth)
+    with scrim_db.connect() as connection:
+        user = scrim_db.set_user_approval(
+            connection,
+            user_id=user_id,
+            approved=data.approved,
         )
         return public_user(user)
 

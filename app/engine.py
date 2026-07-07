@@ -30,6 +30,15 @@ def new_state() -> dict[str, Any]:
             "rounds": [],
             "champion_id": None,
         },
+        "participation": {
+            "enabled": False,
+            "terms": (
+                "대회 진행 공지와 운영 규칙을 확인했고, 참가 신청 후 "
+                "강사님의 안내에 따르는 것에 동의합니다."
+            ),
+            "applications": [],
+        },
+        "scrim_results": [],
         "auction": {
             "status": "setup",
             "queue": [],
@@ -61,7 +70,38 @@ def public_state(
         },
     )
     for team in tournament["teams"]:
+        team_player_ids = set(team.get("members", {}).values())
+        viewer_riot_id = str((viewer or {}).get("riot_id") or "").casefold()
+        belongs_to_team = any(
+            player["id"] in team_player_ids
+            and str(player.get("riot_id") or "").casefold() == viewer_riot_id
+            for player in result["players"]
+        )
+        team["can_manage_scrim_result"] = bool(
+            viewer
+            and (
+                viewer.get("role") == "host"
+                or team.get("created_by_user_id") == viewer.get("user_id")
+                or belongs_to_team
+            )
+        )
         team.pop("registration_pin", None)
+        team.pop("created_by_user_id", None)
+    participation = result.setdefault(
+        "participation",
+        {
+            "enabled": False,
+            "terms": "",
+            "applications": [],
+        },
+    )
+    applications = participation.pop("applications", [])
+    viewer_user_id = (viewer or {}).get("user_id")
+    participation["application_count"] = len(applications)
+    participation["viewer_has_applied"] = any(
+        application.get("user_id") == viewer_user_id
+        for application in applications
+    )
     now = time.time()
     deadline = result["auction"].get("deadline")
     result["server_time"] = now
@@ -272,6 +312,7 @@ def register_tournament_team(
     name: str,
     members: dict[str, str],
     registration_pin: str,
+    created_by_user_id: int | None = None,
 ) -> dict[str, Any]:
     tournament = state["tournament"]
     if tournament["status"] != "registration":
@@ -321,6 +362,7 @@ def register_tournament_team(
         "members": dict(members),
         "total_score": total_score,
         "registration_pin": registration_pin,
+        "created_by_user_id": created_by_user_id,
         "status": "pending",
         "created_at": time.time(),
     }

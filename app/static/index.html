@@ -25,10 +25,12 @@
           <button type="button" data-view="team-simulator">조합 시뮬레이션</button>
           <button type="button" data-view="team-register">팀 등록</button>
           <button id="tournament-nav" type="button" data-view="tournament">점수제</button>
+          <button type="button" data-view="participation">참가 신청</button>
           <button type="button" data-view="auction">경매장</button>
           <button type="button" data-view="scrim">스크림</button>
         </nav>
-        <div id="role-badge" class="role-badge">참가자</div>
+        <div id="role-badge" class="role-badge">관전자</div>
+        <button id="login-button" class="ghost small-button hidden" type="button">로그인</button>
         <button id="logout-button" class="ghost small-button" type="button">역할 전환</button>
         <div class="connection"><span id="socket-dot"></span><span id="socket-text">연결 중</span></div>
       </div>
@@ -196,6 +198,51 @@
           </form>
           <div id="player-setup-list" class="player-cards empty-message">등록된 참가자가 없습니다.</div>
           <button id="start-button" class="start-button" type="button">순서를 섞고 경매 시작</button>
+        </article>
+      </section>
+
+      <section id="participation-panel" class="participation-panel hidden">
+        <div class="tournament-heading">
+          <div>
+            <p class="eyebrow">COMPETITION ENTRY</p>
+            <h2>대회 참가 신청</h2>
+            <p>강사님이 참가 신청을 열면 약관 확인 후 현재 대회 참가 의사를 제출합니다.</p>
+          </div>
+          <div id="participation-status" class="tournament-status">신청 대기</div>
+        </div>
+
+        <article id="participation-apply-panel" class="panel participation-apply-panel">
+          <div class="panel-title"><span>TERMS</span><h2>참가 약관</h2></div>
+          <div id="participation-terms" class="participation-terms"></div>
+          <label class="terms-check">
+            <input id="participation-terms-agree" type="checkbox" />
+            <span>위 내용을 읽고 대회 참가 신청에 동의합니다.</span>
+          </label>
+          <button id="participation-apply-button" class="primary" type="button">대회 참가 신청</button>
+        </article>
+
+        <article id="participation-host-panel" class="panel participation-host-panel hidden">
+          <div class="panel-title"><span>HOST</span><h2>참가 신청 관리</h2></div>
+          <form id="participation-settings-form" class="participation-settings-form">
+            <label class="toggle-row">
+              <input name="enabled" type="checkbox" />
+              <span>현재 대회 참가 신청 열기</span>
+            </label>
+            <label>참가 약관
+              <textarea name="terms" maxlength="2000" required></textarea>
+            </label>
+            <button class="primary" type="submit">설정 저장</button>
+          </form>
+          <div class="participation-lists">
+            <section>
+              <h3>참가 신청한 인원 <span id="applied-count">0</span></h3>
+              <div id="applied-users" class="participation-user-list"></div>
+            </section>
+            <section>
+              <h3>아직 신청하지 않은 인원 <span id="not-applied-count">0</span></h3>
+              <div id="not-applied-users" class="participation-user-list"></div>
+            </section>
+          </div>
         </article>
       </section>
 
@@ -415,6 +462,46 @@
             </div>
             <div id="team-list" class="team-list"></div>
           </article>
+
+          <article class="panel wide">
+            <div class="panel-title row">
+              <div>
+                <span>RESULT</span>
+                <h2>스크림 결과 등록</h2>
+              </div>
+            </div>
+            <form id="scrim-result-form" class="scrim-form result-form">
+              <input name="result_id" type="hidden" />
+              <label>팀
+                <select name="team_id" required></select>
+              </label>
+              <label>날짜
+                <input name="match_date" type="date" required />
+              </label>
+              <label>상대 팀
+                <input name="opponent_team_name" maxlength="100" required placeholder="상대 팀명" />
+              </label>
+              <div class="inline-fields">
+                <label>우리 점수
+                  <input name="our_score" type="number" min="0" max="99" value="0" required />
+                </label>
+                <label>상대 점수
+                  <input name="opponent_score" type="number" min="0" max="99" value="0" required />
+                </label>
+              </div>
+              <label>메모
+                <input name="memo" maxlength="500" placeholder="선택 입력" />
+              </label>
+              <div class="result-actions">
+                <button class="primary" type="submit">결과 저장</button>
+                <button id="cancel-result-edit" class="ghost hidden" type="button">수정 취소</button>
+              </div>
+            </form>
+            <div id="scrim-result-locked" class="empty-state hidden">
+              팀장 또는 강사님만 결과를 등록할 수 있습니다.
+            </div>
+            <div id="scrim-result-list" class="team-list"></div>
+          </article>
         </section>
 
         <aside id="admin-panel" class="panel admin-panel hidden">
@@ -453,7 +540,6 @@
           <label>비밀번호<input name="password" type="password" autocomplete="new-password" minlength="4" maxlength="128" required /></label>
           <button class="primary" type="submit">회원가입</button>
         </form>
-        <button id="guest-browse-button" class="ghost login-guest-button" type="button">로그인 없이 둘러보기</button>
       </div>
     </div>
 

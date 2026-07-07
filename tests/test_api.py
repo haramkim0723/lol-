@@ -313,14 +313,74 @@ class ApiFlowTest(unittest.TestCase):
             simulator = client.get("/team-simulator")
             registration = client.get("/team-register")
             tournament = client.get("/tournament")
+            participation = client.get("/participation")
             score_players = client.get("/score-players")
             self.assertEqual(simulator.status_code, 200)
             self.assertEqual(registration.status_code, 200)
             self.assertEqual(tournament.status_code, 200)
+            self.assertEqual(participation.status_code, 200)
             self.assertEqual(score_players.status_code, 200)
             self.assertIn("team-simulator-panel", simulator.text)
             self.assertIn("team-register-panel", registration.text)
             self.assertIn("tournament-panel", tournament.text)
+            self.assertIn("participation-panel", participation.text)
+
+    def test_host_opens_participation_and_splits_applicants(self):
+        with TestClient(app) as host_client:
+            login_as_host(host_client)
+            settings = host_client.put(
+                "/api/participation/settings",
+                json={
+                    "enabled": True,
+                    "terms": "테스트 약관에 동의합니다.",
+                },
+            )
+            self.assertEqual(settings.status_code, 200)
+
+            with TestClient(app) as applicant_client:
+                applicant = applicant_client.post(
+                    "/api/scrim/users",
+                    json={
+                        "name": "Applicant",
+                        "riot_id": "applicant#KR1",
+                        "password": "1234",
+                    },
+                )
+                self.assertEqual(applicant.status_code, 200)
+                host_client.patch(
+                    f'/api/scrim/admin/users/{applicant.json()["id"]}/approval',
+                    json={"approved": True},
+                )
+
+                with TestClient(app) as waiting_client:
+                    waiting = waiting_client.post(
+                        "/api/scrim/users",
+                        json={
+                            "name": "Waiting",
+                            "riot_id": "waiting#KR1",
+                            "password": "1234",
+                        },
+                    )
+                    self.assertEqual(waiting.status_code, 200)
+                    host_client.patch(
+                        f'/api/scrim/admin/users/{waiting.json()["id"]}/approval',
+                        json={"approved": True},
+                    )
+
+                applied = applicant_client.post(
+                    "/api/participation/apply",
+                    json={"terms_agreed": True},
+                )
+                self.assertEqual(applied.status_code, 200)
+
+            applications = host_client.get("/api/participation/applications")
+            self.assertEqual(applications.status_code, 200)
+            applied_ids = {user["riot_id"] for user in applications.json()["applied"]}
+            not_applied_ids = {
+                user["riot_id"] for user in applications.json()["not_applied"]
+            }
+            self.assertIn("applicant#KR1", applied_ids)
+            self.assertIn("waiting#KR1", not_applied_ids)
 
     def test_participant_registers_team_and_host_sets_score_limit(self):
         with TestClient(app) as client:
@@ -350,7 +410,6 @@ class ApiFlowTest(unittest.TestCase):
                 )
                 players[position] = response.json()["id"]
 
-            client.post("/api/scrim/auth/logout")
             response = client.post(
                 "/api/tournament/teams",
                 json={
@@ -368,6 +427,116 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["total_score"], 40)
             self.assertNotIn("registration_pin", response.json())
+
+    def test_team_member_can_create_and_update_scrim_result(self):
+        with TestClient(app) as host_client:
+            login_as_host(host_client)
+            players = {}
+            for name, riot_id, position, score in (
+                ("Result Top", "result-member#KR1", "TOP", 8),
+                ("Result Jug", "result-jug#KR1", "JUG", 7),
+                ("Result Mid", "result-mid#KR1", "MID", 10),
+                ("Result Adc", "result-adc#KR1", "ADC", 9),
+                ("Result Sup", "result-sup#KR1", "SUP", 6),
+            ):
+                response = host_client.post(
+                    "/api/players",
+                    json={
+                        "name": name,
+                        "riot_id": riot_id,
+                        "tier": "GOLD",
+                        "score": score,
+                        "primary_position": position,
+                        "secondary_position": None,
+                    },
+                )
+                self.assertEqual(response.status_code, 200)
+                players[position] = response.json()["id"]
+
+            team = host_client.post(
+                "/api/tournament/teams",
+                json={
+                    "name": "Result Team",
+                    "registration_pin": "5678",
+                    "members": {
+                        "TOP": players["TOP"],
+                        "JUG": players["JUG"],
+                        "MID": players["MID"],
+                        "ADC": players["ADC"],
+                        "SUP": players["SUP"],
+                    },
+                },
+            )
+            self.assertEqual(team.status_code, 200)
+            team_id = team.json()["id"]
+
+            with TestClient(app) as member_client:
+                member = member_client.post(
+                    "/api/scrim/users",
+                    json={
+                        "name": "Result Member",
+                        "riot_id": "result-member#KR1",
+                        "password": "1234",
+                    },
+                )
+                self.assertEqual(member.status_code, 200)
+                approval = host_client.patch(
+                    f'/api/scrim/admin/users/{member.json()["id"]}/approval',
+                    json={"approved": True},
+                )
+                self.assertEqual(approval.status_code, 200)
+
+                created = member_client.post(
+                    "/api/scrim/results",
+                    json={
+                        "team_id": team_id,
+                        "match_date": "2026-07-07",
+                        "opponent_team_name": "Opponent",
+                        "our_score": 2,
+                        "opponent_score": 1,
+                    },
+                )
+                self.assertEqual(created.status_code, 200)
+                self.assertEqual(created.json()["result"], "WIN")
+
+                updated = member_client.put(
+                    f'/api/scrim/results/{created.json()["id"]}',
+                    json={
+                        "team_id": team_id,
+                        "match_date": "2026-07-08",
+                        "opponent_team_name": "Opponent 2",
+                        "our_score": 0,
+                        "opponent_score": 0,
+                    },
+                )
+                self.assertEqual(updated.status_code, 200)
+                self.assertEqual(updated.json()["result"], "DRAW")
+
+            with TestClient(app) as outsider_client:
+                outsider = outsider_client.post(
+                    "/api/scrim/users",
+                    json={
+                        "name": "Outsider",
+                        "riot_id": "outsider#KR1",
+                        "password": "1234",
+                    },
+                )
+                self.assertEqual(outsider.status_code, 200)
+                host_client.patch(
+                    f'/api/scrim/admin/users/{outsider.json()["id"]}/approval',
+                    json={"approved": True},
+                )
+                forbidden = outsider_client.post(
+                    "/api/scrim/results",
+                    json={
+                        "team_id": team_id,
+                        "match_date": "2026-07-07",
+                        "opponent_team_name": "Opponent",
+                        "our_score": 1,
+                        "opponent_score": 1,
+                    },
+                )
+                self.assertEqual(forbidden.status_code, 403)
 
     def test_websocket_sends_initial_state(self):
         with TestClient(app) as client:

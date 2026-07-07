@@ -29,10 +29,12 @@ let currentView = location.pathname === "/score-players"
     ? "team-register"
   : location.pathname === "/tournament"
     ? "tournament"
+  : location.pathname === "/participation"
+    ? "participation"
   : location.pathname === "/scrim"
     ? "scrim"
     : "intro";
-let guestBrowsing = false;
+let authPromptOpen = false;
 let authMode = "login";
 let introIndex = 0;
 let introPlayerId = null;
@@ -134,6 +136,7 @@ function setView(view) {
   $("#team-simulator-panel").classList.toggle("hidden", view !== "team-simulator");
   $("#team-register-panel").classList.toggle("hidden", view !== "team-register");
   $("#tournament-panel").classList.toggle("hidden", view !== "tournament");
+  $("#participation-panel").classList.toggle("hidden", view !== "participation");
   $("#auction-panel").classList.toggle("hidden", view !== "auction");
   $("#scrim-panel").classList.toggle("hidden", view !== "scrim");
   $$("[data-view]").forEach((button) => {
@@ -143,6 +146,7 @@ function setView(view) {
     : view === "score-intro" ? "/score-players"
     : view === "team-register" ? "/team-register"
     : view === "tournament" ? "/tournament"
+    : view === "participation" ? "/participation"
     : view === "scrim" ? "/scrim" : "/";
   if (location.pathname !== path) {
     history.pushState({ view }, "", path);
@@ -173,17 +177,19 @@ async function enterAuctionView() {
 
 function renderRole() {
   const viewer = state.viewer;
-  const publicPage = ["/score-players", "/team-simulator", "/team-register", "/tournament", "/scrim"].includes(location.pathname);
-  const browsable = viewer.authenticated || publicPage || guestBrowsing;
-  $("#login-overlay").classList.toggle("hidden", browsable);
+  const browsable = viewer.authenticated;
+  const showLoginOverlay = !viewer.authenticated || authPromptOpen;
+  $("#login-overlay").classList.toggle("hidden", !showLoginOverlay);
   $("#main-nav").classList.toggle("hidden", !browsable);
+  $("#login-button").classList.toggle("hidden", viewer.authenticated || showLoginOverlay);
   $("#logout-button").classList.toggle("hidden", !viewer.authenticated);
   $("#setup-nav").classList.toggle("hidden", viewer.role !== "host");
   $("#admin-panel").classList.toggle("hidden", viewer.role !== "host");
   $("#competition-switcher").classList.toggle("hidden", !browsable);
 
-  let label = "참가자";
+  let label = "관전자";
   if (viewer.role === "host") label = "강사님";
+  if (viewer.role === "participant") label = "참가자";
   if (viewer.role === "captain") {
     label = `${captainById(viewer.captain_id)?.name || "팀장"} 팀`;
   }
@@ -227,7 +233,7 @@ function applyCompetitionMode() {
   $$('[data-view="intro"], [data-view="auction"]').forEach((button) => {
     button.classList.toggle("hidden", !isAuction);
   });
-  $$('[data-view="score-intro"], [data-view="team-simulator"], [data-view="team-register"], [data-view="tournament"]').forEach((button) => {
+  $$('[data-view="score-intro"], [data-view="team-simulator"], [data-view="team-register"], [data-view="tournament"], [data-view="participation"]').forEach((button) => {
     button.classList.toggle("hidden", isAuction);
   });
   $(".tournament-score-settings").classList.toggle("hidden", isAuction);
@@ -235,8 +241,8 @@ function applyCompetitionMode() {
   $(".captain-panel").classList.toggle("hidden", !isAuction);
 
   const allowedViews = isAuction
-    ? ["intro", "setup", "auction"]
-    : ["setup", "score-intro", "team-simulator", "team-register", "tournament"];
+    ? ["intro", "setup", "auction", "scrim"]
+    : ["setup", "score-intro", "team-simulator", "team-register", "tournament", "participation", "scrim"];
   if (!allowedViews.includes(currentView)) {
     currentView = isAuction ? "intro" : "tournament";
   }
@@ -543,6 +549,76 @@ function renderTournament() {
   updateTeamScore();
   updateSimulatorScore();
   renderTournamentBracket();
+}
+
+function renderParticipation() {
+  const participation = state.participation || {
+    enabled: false,
+    terms: "",
+    application_count: 0,
+    viewer_has_applied: false,
+  };
+  const isHost = state.viewer.role === "host";
+  $("#participation-status").textContent = participation.enabled
+    ? `신청 접수 중 · ${participation.application_count || 0}명`
+    : "신청 닫힘";
+  $("#participation-host-panel").classList.toggle("hidden", !isHost);
+  $("#participation-apply-panel").classList.toggle("hidden", isHost);
+  $("#participation-terms").textContent = participation.terms || "등록된 약관이 없습니다.";
+
+  const agree = $("#participation-terms-agree");
+  const applyButton = $("#participation-apply-button");
+  agree.checked = false;
+  agree.disabled = !participation.enabled || participation.viewer_has_applied;
+  applyButton.disabled =
+    !participation.enabled || participation.viewer_has_applied || !agree.checked;
+  applyButton.textContent = participation.viewer_has_applied
+    ? "이미 참가 신청했습니다"
+    : participation.enabled ? "대회 참가 신청" : "아직 참가 신청이 열리지 않았습니다";
+
+  if (isHost) {
+    const form = $("#participation-settings-form");
+    form.elements.enabled.checked = Boolean(participation.enabled);
+    form.elements.terms.value = participation.terms || "";
+    loadParticipationApplications();
+  }
+}
+
+function renderParticipationUsers(target, users) {
+  const node = $(target);
+  node.innerHTML = users.length
+    ? users.map((user) => `
+      <article class="participation-user">
+        <div>
+          <strong>${escapeHtml(user.name)}</strong>
+          <span>${escapeHtml(user.riot_id)}</span>
+        </div>
+        <small>${user.approved ? "승인 회원" : "승인 대기"}${user.applied_at ? ` · ${formatDateTime(user.applied_at)}` : ""}</small>
+      </article>
+    `).join("")
+    : '<div class="empty-state">해당 인원이 없습니다.</div>';
+}
+
+async function loadParticipationApplications() {
+  if (state.viewer.role !== "host" || currentView !== "participation") return;
+  try {
+    const data = await api("/api/participation/applications");
+    $("#applied-count").textContent = data.applied.length;
+    $("#not-applied-count").textContent = data.not_applied.length;
+    renderParticipationUsers("#applied-users", data.applied);
+    renderParticipationUsers("#not-applied-users", data.not_applied);
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+function formatDateTime(timestamp) {
+  return new Date(Number(timestamp) * 1000).toLocaleString("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function renderTeamSelectors(formSelector, containerSelector, initial = null) {
@@ -864,6 +940,7 @@ function render() {
   renderIntro();
   renderSetup();
   renderTournament();
+  renderParticipation();
   renderAuction();
   if (
     state.viewer.role !== "host"
@@ -971,6 +1048,7 @@ window.addEventListener("popstate", () => {
     ? "team-simulator"
     : location.pathname === "/team-register" ? "team-register"
     : location.pathname === "/tournament" ? "tournament"
+    : location.pathname === "/participation" ? "participation"
     : location.pathname === "/scrim" ? "scrim" : "intro";
   if (state) setView(currentView);
 });
@@ -985,8 +1063,9 @@ function setAuthMode(mode) {
 $("#show-login").addEventListener("click", () => setAuthMode("login"));
 $("#show-signup").addEventListener("click", () => setAuthMode("signup"));
 
-$("#guest-browse-button").addEventListener("click", () => {
-  guestBrowsing = true;
+$("#login-button").addEventListener("click", () => {
+  authPromptOpen = true;
+  setAuthMode("login");
   renderRole();
 });
 
@@ -1173,6 +1252,47 @@ $("#start-tournament-button").addEventListener("click", async () => {
   try {
     await api("/api/tournament/start", { method: "POST" });
     toast("대진표를 생성했습니다.");
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#participation-terms-agree").addEventListener("change", (event) => {
+  const participation = state.participation || {};
+  $("#participation-apply-button").disabled =
+    !participation.enabled
+    || participation.viewer_has_applied
+    || !event.target.checked;
+});
+
+$("#participation-apply-button").addEventListener("click", async () => {
+  try {
+    await api("/api/participation/apply", {
+      method: "POST",
+      body: JSON.stringify({
+        terms_agreed: $("#participation-terms-agree").checked,
+      }),
+    });
+    state = await api("/api/state");
+    stateSignature = meaningfulStateSignature(state);
+    render();
+    toast("대회 참가 신청을 완료했습니다.");
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#participation-settings-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.target;
+  try {
+    await api("/api/participation/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        enabled: form.elements.enabled.checked,
+        terms: form.elements.terms.value,
+      }),
+    });
+    state = await api("/api/state");
+    stateSignature = meaningfulStateSignature(state);
+    render();
+    toast("참가 신청 설정을 저장했습니다.");
   } catch (error) { toast(error.message, true); }
 });
 
@@ -1368,8 +1488,9 @@ $("#bid-form").addEventListener("submit", async (event) => {
   } catch (error) { toast(error.message, true); }
 });
 
-function renderScrimTeams(teams) {
+function renderScrimTeams() {
   const list = $("#team-list");
+  const teams = state.tournament.teams;
   if (!teams.length) {
     list.innerHTML = '<div class="empty-state">아직 등록된 팀이 없습니다.</div>';
     return;
@@ -1379,18 +1500,69 @@ function renderScrimTeams(teams) {
       <div class="team-head">
         <div>
           <strong>${escapeHtml(team.name)}</strong>
-          <div class="meta">${team.status} · ${team.active_member_count ?? team.members?.length ?? 0}명</div>
+          <div class="meta">${team.status === "approved" ? "승인" : team.status === "rejected" ? "반려" : "승인 대기"} · 총 ${team.total_score}점</div>
         </div>
-        <span class="code-pill">${escapeHtml(team.invite_code)}</span>
+        <span class="team-status ${team.status}">${team.can_manage_scrim_result ? "결과 등록 가능" : "읽기 전용"}</span>
       </div>
-      ${team.members ? `
-        <div class="member-list">
-          ${team.members.map((member) =>
-            `<span>${escapeHtml(member.name)}${member.role === "LEADER" ? " · 팀장" : ""}</span>`
-          ).join("")}
-        </div>` : ""}
+      <div class="member-list">
+        ${POSITIONS.map((position) => {
+          const player = playerById(team.members[position]);
+          return `<span>${position} · ${escapeHtml(player?.name || "-")}</span>`;
+        }).join("")}
+      </div>
     </article>
   `).join("");
+}
+
+function manageableScrimTeams() {
+  return state.tournament.teams.filter((team) => team.can_manage_scrim_result);
+}
+
+function renderScrimResultForm() {
+  const form = $("#scrim-result-form");
+  const locked = $("#scrim-result-locked");
+  const teams = manageableScrimTeams();
+  form.classList.toggle("hidden", !teams.length);
+  locked.classList.toggle("hidden", Boolean(teams.length));
+  if (!teams.length) return;
+  const select = form.elements.team_id;
+  const selected = select.value;
+  select.innerHTML = teams.map((team) =>
+    `<option value="${team.id}">${escapeHtml(team.name)}</option>`
+  ).join("");
+  if (teams.some((team) => team.id === selected)) {
+    select.value = selected;
+  }
+  if (!form.elements.match_date.value) {
+    form.elements.match_date.value = new Date().toISOString().slice(0, 10);
+  }
+}
+
+function renderScrimResults() {
+  const list = $("#scrim-result-list");
+  const teamById = (id) => state.tournament.teams.find((team) => team.id === id);
+  const results = [...(state.scrim_results || [])].sort(
+    (left, right) => String(right.match_date).localeCompare(String(left.match_date))
+  );
+  if (!results.length) {
+    list.innerHTML = '<div class="empty-state">아직 등록된 결과가 없습니다.</div>';
+    return;
+  }
+  list.innerHTML = results.map((result) => {
+    const team = teamById(result.team_id);
+    const canEdit = Boolean(team?.can_manage_scrim_result);
+    const resultLabel = result.result === "WIN" ? "승" : result.result === "LOSE" ? "패" : "무";
+    return `
+      <article class="team-item scrim-result-item">
+        <div class="team-head">
+          <div>
+            <strong>${escapeHtml(team?.name || "삭제된 팀")} ${result.our_score} : ${result.opponent_score} ${escapeHtml(result.opponent_team_name)}</strong>
+            <div class="meta">${escapeHtml(result.match_date)} · ${resultLabel}${result.memo ? ` · ${escapeHtml(result.memo)}` : ""}</div>
+          </div>
+          ${canEdit ? `<button class="ghost" type="button" data-edit-scrim-result="${result.id}">수정</button>` : ""}
+        </div>
+      </article>`;
+  }).join("");
 }
 
 function renderScrimAdminUsers(users) {
@@ -1406,7 +1578,17 @@ function renderScrimAdminUsers(users) {
           <strong>${escapeHtml(user.name)}</strong>
           <div class="meta">${escapeHtml(user.riot_id)} · ${user.role}</div>
         </div>
+        <span class="user-approval ${user.approved ? "approved" : "pending"}">
+          ${user.role === "ADMIN" ? "강사님" : user.approved ? "참가자" : "승인 대기"}
+        </span>
       </div>
+      ${user.role !== "ADMIN" ? `
+        <div class="admin-user-actions">
+          <button class="${user.approved ? "ghost" : "accent"}" type="button" data-user-approval="${user.id}" data-approved="${user.approved ? "false" : "true"}">
+            ${user.approved ? "승인 해제" : "참가 승인"}
+          </button>
+        </div>
+      ` : ""}
       <form data-password-reset="${user.id}">
         <input name="new_password" type="password" minlength="4" maxlength="128" placeholder="새 비밀번호" required />
         <button class="ghost" type="submit">재설정</button>
@@ -1416,8 +1598,9 @@ function renderScrimAdminUsers(users) {
 }
 
 async function loadScrimTeams() {
-  const data = await api("/api/scrim/teams");
-  renderScrimTeams(data.teams);
+  renderScrimTeams();
+  renderScrimResultForm();
+  renderScrimResults();
 }
 
 async function searchScrimUsers(query) {
@@ -1464,6 +1647,58 @@ $("#refresh-teams").addEventListener("click", () =>
   loadScrimTeams().then(() => toast("팀 목록을 새로고침했습니다.")).catch((error) => toast(error.message, true))
 );
 
+$("#scrim-result-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.target;
+  const data = Object.fromEntries(new FormData(form));
+  const resultId = data.result_id;
+  delete data.result_id;
+  data.our_score = Number(data.our_score);
+  data.opponent_score = Number(data.opponent_score);
+  data.memo ||= null;
+  try {
+    await api(
+      resultId ? `/api/scrim/results/${resultId}` : "/api/scrim/results",
+      {
+        method: resultId ? "PUT" : "POST",
+        body: JSON.stringify(data),
+      }
+    );
+    form.reset();
+    form.elements.result_id.value = "";
+    $("#cancel-result-edit").classList.add("hidden");
+    state = await api("/api/state");
+    stateSignature = meaningfulStateSignature(state);
+    render();
+    toast(resultId ? "결과를 수정했습니다." : "결과를 등록했습니다.");
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#cancel-result-edit").addEventListener("click", () => {
+  $("#scrim-result-form").reset();
+  $("#scrim-result-form").elements.result_id.value = "";
+  $("#cancel-result-edit").classList.add("hidden");
+  renderScrimResultForm();
+});
+
+$("#scrim-result-list").addEventListener("click", (event) => {
+  const resultId = event.target.closest("[data-edit-scrim-result]")?.dataset.editScrimResult;
+  if (!resultId) return;
+  const result = (state.scrim_results || []).find((item) => item.id === resultId);
+  if (!result) return;
+  const form = $("#scrim-result-form");
+  renderScrimResultForm();
+  form.elements.result_id.value = result.id;
+  form.elements.team_id.value = result.team_id;
+  form.elements.match_date.value = result.match_date;
+  form.elements.opponent_team_name.value = result.opponent_team_name;
+  form.elements.our_score.value = result.our_score;
+  form.elements.opponent_score.value = result.opponent_score;
+  form.elements.memo.value = result.memo || "";
+  $("#cancel-result-edit").classList.remove("hidden");
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+});
+
 $("#admin-search-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
@@ -1482,6 +1717,19 @@ $("#admin-user-list").addEventListener("submit", async (event) => {
     });
     form.reset();
     toast("비밀번호를 재설정했습니다.");
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#admin-user-list").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-user-approval]");
+  if (!button) return;
+  try {
+    await api(`/api/scrim/admin/users/${button.dataset.userApproval}/approval`, {
+      method: "PATCH",
+      body: JSON.stringify({ approved: button.dataset.approved === "true" }),
+    });
+    await searchScrimUsers($("#admin-search-form").elements.query.value || "");
+    toast(button.dataset.approved === "true" ? "참가자로 승인했습니다." : "승인을 해제했습니다.");
   } catch (error) { toast(error.message, true); }
 });
 

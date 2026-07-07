@@ -144,6 +144,14 @@ class ScrimApiTest(unittest.TestCase):
                 )
                 self.assertEqual(search.status_code, 200)
                 self.assertEqual(search.json()["users"][0]["id"], member.json()["id"])
+                self.assertFalse(search.json()["users"][0]["approved"])
+
+                approval = admin_client.patch(
+                    f'/api/scrim/admin/users/{member.json()["id"]}/approval',
+                    json={"approved": True},
+                )
+                self.assertEqual(approval.status_code, 200)
+                self.assertTrue(approval.json()["approved"])
 
                 reset = admin_client.patch(
                     f'/api/scrim/admin/users/{member.json()["id"]}/password',

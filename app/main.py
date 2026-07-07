@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -57,7 +59,15 @@ def compute_viewer(token: str | None) -> dict:
     if user is None:
         return {"role": "spectator", "captain_id": None, "authenticated": False}
     if user["role"] == "ADMIN":
-        return {"role": "host", "captain_id": None, "authenticated": True}
+        return {
+            "role": "host",
+            "captain_id": None,
+            "authenticated": True,
+            "approved": True,
+            "user_id": user["id"],
+            "riot_id": user["riot_id"],
+            "name": user["name"],
+        }
     captain = next(
         (
             c
@@ -71,8 +81,30 @@ def compute_viewer(token: str | None) -> dict:
             "role": "captain",
             "captain_id": captain["id"],
             "authenticated": True,
+            "approved": True,
+            "user_id": user["id"],
+            "riot_id": user["riot_id"],
+            "name": user["name"],
         }
-    return {"role": "spectator", "captain_id": None, "authenticated": True}
+    if user.get("approved"):
+        return {
+            "role": "participant",
+            "captain_id": None,
+            "authenticated": True,
+            "approved": True,
+            "user_id": user["id"],
+            "riot_id": user["riot_id"],
+            "name": user["name"],
+        }
+    return {
+        "role": "spectator",
+        "captain_id": None,
+        "authenticated": True,
+        "approved": False,
+        "user_id": user["id"],
+        "riot_id": user["riot_id"],
+        "name": user["name"],
+    }
 
 
 def require_host(request: Request) -> dict:
@@ -93,6 +125,13 @@ def require_authenticated(request: Request) -> dict:
     viewer = compute_viewer(request.cookies.get(SCRIM_AUTH_COOKIE))
     if not viewer["authenticated"]:
         raise HTTPException(401, "먼저 입장해 주세요.")
+    return viewer
+
+
+def require_participant(request: Request) -> dict:
+    viewer = require_authenticated(request)
+    if viewer["role"] not in ("host", "participant", "captain"):
+        raise HTTPException(403, "강사님 승인 후 참가할 수 있습니다.")
     return viewer
 
 
@@ -222,6 +261,24 @@ class MatchWinnerInput(BaseModel):
     team_id: str
 
 
+class ScrimResultInput(BaseModel):
+    team_id: str
+    match_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    opponent_team_name: str = Field(min_length=1, max_length=100)
+    our_score: int = Field(ge=0, le=99)
+    opponent_score: int = Field(ge=0, le=99)
+    memo: str | None = Field(default=None, max_length=500)
+
+
+class ParticipationSettingsInput(BaseModel):
+    enabled: bool
+    terms: str = Field(min_length=1, max_length=2000)
+
+
+class ParticipationApplyInput(BaseModel):
+    terms_agreed: bool
+
+
 class TeamRecommendationInput(BaseModel):
     locked: dict[
         Literal["TOP", "JUG", "MID", "ADC", "SUP"], str | None
@@ -256,6 +313,11 @@ async def legacy_team_register_page():
 
 @app.get("/tournament")
 async def tournament_page():
+    return FileResponse(ROOT / "static" / "index.html")
+
+
+@app.get("/participation")
+async def participation_page():
     return FileResponse(ROOT / "static" / "index.html")
 
 
@@ -312,6 +374,101 @@ async def delete_competition(competition_id: str, request: Request):
         raise HTTPException(404, str(exc)) from exc
     await broadcast()
     return {"ok": True}
+
+
+@app.put("/api/participation/settings")
+async def update_participation_settings(
+    data: ParticipationSettingsInput, request: Request
+):
+    require_host(request)
+    async with state_lock:
+        store.state.setdefault("participation", {})
+        store.state["participation"]["enabled"] = data.enabled
+        store.state["participation"]["terms"] = data.terms
+        store.state["participation"].setdefault("applications", [])
+        store.save()
+    await broadcast()
+    return {"ok": True}
+
+
+@app.post("/api/participation/apply")
+async def apply_participation(
+    data: ParticipationApplyInput, request: Request
+):
+    viewer = require_participant(request)
+    if not data.terms_agreed:
+        raise HTTPException(400, "약관 동의가 필요합니다.")
+    async with state_lock:
+        participation = store.state.setdefault(
+            "participation",
+            {"enabled": False, "terms": "", "applications": []},
+        )
+        if not participation.get("enabled"):
+            raise HTTPException(409, "현재 참가 신청이 열려 있지 않습니다.")
+        applications = participation.setdefault("applications", [])
+        existing = next(
+            (
+                application
+                for application in applications
+                if application.get("user_id") == viewer.get("user_id")
+            ),
+            None,
+        )
+        if existing:
+            existing["applied_at"] = time.time()
+            existing["terms_agreed"] = True
+        else:
+            applications.append(
+                {
+                    "user_id": viewer["user_id"],
+                    "name": viewer.get("name", ""),
+                    "riot_id": viewer.get("riot_id", ""),
+                    "terms_agreed": True,
+                    "applied_at": time.time(),
+                }
+            )
+        store.save()
+    await broadcast()
+    return {"ok": True}
+
+
+@app.get("/api/participation/applications")
+async def participation_applications(request: Request):
+    require_host(request)
+    participation = store.state.setdefault(
+        "participation",
+        {"enabled": False, "terms": "", "applications": []},
+    )
+    applications = {
+        application["user_id"]: application
+        for application in participation.get("applications", [])
+    }
+    with scrim_db.connect() as connection:
+        users = [
+            user
+            for user in scrim_db.search_users(connection, "")
+            if user["role"] != "ADMIN"
+        ]
+    applied = []
+    not_applied = []
+    for user in users:
+        payload = {
+            "id": user["id"],
+            "name": user["name"],
+            "riot_id": user["riot_id"],
+            "approved": bool(user.get("approved", False)),
+            "created_at": user["created_at"],
+            "applied_at": applications.get(user["id"], {}).get("applied_at"),
+        }
+        if user["id"] in applications:
+            applied.append(payload)
+        else:
+            not_applied.append(payload)
+    return {
+        "enabled": bool(participation.get("enabled")),
+        "applied": applied,
+        "not_applied": not_applied,
+    }
 
 
 @app.put("/api/settings")
@@ -488,19 +645,25 @@ async def recommend_tournament_team(data: TeamRecommendationInput):
 async def register_tournament_team(
     data: TournamentTeamInput, request: Request
 ):
+    viewer = require_participant(request)
     try:
         async with state_lock:
             team = engine.register_tournament_team(
-            store.state,
-            data.name,
-            data.members,
-            data.registration_pin,
+                store.state,
+                data.name,
+                data.members,
+                data.registration_pin,
+                viewer.get("user_id"),
             )
             store.save()
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     await broadcast()
-    return {key: value for key, value in team.items() if key != "registration_pin"}
+    return {
+        key: value
+        for key, value in team.items()
+        if key not in ("registration_pin", "created_by_user_id")
+    }
 
 
 @app.post("/api/tournament/teams/{team_id}/approval")
@@ -542,6 +705,88 @@ async def select_tournament_winner(
             data.team_id,
         )
     )
+
+
+def scrim_result_payload(data: ScrimResultInput) -> dict:
+    result = "DRAW"
+    if data.our_score > data.opponent_score:
+        result = "WIN"
+    elif data.our_score < data.opponent_score:
+        result = "LOSE"
+    return {
+        **data.model_dump(),
+        "result": result,
+    }
+
+
+def require_scrim_result_manager(viewer: dict, team_id: str) -> dict:
+    team = next(
+        (
+            item
+            for item in store.state["tournament"]["teams"]
+            if item["id"] == team_id
+        ),
+        None,
+    )
+    if team is None:
+        raise HTTPException(404, "팀을 찾을 수 없습니다.")
+    team_player_ids = set(team.get("members", {}).values())
+    viewer_riot_id = str(viewer.get("riot_id") or "").casefold()
+    belongs_to_team = any(
+        player["id"] in team_player_ids
+        and str(player.get("riot_id") or "").casefold() == viewer_riot_id
+        for player in store.state["players"]
+    )
+    if not (
+        viewer["role"] == "host"
+        or team.get("created_by_user_id") == viewer.get("user_id")
+        or belongs_to_team
+    ):
+        raise HTTPException(403, "해당 팀원 또는 강사님만 결과를 등록할 수 있습니다.")
+    return team
+
+
+@app.post("/api/scrim/results")
+async def create_scrim_result(data: ScrimResultInput, request: Request):
+    viewer = require_participant(request)
+    async with state_lock:
+        require_scrim_result_manager(viewer, data.team_id)
+        result = {
+            "id": uuid.uuid4().hex,
+            **scrim_result_payload(data),
+            "created_at": time.time(),
+            "updated_at": time.time(),
+        }
+        store.state.setdefault("scrim_results", []).append(result)
+        store.save()
+    await broadcast()
+    return result
+
+
+@app.put("/api/scrim/results/{result_id}")
+async def update_scrim_result(
+    result_id: str, data: ScrimResultInput, request: Request
+):
+    viewer = require_participant(request)
+    async with state_lock:
+        result = next(
+            (
+                item
+                for item in store.state.setdefault("scrim_results", [])
+                if item["id"] == result_id
+            ),
+            None,
+        )
+        if result is None:
+            raise HTTPException(404, "결과를 찾을 수 없습니다.")
+        require_scrim_result_manager(viewer, result["team_id"])
+        if data.team_id != result["team_id"]:
+            raise HTTPException(400, "결과의 팀은 변경할 수 없습니다.")
+        result.update(scrim_result_payload(data))
+        result["updated_at"] = time.time()
+        store.save()
+    await broadcast()
+    return result
 
 
 async def mutate(action):
