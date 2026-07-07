@@ -298,10 +298,8 @@ def insert_and_get_id(connection, sql: str, params: tuple) -> int:
 
 
 def migrate_db(connection) -> None:
-    columns = {
-        row["name"]
-        for row in connection.execute("PRAGMA table_info(users)").fetchall()
-    }
+    user_columns = connection.execute("PRAGMA table_info(users)").fetchall()
+    columns = {row["name"] for row in user_columns}
     if "riot_id" not in columns:
         connection.execute("ALTER TABLE users ADD COLUMN riot_id TEXT")
         connection.execute(
@@ -311,6 +309,64 @@ def migrate_db(connection) -> None:
             WHERE riot_id IS NOT NULL
             """
         )
+    email_column = next((row for row in user_columns if row["name"] == "email"), None)
+    if email_column is not None and email_column["notnull"]:
+        rebuild_users_without_required_email(connection)
+
+
+def rebuild_users_without_required_email(connection) -> None:
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute(
+        """
+        CREATE TABLE users_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          riot_id TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          name TEXT NOT NULL,
+          nickname TEXT,
+          phone TEXT,
+          role TEXT NOT NULL DEFAULT 'USER'
+            CHECK (role IN ('USER', 'ADMIN')),
+          is_active INTEGER NOT NULL DEFAULT 1,
+          last_login_at TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO users_new (
+          id,
+          riot_id,
+          password_hash,
+          name,
+          nickname,
+          phone,
+          role,
+          is_active,
+          last_login_at,
+          created_at,
+          updated_at
+        )
+        SELECT
+          id,
+          COALESCE(NULLIF(riot_id, ''), email, 'user-' || id || '#LOCAL'),
+          password_hash,
+          name,
+          nickname,
+          phone,
+          role,
+          is_active,
+          last_login_at,
+          created_at,
+          updated_at
+        FROM users
+        """
+    )
+    connection.execute("DROP TABLE users")
+    connection.execute("ALTER TABLE users_new RENAME TO users")
+    connection.execute("PRAGMA foreign_keys = ON")
 
 
 def seed_admins(connection: sqlite3.Connection) -> None:
