@@ -241,6 +241,16 @@ def db_path() -> Path:
     return Path(os.getenv("SCRIM_DB_FILE", DEFAULT_DB_PATH))
 
 
+def configured_backend() -> str:
+    return "postgres" if os.getenv("SCRIM_DATABASE_URL") else "sqlite"
+
+
+def configured_database_label() -> str:
+    if configured_backend() == "postgres":
+        return "SCRIM_DATABASE_URL"
+    return str(db_path())
+
+
 @contextmanager
 def connect(path: str | Path | None = None) -> Iterator:
     if path is None and os.getenv("SCRIM_DATABASE_URL"):

@@ -132,7 +132,11 @@ def require_admin(scrim_auth: str | None) -> dict:
 @router.get("/health")
 async def health():
     scrim_db.init_db()
-    return {"ok": True, "database": str(scrim_db.db_path())}
+    return {
+        "ok": True,
+        "backend": scrim_db.configured_backend(),
+        "database": scrim_db.configured_database_label(),
+    }
 
 
 @router.post("/users")
