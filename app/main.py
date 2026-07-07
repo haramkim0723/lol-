@@ -26,6 +26,8 @@ from pydantic import BaseModel, Field
 
 from . import engine
 from .riot import RiotApiError, lookup_kr_player
+from .scrim_api import router as scrim_router
+from .scrim_db import init_db as init_scrim_db
 from .store import JsonStore
 
 
@@ -146,6 +148,7 @@ async def timer_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    init_scrim_db()
     task = None
     if not os.getenv("VERCEL"):
         task = asyncio.create_task(timer_loop())
@@ -156,6 +159,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="LoL Auction", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+app.include_router(scrim_router)
 
 
 @app.middleware("http")
