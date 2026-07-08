@@ -147,10 +147,16 @@ def add_player(
     tier: str,
     primary_position: str,
     secondary_position: str | None = None,
+    extra_positions: list[str] | None = None,
     profile_icon_url: str | None = None,
     score: int = 0,
     secondary_score: int | None = None,
 ) -> dict[str, Any]:
+    extra_positions = [
+        position
+        for position in (extra_positions or [])
+        if position and position not in (primary_position, secondary_position)
+    ][:2]
     player = {
         "id": uuid.uuid4().hex,
         "name": name.strip(),
@@ -158,6 +164,7 @@ def add_player(
         "tier": tier.strip() or "UNRANKED",
         "primary_position": primary_position,
         "secondary_position": secondary_position or None,
+        "extra_positions": extra_positions,
         "profile_icon_url": profile_icon_url,
         "score": score,
         "secondary_score": score if secondary_score is None else secondary_score,
@@ -172,11 +179,15 @@ def add_player(
 
 def player_score_for_position(player: dict[str, Any], position: str) -> int:
     if (
-        player.get("secondary_position") == position
-        and player.get("primary_position") != position
+        position != player.get("primary_position")
+        and (
+            player.get("secondary_position") == position
+            or position in (player.get("extra_positions") or [])
+        )
     ):
         return int(player.get("secondary_score", player.get("score", 0)))
     return int(player.get("score", 0))
+
 
 
 def update_player_score(
@@ -339,7 +350,11 @@ def register_tournament_team(
         player = by_id.get(player_id)
         if player is None:
             raise ValueError("등록할 참가자를 찾을 수 없습니다.")
-        if position not in (player["primary_position"], player["secondary_position"]):
+        if position not in (
+            player["primary_position"],
+            player["secondary_position"],
+            *(player.get("extra_positions") or []),
+        ):
             raise ValueError(
                 f'{player["name"]} 님은 {position} 포지션으로 배치할 수 없습니다.'
             )

@@ -234,6 +234,7 @@ class PlayerInput(BaseModel):
     tier: str = Field(default="UNRANKED", max_length=40)
     primary_position: Literal["TOP", "JUG", "MID", "ADC", "SUP"]
     secondary_position: Literal["TOP", "JUG", "MID", "ADC", "SUP"] | None = None
+    extra_positions: list[Literal["TOP", "JUG", "MID", "ADC", "SUP"]] = Field(default_factory=list, max_length=2)
     profile_icon_url: str | None = None
     score: int = Field(default=0, ge=0, le=1000)
     secondary_score: int | None = Field(default=None, ge=0, le=1000)
@@ -248,6 +249,7 @@ class RiotPlayerInput(BaseModel):
     riot_id: str = Field(min_length=3, max_length=80)
     primary_position: Literal["TOP", "JUG", "MID", "ADC", "SUP"]
     secondary_position: Literal["TOP", "JUG", "MID", "ADC", "SUP"] | None = None
+    extra_positions: list[Literal["TOP", "JUG", "MID", "ADC", "SUP"]] = Field(default_factory=list, max_length=2)
     score: int = Field(default=0, ge=0, le=1000)
     secondary_score: int | None = Field(default=None, ge=0, le=1000)
 
@@ -791,6 +793,7 @@ async def create_riot_player(data: RiotPlayerInput, request: Request):
             **riot,
             primary_position=data.primary_position,
             secondary_position=data.secondary_position,
+            extra_positions=data.extra_positions,
             score=data.score,
             secondary_score=data.secondary_score,
         )

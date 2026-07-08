@@ -48,6 +48,7 @@ let toastTimer = null;
 let stateSignature = "";
 let riotPreviewData = null;
 let rosterPage = 1;
+let selectedScrimTeamId = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -117,15 +118,101 @@ function updateSecondaryScoreField(form) {
     : "부 포지션을 선택하면 이 점수를 사용합니다.";
 }
 
+function playerPositions(player) {
+  return [
+    player?.primary_position,
+    player?.secondary_position,
+    ...(player?.extra_positions || []),
+  ].filter(Boolean);
+}
+
+function playerCanPosition(player, position) {
+  return playerPositions(player).includes(position);
+}
+
 function scoreForPosition(player, position) {
-  if (
-    player?.secondary_position === position &&
-    player?.primary_position !== position
-  ) {
+  if (player?.primary_position !== position && playerCanPosition(player, position)) {
     return Number(player.secondary_score ?? player.score ?? 0);
   }
   return Number(player?.score || 0);
 }
+
+
+function setupPositionSlots(form) {
+  if (!form || form.dataset.positionSlotsReady === "1") return;
+  form.dataset.positionSlotsReady = "1";
+  const primary = form.elements.primary_position;
+  const secondary = form.elements.secondary_position;
+  if (!primary || !secondary) return;
+  const slots = [
+    { select: primary, label: "포지션 1" },
+    { select: secondary, label: "포지션 2" },
+  ];
+  for (let index = 3; index <= 4; index += 1) {
+    const label = document.createElement("label");
+    label.className = "position-slot hidden";
+    label.textContent = `포지션 ${index}`;
+    const select = document.createElement("select");
+    select.name = "extra_position";
+    select.className = "position-select optional";
+    select.innerHTML = positionOptions(true);
+    label.appendChild(select);
+    secondary.closest("label").after(label);
+    slots.push({ select, label: `포지션 ${index}` });
+  }
+  slots.forEach((slot, index) => {
+    const label = slot.select.closest("label");
+    label.classList.add("position-slot");
+    label.dataset.positionSlot = String(index + 1);
+    const textNode = [...label.childNodes].find((node) => node.nodeType === Node.TEXT_NODE);
+    if (textNode) textNode.textContent = slot.label;
+    if (index > 0) label.classList.add("hidden");
+  });
+  const actions = document.createElement("div");
+  actions.className = "position-slot-actions";
+  actions.innerHTML = '<button class="ghost add-position-button" type="button">+ 포지션 추가</button><small>최대 4개까지 선택</small>';
+  slots.at(-1).select.closest("label").after(actions);
+  const addButton = actions.querySelector("button");
+  const refresh = () => {
+    const hidden = slots
+      .map((slot) => slot.select.closest("label"))
+      .filter((label) => label.classList.contains("hidden"));
+    addButton.disabled = hidden.length === 0;
+  };
+  addButton.addEventListener("click", () => {
+    const next = slots
+      .map((slot) => slot.select.closest("label"))
+      .find((label) => label.classList.contains("hidden"));
+    if (next) next.classList.remove("hidden");
+    refresh();
+  });
+  refresh();
+}
+
+function collectPlayerFormData(form) {
+  const data = Object.fromEntries(new FormData(form));
+  const positions = [...form.querySelectorAll(".position-slot:not(.hidden) select")]
+    .map((select) => select.value)
+    .filter(Boolean)
+    .filter((position, index, items) => items.indexOf(position) === index)
+    .slice(0, 4);
+  data.primary_position = positions[0] || data.primary_position;
+  data.secondary_position = positions[1] || null;
+  data.extra_positions = positions.slice(2);
+  data.preferred_lines = positions.join(",");
+  return data;
+}
+
+function resetPositionSlots(form) {
+  form.querySelectorAll(".position-slot").forEach((label, index) => {
+    label.classList.toggle("hidden", index > 0);
+    const select = label.querySelector("select");
+    if (select) select.value = index === 0 ? select.value || "TOP" : "";
+  });
+  const button = form.querySelector(".add-position-button");
+  if (button) button.disabled = false;
+}
+
 
 function setView(view) {
   if (view === "setup" && state.viewer.role !== "host") {
@@ -216,6 +303,7 @@ async function enterAuctionView() {
 
 function renderRole() {
   const viewer = state.viewer;
+  const participationEnabled = Boolean(state.participation?.enabled);
   const browsable = viewer.authenticated;
   const showLoginOverlay = !viewer.authenticated || authPromptOpen;
   $("#login-overlay").classList.toggle("hidden", !showLoginOverlay);
@@ -227,19 +315,23 @@ function renderRole() {
   $$('[data-view="members"]').forEach((button) =>
     button.classList.toggle("hidden", viewer.role !== "host")
   );
+  $$('[data-view="participation"]').forEach((button) =>
+    button.classList.toggle("hidden", viewer.role !== "host" && !participationEnabled)
+  );
   $$('[data-view="mypage"]').forEach((button) =>
     button.classList.toggle("hidden", !viewer.authenticated)
   );
   $("#competition-switcher").classList.toggle("hidden", !browsable);
 
-  let label = "관전자";
+  let label = "관리자";
   if (viewer.role === "host") label = "강사님";
   if (viewer.role === "participant") label = "참가자";
   if (viewer.role === "captain") {
-    label = `${captainById(viewer.captain_id)?.name || "팀장"} 팀`;
+    label = `${captainById(viewer.captain_id)?.name || "팀"} 팀`;
   }
   $("#role-badge").textContent = label;
 }
+
 
 function renderCompetitions() {
   const registry = state.competition_registry;
@@ -278,18 +370,47 @@ function applyCompetitionMode() {
   $$('[data-view="intro"], [data-view="auction"]').forEach((button) => {
     button.classList.toggle("hidden", !isAuction);
   });
-  $$('[data-view="score-intro"], [data-view="team-simulator"], [data-view="team-register"], [data-view="tournament"], [data-view="participation"], [data-view="members"], [data-view="mypage"]').forEach((button) => {
+  $$('[data-view="score-intro"], [data-view="team-simulator"], [data-view="team-register"], [data-view="tournament"]').forEach((button) => {
     button.classList.toggle("hidden", isAuction);
+  });
+  $$('[data-view="members"]').forEach((button) => {
+    button.classList.toggle("hidden", state.viewer.role !== "host");
+  });
+  $$('[data-view="participation"]').forEach((button) => {
+    button.classList.toggle(
+      "hidden",
+      isAuction || (state.viewer.role !== "host" && !state.participation?.enabled)
+    );
+  });
+  $$('[data-view="mypage"]').forEach((button) => {
+    button.classList.toggle("hidden", !state.viewer.authenticated);
   });
   $(".tournament-score-settings").classList.toggle("hidden", isAuction);
   $(".settings-panel").classList.toggle("hidden", !isAuction);
   $(".captain-panel").classList.toggle("hidden", !isAuction);
 
   const allowedViews = isAuction
-    ? ["intro", "setup", "auction", "scrim", "members", "mypage"]
-    : ["setup", "score-intro", "team-simulator", "team-register", "tournament", "participation", "scrim", "members", "mypage"];
+    ? [
+      "intro",
+      "setup",
+      "auction",
+      "scrim",
+      ...(state.viewer.role === "host" ? ["members"] : []),
+      "mypage",
+    ]
+    : [
+      "setup",
+      "score-intro",
+      "team-simulator",
+      "team-register",
+      "tournament",
+      ...(state.viewer.role === "host" || state.participation?.enabled ? ["participation"] : []),
+      "scrim",
+      ...(state.viewer.role === "host" ? ["members"] : []),
+      "mypage",
+    ];
   if (!allowedViews.includes(currentView)) {
-    currentView = isAuction ? "intro" : "tournament";
+    currentView = isAuction ? "intro" : "score-intro";
   }
 }
 
@@ -834,7 +955,7 @@ function renderTeamSelectors(formSelector, containerSelector, initial = null) {
     const secondaryCandidates = state.players
       .filter((player) =>
         player.primary_position !== position &&
-        player.secondary_position === position
+        playerCanPosition(player, position)
       )
       .sort((a, b) => a.name.localeCompare(b.name, "ko-KR"));
     const candidateOptions = `
@@ -1211,6 +1332,7 @@ $$(".position-select").forEach((select) => {
 });
 ["#manual-player-form", "#riot-player-form"].forEach((selector) => {
   const form = $(selector);
+  setupPositionSlots(form);
   form.elements.secondary_position.addEventListener("change", () =>
     updateSecondaryScoreField(form)
   );
@@ -1281,23 +1403,32 @@ $("#login-form").addEventListener("submit", async (event) => {
   }
   try {
     await api("/api/scrim/auth/login", { method: "POST", body: JSON.stringify(payload) });
+    const nextState = await api("/api/state");
+    if (!nextState.viewer?.authenticated) {
+      throw new Error("로그인 세션을 저장하지 못했습니다. 새로고침 후 다시 시도해주세요.");
+    }
+    state = nextState;
+    stateSignature = meaningfulStateSignature(state);
+    authPromptOpen = false;
     if (status) {
       status.className = "login-status";
-      status.textContent = "로그인 성공. 이동 중입니다...";
+      status.textContent = "로그인 성공.";
     }
-    location.reload();
+    render();
   } catch (error) {
     if (status) {
       status.className = "login-status error";
       status.textContent = `로그인 실패: ${error.message}`;
     }
     toast(`로그인 실패: ${error.message}`, true);
+  } finally {
     if (button) {
       button.disabled = false;
       button.textContent = "로그인";
     }
   }
 });
+
 
 
 $("#logout-button").addEventListener("click", async () => {
@@ -1368,7 +1499,7 @@ $("#captain-form").addEventListener("submit", async (event) => {
 
 $("#manual-player-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const data = Object.fromEntries(new FormData(event.target));
+  const data = collectPlayerFormData(event.target);
   if (event.target.closest("#member-player-registration-slot")) {
     const query = [data.name, data.riot_id].filter(Boolean).join(" ").trim();
     const searchInput = $("#member-search-form")?.elements.query;
@@ -1392,13 +1523,14 @@ $("#manual-player-form").addEventListener("submit", async (event) => {
     await api("/api/players", { method: "POST", body: JSON.stringify(data) });
     event.target.reset();
     updateManualTierDivision();
+    resetPositionSlots(event.target);
     updateSecondaryScoreField(event.target);
   } catch (error) { toast(error.message, true); }
 });
 
 $("#riot-player-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const data = Object.fromEntries(new FormData(event.target));
+  const data = collectPlayerFormData(event.target);
   data.secondary_position ||= null;
   data.score = Number(data.score || 0);
   data.secondary_score = data.secondary_position
@@ -1711,11 +1843,15 @@ function renderScrimTeams() {
   const list = $("#team-list");
   const teams = state.tournament.teams;
   if (!teams.length) {
+    selectedScrimTeamId = null;
     list.innerHTML = '<div class="empty-state">아직 등록된 팀이 없습니다.</div>';
     return;
   }
+  if (selectedScrimTeamId && !teams.some((team) => team.id === selectedScrimTeamId)) {
+    selectedScrimTeamId = null;
+  }
   list.innerHTML = teams.map((team) => `
-    <article class="team-item">
+    <article class="team-item scrim-team-card${team.id === selectedScrimTeamId ? " selected" : ""}" data-scrim-team-id="${team.id}">
       <div class="team-head">
         <div>
           <strong>${escapeHtml(team.name)}</strong>
@@ -1760,11 +1896,12 @@ function renderScrimResultForm() {
 function renderScrimResults() {
   const list = $("#scrim-result-list");
   const teamById = (id) => state.tournament.teams.find((team) => team.id === id);
-  const results = [...(state.scrim_results || [])].sort(
-    (left, right) => String(right.match_date).localeCompare(String(left.match_date))
-  );
+  const results = [...(state.scrim_results || [])]
+    .filter((result) => !selectedScrimTeamId || result.team_id === selectedScrimTeamId)
+    .sort((left, right) => String(right.match_date).localeCompare(String(left.match_date)));
   if (!results.length) {
-    list.innerHTML = '<div class="empty-state">아직 등록된 결과가 없습니다.</div>';
+    const selectedTeam = selectedScrimTeamId ? teamById(selectedScrimTeamId) : null;
+    list.innerHTML = `<div class="empty-state">${selectedTeam ? `${escapeHtml(selectedTeam.name)} 팀의 등록된 결과가 없습니다.` : "아직 등록된 결과가 없습니다."}</div>`;
     return;
   }
   list.innerHTML = results.map((result) => {
@@ -1978,6 +2115,17 @@ $("#refresh-teams").addEventListener("click", () =>
   loadScrimTeams().then(() => toast("팀 목록을 새로고침했습니다.")).catch((error) => toast(error.message, true))
 );
 
+$("#team-list").addEventListener("click", (event) => {
+  const card = event.target.closest("[data-scrim-team-id]");
+  if (!card) return;
+  selectedScrimTeamId =
+    selectedScrimTeamId === card.dataset.scrimTeamId ? null : card.dataset.scrimTeamId;
+  renderScrimTeams();
+  renderScrimResultForm();
+  renderScrimResults();
+  $("#scrim-result-list").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
 $("#scrim-result-image-file").addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -2153,6 +2301,7 @@ document.addEventListener("click", async (event) => {
       body: JSON.stringify(riotPreviewData.form),
     });
     $("#riot-player-form").reset();
+    resetPositionSlots($("#riot-player-form"));
     updateSecondaryScoreField($("#riot-player-form"));
     $("#riot-player-preview")?.remove();
     riotPreviewData = null;
