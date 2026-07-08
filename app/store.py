@@ -32,6 +32,12 @@ class JsonStore:
             or ""
         )
         self.redis_key = os.getenv("STATE_REDIS_KEY", "lol-auction:state")
+        self.postgres_url = (
+            os.getenv("STATE_DATABASE_URL")
+            or os.getenv("SCRIM_DATABASE_URL")
+            or ""
+        )
+        self.postgres_key = os.getenv("STATE_DATABASE_KEY", "lol-auction:state")
         self.document = self._load()
 
     @property
@@ -55,7 +61,11 @@ class JsonStore:
 
     @property
     def persistent(self) -> bool:
-        return bool(self.redis_url and self.redis_token) or not os.getenv("VERCEL")
+        return (
+            bool(self.postgres_url)
+            or bool(self.redis_url and self.redis_token)
+            or not os.getenv("VERCEL")
+        )
 
     def competition_summary(self) -> dict[str, Any]:
         return {
@@ -122,6 +132,11 @@ class JsonStore:
         self.save()
 
     def refresh(self) -> None:
+        if self.postgres_url:
+            result = self._postgres_load()
+            if result:
+                self.document = self._normalize_document(result)
+            return
         if not (self.redis_url and self.redis_token):
             return
         result = self._redis_command(["GET", self.redis_key])
@@ -130,7 +145,12 @@ class JsonStore:
 
     def _load(self) -> dict[str, Any]:
         raw: dict[str, Any] | None = None
-        if self.redis_url and self.redis_token:
+        if self.postgres_url:
+            try:
+                raw = self._postgres_load()
+            except OSError:
+                raw = None
+        if raw is None and self.redis_url and self.redis_token:
             try:
                 result = self._redis_command(["GET", self.redis_key])
                 if result:
@@ -146,6 +166,9 @@ class JsonStore:
 
     def save(self) -> None:
         payload = json.dumps(self.document, ensure_ascii=False, indent=2)
+        if self.postgres_url:
+            self._postgres_save(self.document)
+            return
         if self.redis_url and self.redis_token:
             self._redis_command(["SET", self.redis_key, payload])
             return
@@ -244,3 +267,51 @@ class JsonStore:
         if payload.get("error"):
             raise OSError(payload["error"])
         return payload.get("result")
+
+    def _postgres_connect(self):
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+        except ImportError as exc:
+            raise OSError("psycopg package is required for Postgres state storage") from exc
+        return psycopg.connect(self.postgres_url, row_factory=dict_row)
+
+    def _ensure_postgres_table(self, connection) -> None:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_state (
+              key TEXT PRIMARY KEY,
+              document JSONB NOT NULL,
+              updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+
+    def _postgres_load(self) -> dict[str, Any] | None:
+        try:
+            with self._postgres_connect() as connection:
+                self._ensure_postgres_table(connection)
+                row = connection.execute(
+                    "SELECT document FROM app_state WHERE key = %s",
+                    (self.postgres_key,),
+                ).fetchone()
+                return row["document"] if row else None
+        except Exception as exc:
+            raise OSError(f"Postgres state load failed: {exc}") from exc
+
+    def _postgres_save(self, document: dict[str, Any]) -> None:
+        try:
+            with self._postgres_connect() as connection:
+                self._ensure_postgres_table(connection)
+                connection.execute(
+                    """
+                    INSERT INTO app_state (key, document, updated_at)
+                    VALUES (%s, %s::jsonb, NOW())
+                    ON CONFLICT (key) DO UPDATE
+                    SET document = EXCLUDED.document,
+                        updated_at = NOW()
+                    """,
+                    (self.postgres_key, json.dumps(document, ensure_ascii=False)),
+                )
+        except Exception as exc:
+            raise OSError(f"Postgres state save failed: {exc}") from exc

@@ -66,6 +66,8 @@ def compute_viewer(token: str | None) -> dict:
             "approved": True,
             "user_id": user["id"],
             "riot_id": user["riot_id"],
+            "secondary_riot_id": user.get("secondary_riot_id"),
+            "nickname": user.get("nickname"),
             "name": user["name"],
         }
     captain = next(
@@ -84,6 +86,8 @@ def compute_viewer(token: str | None) -> dict:
             "approved": True,
             "user_id": user["id"],
             "riot_id": user["riot_id"],
+            "secondary_riot_id": user.get("secondary_riot_id"),
+            "nickname": user.get("nickname"),
             "name": user["name"],
         }
     if user.get("approved"):
@@ -94,6 +98,8 @@ def compute_viewer(token: str | None) -> dict:
             "approved": True,
             "user_id": user["id"],
             "riot_id": user["riot_id"],
+            "secondary_riot_id": user.get("secondary_riot_id"),
+            "nickname": user.get("nickname"),
             "name": user["name"],
         }
     return {
@@ -103,6 +109,8 @@ def compute_viewer(token: str | None) -> dict:
         "approved": False,
         "user_id": user["id"],
         "riot_id": user["riot_id"],
+        "secondary_riot_id": user.get("secondary_riot_id"),
+        "nickname": user.get("nickname"),
         "name": user["name"],
     }
 
@@ -279,6 +287,30 @@ class ParticipationApplyInput(BaseModel):
     terms_agreed: bool
 
 
+def member_participation_payload(user: dict, applications: dict[int, dict]) -> dict:
+    payload = {
+        "id": user["id"],
+        "name": user["name"],
+        "riot_id": user["riot_id"],
+        "secondary_riot_id": user.get("secondary_riot_id"),
+        "nickname": user.get("nickname"),
+        "role": user["role"],
+        "approved": bool(user.get("approved", False)),
+        "created_at": user["created_at"],
+    }
+    counts_for_stats = user["role"] != "ADMIN" and bool(user.get("approved", False))
+    if not counts_for_stats:
+        payload["participation_status"] = "excluded"
+        payload["participation_label"] = "통계 제외"
+        payload["applied_at"] = None
+        return payload
+    application = applications.get(user["id"])
+    payload["participation_status"] = "applied" if application else "not_applied"
+    payload["participation_label"] = "대회 참가" if application else "대회 미참가"
+    payload["applied_at"] = application.get("applied_at") if application else None
+    return payload
+
+
 class TeamRecommendationInput(BaseModel):
     locked: dict[
         Literal["TOP", "JUG", "MID", "ADC", "SUP"], str | None
@@ -318,6 +350,16 @@ async def tournament_page():
 
 @app.get("/participation")
 async def participation_page():
+    return FileResponse(ROOT / "static" / "index.html")
+
+
+@app.get("/members")
+async def members_page():
+    return FileResponse(ROOT / "static" / "index.html")
+
+
+@app.get("/mypage")
+async def mypage():
     return FileResponse(ROOT / "static" / "index.html")
 
 
@@ -447,7 +489,7 @@ async def participation_applications(request: Request):
         users = [
             user
             for user in scrim_db.search_users(connection, "")
-            if user["role"] != "ADMIN"
+            if user["role"] != "ADMIN" and user.get("approved")
         ]
     applied = []
     not_applied = []
@@ -468,6 +510,41 @@ async def participation_applications(request: Request):
         "enabled": bool(participation.get("enabled")),
         "applied": applied,
         "not_applied": not_applied,
+    }
+
+
+@app.get("/api/members")
+async def list_members(request: Request, query: str = ""):
+    require_host(request)
+    participation = store.state.setdefault(
+        "participation",
+        {"enabled": False, "terms": "", "applications": []},
+    )
+    applications = {
+        application["user_id"]: application
+        for application in participation.get("applications", [])
+    }
+    with scrim_db.connect() as connection:
+        users = scrim_db.search_users(connection, query)
+    members = [member_participation_payload(user, applications) for user in users]
+    stats_members = [
+        member
+        for member in members
+        if member["role"] != "ADMIN" and member["approved"]
+    ]
+    return {
+        "members": members,
+        "stats": {
+            "approved_members": len(stats_members),
+            "applied": sum(
+                1 for member in stats_members if member["participation_status"] == "applied"
+            ),
+            "not_applied": sum(
+                1
+                for member in stats_members
+                if member["participation_status"] == "not_applied"
+            ),
+        },
     }
 
 

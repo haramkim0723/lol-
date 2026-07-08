@@ -21,7 +21,8 @@ SCRIM_AUTH_COOKIE = "scrim_auth"
 class UserCreateInput(BaseModel):
     name: str = Field(min_length=1, max_length=50)
     riot_id: str = Field(min_length=3, max_length=80)
-    password: str = Field(min_length=4, max_length=128)
+    secondary_riot_id: str | None = Field(default=None, max_length=80)
+    password: str = Field(default="1234", min_length=4, max_length=128)
     nickname: str | None = Field(default=None, max_length=50)
     phone: str | None = Field(default=None, max_length=30)
 
@@ -56,6 +57,13 @@ class PasswordResetInput(BaseModel):
 
 class UserApprovalInput(BaseModel):
     approved: bool
+
+
+class MyProfileInput(BaseModel):
+    riot_id: str = Field(min_length=3, max_length=80)
+    secondary_riot_id: str | None = Field(default=None, max_length=80)
+    nickname: str | None = Field(default=None, max_length=50)
+    password: str | None = Field(default=None, min_length=4, max_length=128)
 
 
 def _sign(payload: str) -> str:
@@ -98,6 +106,8 @@ def public_user(user: dict) -> dict:
         "id": user["id"],
         "name": user["name"],
         "riot_id": user["riot_id"],
+        "secondary_riot_id": user.get("secondary_riot_id"),
+        "nickname": user.get("nickname"),
         "role": user["role"],
         "approved": bool(user.get("approved", False)),
         "is_active": bool(user["is_active"]),
@@ -153,6 +163,8 @@ async def health():
 
 @router.post("/users")
 async def create_user(data: UserCreateInput, response: Response):
+    if os.getenv("SCRIM_ALLOW_PUBLIC_SIGNUP", "").lower() not in ("1", "true", "yes"):
+        raise HTTPException(403, "회원가입은 강사님이 회원 관리에서 생성합니다.")
     try:
         with scrim_db.connect() as connection:
             user = scrim_db.create_user(connection, **data.model_dump())
@@ -187,6 +199,24 @@ async def me(scrim_auth: str | None = Cookie(default=None)):
     return public_user(current_user_from_cookie(scrim_auth))
 
 
+@router.patch("/me")
+async def update_me(
+    data: MyProfileInput,
+    scrim_auth: str | None = Cookie(default=None),
+):
+    current_user = current_user_from_cookie(scrim_auth)
+    try:
+        with scrim_db.connect() as connection:
+            user = scrim_db.update_user_profile(
+                connection,
+                user_id=current_user["id"],
+                **data.model_dump(),
+            )
+            return public_user(user)
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(400, "이미 사용 중인 본 아이디입니다.") from exc
+
+
 @router.get("/admin/users")
 async def admin_search_users(
     query: str = Query(default="", max_length=80),
@@ -196,6 +226,24 @@ async def admin_search_users(
     with scrim_db.connect() as connection:
         users = scrim_db.search_users(connection, query)
         return {"users": [public_user(user) for user in users]}
+
+
+@router.post("/admin/users")
+async def admin_create_user(
+    data: UserCreateInput,
+    scrim_auth: str | None = Cookie(default=None),
+):
+    require_admin(scrim_auth)
+    try:
+        with scrim_db.connect() as connection:
+            user = scrim_db.create_user(
+                connection,
+                **data.model_dump(),
+                approved=True,
+            )
+            return public_user(user)
+    except (ValueError, sqlite3.IntegrityError) as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.patch("/admin/users/{user_id}/password")

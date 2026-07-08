@@ -3,10 +3,12 @@ import tempfile
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ["SCRIM_DB_FILE"] = str(
     Path(tempfile.gettempdir()) / f"lol-scrim-api-test-{uuid.uuid4().hex}.db"
 )
+os.environ["SCRIM_ALLOW_PUBLIC_SIGNUP"] = "true"
 
 from fastapi.testclient import TestClient
 
@@ -170,6 +172,60 @@ class ScrimApiTest(unittest.TestCase):
                 json={"riot_id": "password-target#KR1", "password": "newpass"},
             )
             self.assertEqual(new_after_reset.status_code, 200)
+
+    def test_public_signup_blocked_and_admin_creates_member_with_secondary_id(self):
+        with patch.dict(os.environ, {"SCRIM_ALLOW_PUBLIC_SIGNUP": ""}):
+            with TestClient(app) as client:
+                client.get("/api/scrim/health")
+                blocked = client.post(
+                    "/api/scrim/users",
+                    json={
+                        "name": "Blocked",
+                        "riot_id": "blocked#KR1",
+                        "password": "1234",
+                    },
+                )
+                self.assertEqual(blocked.status_code, 403)
+
+                admin_login = client.post(
+                    "/api/scrim/auth/login",
+                    json={
+                        "riot_id": "\uc7a5\uc6d0\ud601#ADMIN",
+                        "password": "1234",
+                    },
+                )
+                self.assertEqual(admin_login.status_code, 200)
+                created = client.post(
+                    "/api/scrim/admin/users",
+                    json={
+                        "name": "Created Member",
+                        "riot_id": "main#KR1",
+                        "secondary_riot_id": "sub#KR1",
+                    },
+                )
+                self.assertEqual(created.status_code, 200)
+                self.assertEqual(created.json()["riot_id"], "main#KR1")
+                self.assertEqual(created.json()["secondary_riot_id"], "sub#KR1")
+                self.assertTrue(created.json()["approved"])
+
+            with TestClient(app) as member_client:
+                login = member_client.post(
+                    "/api/scrim/auth/login",
+                    json={"riot_id": "main#KR1", "password": "1234"},
+                )
+                self.assertEqual(login.status_code, 200)
+                updated = member_client.patch(
+                    "/api/scrim/me",
+                    json={
+                        "riot_id": "changed#KR1",
+                        "secondary_riot_id": "changed-sub#KR1",
+                        "nickname": "Changed",
+                        "password": "5678",
+                    },
+                )
+                self.assertEqual(updated.status_code, 200)
+                self.assertEqual(updated.json()["riot_id"], "changed#KR1")
+                self.assertEqual(updated.json()["secondary_riot_id"], "changed-sub#KR1")
 
     def test_scrim_page_serves_main_spa_with_scrim_tab(self):
         with TestClient(app) as client:

@@ -11,6 +11,7 @@ os.environ["DATA_FILE"] = str(_DATA_FILE)
 os.environ["SCRIM_DB_FILE"] = str(
     Path(tempfile.gettempdir()) / f"lol-auction-api-test-scrim-{uuid.uuid4().hex}.db"
 )
+os.environ["SCRIM_ALLOW_PUBLIC_SIGNUP"] = "true"
 
 from fastapi.testclient import TestClient
 
@@ -314,16 +315,22 @@ class ApiFlowTest(unittest.TestCase):
             registration = client.get("/team-register")
             tournament = client.get("/tournament")
             participation = client.get("/participation")
+            members = client.get("/members")
+            mypage = client.get("/mypage")
             score_players = client.get("/score-players")
             self.assertEqual(simulator.status_code, 200)
             self.assertEqual(registration.status_code, 200)
             self.assertEqual(tournament.status_code, 200)
             self.assertEqual(participation.status_code, 200)
+            self.assertEqual(members.status_code, 200)
+            self.assertEqual(mypage.status_code, 200)
             self.assertEqual(score_players.status_code, 200)
             self.assertIn("team-simulator-panel", simulator.text)
             self.assertIn("team-register-panel", registration.text)
             self.assertIn("tournament-panel", tournament.text)
             self.assertIn("participation-panel", participation.text)
+            self.assertIn("members-panel", members.text)
+            self.assertIn("mypage-panel", mypage.text)
 
     def test_host_opens_participation_and_splits_applicants(self):
         with TestClient(app) as host_client:

@@ -31,6 +31,10 @@ let currentView = location.pathname === "/score-players"
     ? "tournament"
   : location.pathname === "/participation"
     ? "participation"
+  : location.pathname === "/members"
+    ? "members"
+  : location.pathname === "/mypage"
+    ? "mypage"
   : location.pathname === "/scrim"
     ? "scrim"
     : "intro";
@@ -137,6 +141,8 @@ function setView(view) {
   $("#team-register-panel").classList.toggle("hidden", view !== "team-register");
   $("#tournament-panel").classList.toggle("hidden", view !== "tournament");
   $("#participation-panel").classList.toggle("hidden", view !== "participation");
+  $("#members-panel").classList.toggle("hidden", view !== "members");
+  $("#mypage-panel").classList.toggle("hidden", view !== "mypage");
   $("#auction-panel").classList.toggle("hidden", view !== "auction");
   $("#scrim-panel").classList.toggle("hidden", view !== "scrim");
   $$("[data-view]").forEach((button) => {
@@ -147,11 +153,14 @@ function setView(view) {
     : view === "team-register" ? "/team-register"
     : view === "tournament" ? "/tournament"
     : view === "participation" ? "/participation"
+    : view === "members" ? "/members"
+    : view === "mypage" ? "/mypage"
     : view === "scrim" ? "/scrim" : "/";
   if (location.pathname !== path) {
     history.pushState({ view }, "", path);
   }
   if (view === "scrim") loadScrimData();
+  if (view === "members") loadMembers();
 }
 
 async function enterAuctionView() {
@@ -185,6 +194,12 @@ function renderRole() {
   $("#logout-button").classList.toggle("hidden", !viewer.authenticated);
   $("#setup-nav").classList.toggle("hidden", viewer.role !== "host");
   $("#admin-panel").classList.toggle("hidden", viewer.role !== "host");
+  $$('[data-view="members"]').forEach((button) =>
+    button.classList.toggle("hidden", viewer.role !== "host")
+  );
+  $$('[data-view="mypage"]').forEach((button) =>
+    button.classList.toggle("hidden", !viewer.authenticated)
+  );
   $("#competition-switcher").classList.toggle("hidden", !browsable);
 
   let label = "관전자";
@@ -233,7 +248,7 @@ function applyCompetitionMode() {
   $$('[data-view="intro"], [data-view="auction"]').forEach((button) => {
     button.classList.toggle("hidden", !isAuction);
   });
-  $$('[data-view="score-intro"], [data-view="team-simulator"], [data-view="team-register"], [data-view="tournament"], [data-view="participation"]').forEach((button) => {
+  $$('[data-view="score-intro"], [data-view="team-simulator"], [data-view="team-register"], [data-view="tournament"], [data-view="participation"], [data-view="members"], [data-view="mypage"]').forEach((button) => {
     button.classList.toggle("hidden", isAuction);
   });
   $(".tournament-score-settings").classList.toggle("hidden", isAuction);
@@ -241,8 +256,8 @@ function applyCompetitionMode() {
   $(".captain-panel").classList.toggle("hidden", !isAuction);
 
   const allowedViews = isAuction
-    ? ["intro", "setup", "auction", "scrim"]
-    : ["setup", "score-intro", "team-simulator", "team-register", "tournament", "participation", "scrim"];
+    ? ["intro", "setup", "auction", "scrim", "members", "mypage"]
+    : ["setup", "score-intro", "team-simulator", "team-register", "tournament", "participation", "scrim", "members", "mypage"];
   if (!allowedViews.includes(currentView)) {
     currentView = isAuction ? "intro" : "tournament";
   }
@@ -612,6 +627,73 @@ async function loadParticipationApplications() {
   }
 }
 
+function participationClass(status) {
+  if (status === "applied") return "approved";
+  if (status === "not_applied") return "pending";
+  return "excluded";
+}
+
+function renderMemberRows(members) {
+  const list = $("#member-list");
+  if (!members.length) {
+    list.innerHTML = '<div class="empty-state">회원이 없습니다.</div>';
+    return;
+  }
+  list.innerHTML = members.map((user) => `
+    <article class="admin-user">
+      <div class="admin-user-head">
+        <div>
+          <strong>${escapeHtml(user.name)}</strong>
+          <div class="meta">
+            본 ${escapeHtml(user.riot_id)}
+            ${user.secondary_riot_id ? ` · 부 ${escapeHtml(user.secondary_riot_id)}` : ""}
+          </div>
+        </div>
+        <span class="user-approval ${participationClass(user.participation_status)}">
+          ${escapeHtml(user.participation_label)}
+        </span>
+      </div>
+      <div class="admin-user-actions">
+        <span class="mini-status">${user.role === "ADMIN" ? "관리자" : user.approved ? "승인" : "미승인"}</span>
+      </div>
+      ${user.role !== "ADMIN" ? `
+        <div class="admin-user-actions">
+          <button class="${user.approved ? "ghost" : "accent"}" type="button" data-user-approval="${user.id}" data-approved="${user.approved ? "false" : "true"}">
+            ${user.approved ? "승인 해제" : "승인"}
+          </button>
+        </div>
+      ` : ""}
+      <form data-password-reset="${user.id}">
+        <input name="new_password" type="password" minlength="4" maxlength="128" placeholder="새 비밀번호" required />
+        <button class="ghost" type="submit">재설정</button>
+      </form>
+    </article>
+  `).join("");
+}
+
+async function loadMembers() {
+  if (state.viewer.role !== "host") return;
+  try {
+    const query = $("#member-search-form")?.elements.query.value || "";
+    const data = await api(`/api/members?query=${encodeURIComponent(query)}`);
+    $("#member-stat-total").textContent = data.stats.approved_members;
+    $("#member-stat-applied").textContent = data.stats.applied;
+    $("#member-stat-not-applied").textContent = data.stats.not_applied;
+    renderMemberRows(data.members);
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+function renderMyPage() {
+  const viewer = state.viewer || {};
+  const form = $("#mypage-form");
+  if (!form || !viewer.authenticated) return;
+  form.elements.riot_id.value = viewer.riot_id || "";
+  form.elements.secondary_riot_id.value = viewer.secondary_riot_id || "";
+  form.elements.nickname.value = viewer.nickname || "";
+}
+
 function formatDateTime(timestamp) {
   return new Date(Number(timestamp) * 1000).toLocaleString("ko-KR", {
     month: "2-digit",
@@ -941,6 +1023,7 @@ function render() {
   renderSetup();
   renderTournament();
   renderParticipation();
+  renderMyPage();
   renderAuction();
   if (
     state.viewer.role !== "host"
@@ -1049,6 +1132,8 @@ window.addEventListener("popstate", () => {
     : location.pathname === "/team-register" ? "team-register"
     : location.pathname === "/tournament" ? "tournament"
     : location.pathname === "/participation" ? "participation"
+    : location.pathname === "/members" ? "members"
+    : location.pathname === "/mypage" ? "mypage"
     : location.pathname === "/scrim" ? "scrim" : "intro";
   if (state) setView(currentView);
 });
@@ -1576,7 +1661,7 @@ function renderScrimAdminUsers(users) {
       <div class="admin-user-head">
         <div>
           <strong>${escapeHtml(user.name)}</strong>
-          <div class="meta">${escapeHtml(user.riot_id)} · ${user.role}</div>
+          <div class="meta">본 ${escapeHtml(user.riot_id)}${user.secondary_riot_id ? ` · 부 ${escapeHtml(user.secondary_riot_id)}` : ""} · ${user.role}</div>
         </div>
         <span class="user-approval ${user.approved ? "approved" : "pending"}">
           ${user.role === "ADMIN" ? "강사님" : user.approved ? "참가자" : "승인 대기"}
@@ -1606,6 +1691,28 @@ async function loadScrimTeams() {
 async function searchScrimUsers(query) {
   const data = await api(`/api/scrim/admin/users?query=${encodeURIComponent(query)}`);
   renderScrimAdminUsers(data.users);
+}
+
+async function resetMemberPassword(form) {
+  await api(`/api/scrim/admin/users/${form.dataset.passwordReset}/password`, {
+    method: "PATCH",
+    body: JSON.stringify(Object.fromEntries(new FormData(form))),
+  });
+  form.reset();
+  toast("비밀번호를 재설정했습니다.");
+}
+
+async function setMemberApproval(button) {
+  await api(`/api/scrim/admin/users/${button.dataset.userApproval}/approval`, {
+    method: "PATCH",
+    body: JSON.stringify({ approved: button.dataset.approved === "true" }),
+  });
+  if (currentView === "members") {
+    await loadMembers();
+  } else {
+    await searchScrimUsers($("#admin-search-form").elements.query.value || "");
+  }
+  toast(button.dataset.approved === "true" ? "회원을 승인했습니다." : "승인을 해제했습니다.");
 }
 
 async function loadScrimData() {
@@ -1711,12 +1818,7 @@ $("#admin-user-list").addEventListener("submit", async (event) => {
   if (!form) return;
   event.preventDefault();
   try {
-    await api(`/api/scrim/admin/users/${form.dataset.passwordReset}/password`, {
-      method: "PATCH",
-      body: JSON.stringify(Object.fromEntries(new FormData(form))),
-    });
-    form.reset();
-    toast("비밀번호를 재설정했습니다.");
+    await resetMemberPassword(form);
   } catch (error) { toast(error.message, true); }
 });
 
@@ -1724,12 +1826,61 @@ $("#admin-user-list").addEventListener("click", async (event) => {
   const button = event.target.closest("[data-user-approval]");
   if (!button) return;
   try {
-    await api(`/api/scrim/admin/users/${button.dataset.userApproval}/approval`, {
-      method: "PATCH",
-      body: JSON.stringify({ approved: button.dataset.approved === "true" }),
+    await setMemberApproval(button);
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#member-create-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const payload = Object.fromEntries(new FormData(event.target));
+  payload.password = "1234";
+  payload.secondary_riot_id ||= null;
+  try {
+    await api("/api/scrim/admin/users", {
+      method: "POST",
+      body: JSON.stringify(payload),
     });
-    await searchScrimUsers($("#admin-search-form").elements.query.value || "");
-    toast(button.dataset.approved === "true" ? "참가자로 승인했습니다." : "승인을 해제했습니다.");
+    event.target.reset();
+    await loadMembers();
+    toast("회원 계정을 생성했습니다. 기본 비밀번호는 1234입니다.");
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#member-search-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await loadMembers();
+});
+
+$("#member-list").addEventListener("submit", async (event) => {
+  const form = event.target.closest("[data-password-reset]");
+  if (!form) return;
+  event.preventDefault();
+  try {
+    await resetMemberPassword(form);
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#member-list").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-user-approval]");
+  if (!button) return;
+  try {
+    await setMemberApproval(button);
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#mypage-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const payload = Object.fromEntries(new FormData(event.target));
+  payload.secondary_riot_id ||= null;
+  payload.nickname ||= null;
+  if (!payload.password) delete payload.password;
+  try {
+    await api("/api/scrim/me", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    toast("마이페이지를 저장했습니다.");
+    setTimeout(() => location.reload(), 500);
   } catch (error) { toast(error.message, true); }
 });
 

@@ -626,7 +626,7 @@ aside { display: grid; gap: 18px; }
 .login-card { width: min(430px, 100%); border: 1px solid rgba(217,169,79,.25); border-radius: 20px; padding: 28px; background: linear-gradient(145deg, #172130, #0a0f17); box-shadow: 0 25px 100px rgba(0,0,0,.55); }
 .login-card h2 { margin: 0; font-size: 28px; }
 .login-copy { color: var(--muted); font-size: 13px; line-height: 1.7; }
-.login-tabs { display: grid; grid-template-columns: repeat(2,1fr); gap: 5px; margin: 22px 0 15px; padding: 4px; border-radius: 11px; background: #080d14; }
+.login-tabs { display: grid; grid-template-columns: 1fr; gap: 5px; margin: 22px 0 15px; padding: 4px; border-radius: 11px; background: #080d14; }
 .login-guest-button { width: 100%; margin-top: 12px; }
 .login-tab { background: transparent; color: var(--muted); padding: 9px; }
 .login-tab.active { color: #15100a; background: var(--gold-light); }
@@ -692,6 +692,11 @@ aside { display: grid; gap: 18px; }
 .admin-user form input { margin-top: 0; }
 .admin-user-actions { display: flex; justify-content: flex-end; }
 .admin-user-actions button { padding: 7px 10px; font-size: 10px; }
+.member-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+.member-stats div { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.035); }
+.member-stats strong, .member-stats span { display: block; }
+.member-stats strong { color: var(--gold-light); font-size: 22px; }
+.member-stats span, .mini-status { color: var(--muted); font-size: 11px; font-weight: 800; }
 .user-approval {
   padding: 5px 8px;
   border-radius: 999px;
@@ -705,6 +710,10 @@ aside { display: grid; gap: 18px; }
 .user-approval.pending {
   color: #f1d08c;
   background: rgba(217,169,79,.1);
+}
+.user-approval.excluded {
+  color: var(--muted);
+  background: rgba(255,255,255,.06);
 }
 
 @media (max-width: 980px) {

@@ -19,6 +19,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   riot_id TEXT NOT NULL UNIQUE,
+  secondary_riot_id TEXT,
   password_hash TEXT NOT NULL,
   name TEXT NOT NULL,
   nickname TEXT,
@@ -315,6 +316,8 @@ def migrate_db(connection) -> None:
     if "approved" not in columns:
         connection.execute("ALTER TABLE users ADD COLUMN approved INTEGER NOT NULL DEFAULT 0")
         connection.execute("UPDATE users SET approved = 1 WHERE role = 'ADMIN'")
+    if "secondary_riot_id" not in columns:
+        connection.execute("ALTER TABLE users ADD COLUMN secondary_riot_id TEXT")
     email_column = next((row for row in user_columns if row["name"] == "email"), None)
     if email_column is not None and email_column["notnull"]:
         rebuild_users_without_required_email(connection)
@@ -324,6 +327,7 @@ def migrate_postgres_db(connection) -> None:
     connection.execute(
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS approved INTEGER NOT NULL DEFAULT 0"
     )
+    connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS secondary_riot_id TEXT")
     connection.execute("UPDATE users SET approved = 1 WHERE role = 'ADMIN'")
 
 
@@ -335,6 +339,7 @@ def rebuild_users_without_required_email(connection) -> None:
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           riot_id TEXT NOT NULL UNIQUE,
           password_hash TEXT NOT NULL,
+          secondary_riot_id TEXT,
           name TEXT NOT NULL,
           nickname TEXT,
           phone TEXT,
@@ -354,6 +359,7 @@ def rebuild_users_without_required_email(connection) -> None:
           id,
           riot_id,
           password_hash,
+          secondary_riot_id,
           name,
           nickname,
           phone,
@@ -368,6 +374,7 @@ def rebuild_users_without_required_email(connection) -> None:
           id,
           COALESCE(NULLIF(riot_id, ''), email, 'user-' || id || '#LOCAL'),
           password_hash,
+          NULL,
           name,
           nickname,
           phone,
@@ -430,26 +437,46 @@ def create_user(
     name: str,
     riot_id: str,
     password: str,
+    secondary_riot_id: str | None = None,
     nickname: str | None = None,
     phone: str | None = None,
     role: str = "USER",
+    approved: bool = False,
 ) -> dict:
     user_id = insert_and_get_id(
         connection,
         """
         INSERT INTO users (
           riot_id,
+          secondary_riot_id,
           password_hash,
           name,
           nickname,
           phone,
-          role
+          role,
+          approved
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (riot_id, hash_password(password), name, nickname, phone, role),
+        (
+            riot_id.strip(),
+            clean_optional_text(secondary_riot_id),
+            hash_password(password),
+            name.strip(),
+            clean_optional_text(nickname),
+            clean_optional_text(phone),
+            role,
+            1 if approved else 0,
+        ),
     )
     return get_user(connection, user_id)
+
+
+def clean_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
 
 
 def hash_password(password: str) -> str:
@@ -522,11 +549,11 @@ def search_users(connection, query: str = "") -> list[dict]:
             SELECT *
             FROM users
             WHERE is_active = 1
-              AND (? = '%%' OR name ILIKE ? OR riot_id ILIKE ?)
+              AND (? = '%%' OR name ILIKE ? OR riot_id ILIKE ? OR secondary_riot_id ILIKE ?)
             ORDER BY (role = 'ADMIN') DESC, name ASC, riot_id ASC
-            LIMIT 50
+            LIMIT 500
             """,
-            (normalized, normalized, normalized),
+            (normalized, normalized, normalized, normalized),
         ).fetchall()
     else:
         rows = connection.execute(
@@ -534,13 +561,62 @@ def search_users(connection, query: str = "") -> list[dict]:
             SELECT *
             FROM users
             WHERE is_active = 1
-              AND (? = '%%' OR name LIKE ? OR riot_id LIKE ?)
+              AND (? = '%%' OR name LIKE ? OR riot_id LIKE ? OR secondary_riot_id LIKE ?)
             ORDER BY role = 'ADMIN' DESC, name ASC, riot_id ASC
-            LIMIT 50
+            LIMIT 500
             """,
-            (normalized, normalized, normalized),
+            (normalized, normalized, normalized, normalized),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def update_user_profile(
+    connection,
+    *,
+    user_id: int,
+    riot_id: str,
+    secondary_riot_id: str | None = None,
+    nickname: str | None = None,
+    password: str | None = None,
+) -> dict:
+    get_user(connection, user_id)
+    if password:
+        connection.execute(
+            """
+            UPDATE users
+            SET riot_id = ?,
+                secondary_riot_id = ?,
+                nickname = ?,
+                password_hash = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                riot_id.strip(),
+                clean_optional_text(secondary_riot_id),
+                clean_optional_text(nickname),
+                hash_password(password),
+                user_id,
+            ),
+        )
+    else:
+        connection.execute(
+            """
+            UPDATE users
+            SET riot_id = ?,
+                secondary_riot_id = ?,
+                nickname = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                riot_id.strip(),
+                clean_optional_text(secondary_riot_id),
+                clean_optional_text(nickname),
+                user_id,
+            ),
+        )
+    return get_user(connection, user_id)
 
 
 def reset_user_password(
