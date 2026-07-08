@@ -275,12 +275,18 @@ def connect(path: str | Path | None = None) -> Iterator:
 
 def init_db(path: str | Path | None = None) -> None:
     with connect(path) as connection:
-        connection.executescript(schema_sql(connection))
-        if db_dialect(connection) == "sqlite":
-            migrate_db(connection)
-        else:
-            migrate_postgres_db(connection)
-        seed_admins(connection)
+        if db_dialect(connection) == "postgres":
+            connection.execute("SELECT pg_advisory_lock(hashtext('lol_scrim_schema'))")
+        try:
+            connection.executescript(schema_sql(connection))
+            if db_dialect(connection) == "sqlite":
+                migrate_db(connection)
+            else:
+                migrate_postgres_db(connection)
+            seed_admins(connection)
+        finally:
+            if db_dialect(connection) == "postgres":
+                connection.execute("SELECT pg_advisory_unlock(hashtext('lol_scrim_schema'))")
 
 
 def db_dialect(connection) -> str:

@@ -1141,12 +1141,7 @@ window.addEventListener("popstate", () => {
 function setAuthMode(mode) {
   authMode = mode;
   $("#login-form").classList.toggle("hidden", mode !== "login");
-  $("#signup-form").classList.toggle("hidden", mode !== "signup");
-  $("#show-login").classList.toggle("active", mode === "login");
-  $("#show-signup").classList.toggle("active", mode === "signup");
 }
-$("#show-login").addEventListener("click", () => setAuthMode("login"));
-$("#show-signup").addEventListener("click", () => setAuthMode("signup"));
 
 $("#login-button").addEventListener("click", () => {
   authPromptOpen = true;
@@ -1159,17 +1154,6 @@ $("#login-form").addEventListener("submit", async (event) => {
   const payload = Object.fromEntries(new FormData(event.target));
   try {
     await api("/api/scrim/auth/login", { method: "POST", body: JSON.stringify(payload) });
-    location.reload();
-  } catch (error) {
-    toast(error.message, true);
-  }
-});
-
-$("#signup-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const payload = Object.fromEntries(new FormData(event.target));
-  try {
-    await api("/api/scrim/users", { method: "POST", body: JSON.stringify(payload) });
     location.reload();
   } catch (error) {
     toast(error.message, true);

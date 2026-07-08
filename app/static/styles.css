@@ -626,10 +626,7 @@ aside { display: grid; gap: 18px; }
 .login-card { width: min(430px, 100%); border: 1px solid rgba(217,169,79,.25); border-radius: 20px; padding: 28px; background: linear-gradient(145deg, #172130, #0a0f17); box-shadow: 0 25px 100px rgba(0,0,0,.55); }
 .login-card h2 { margin: 0; font-size: 28px; }
 .login-copy { color: var(--muted); font-size: 13px; line-height: 1.7; }
-.login-tabs { display: grid; grid-template-columns: 1fr; gap: 5px; margin: 22px 0 15px; padding: 4px; border-radius: 11px; background: #080d14; }
 .login-guest-button { width: 100%; margin-top: 12px; }
-.login-tab { background: transparent; color: var(--muted); padding: 9px; }
-.login-tab.active { color: #15100a; background: var(--gold-light); }
 .login-card label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 11px; }
 .login-card input, .login-card select { display: block; width: 100%; margin-top: 7px; padding: 12px; border-radius: 10px; border: 1px solid var(--line); color: #fff; background: #080d14; }
 .login-card form > button { width: 100%; margin-top: 7px; }
