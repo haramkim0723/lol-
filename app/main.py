@@ -335,6 +335,20 @@ class RosterImportInput(BaseModel):
     rows: list[RosterImportRow] = Field(min_length=1, max_length=1000)
 
 
+TEST_COMPETITION_ID = "test-score-approved"
+TEST2_COMPETITION_ID = "test2-score-open"
+
+
+def score_competition_state(name: str, *, participation_enabled: bool, applications: list[dict]) -> dict:
+    score_state = engine.new_state()
+    score_state["settings"]["room_name"] = name
+    score_state["players"] = []
+    score_state["tournament"]["status"] = "registration"
+    score_state["participation"]["enabled"] = participation_enabled
+    score_state["participation"]["applications"] = applications
+    return score_state
+
+
 def member_participation_payload(user: dict, applications: dict[int, dict]) -> dict:
     payload = {
         "id": user["id"],
@@ -800,6 +814,93 @@ async def import_roster(data: RosterImportInput, request: Request):
             if entry.get("account_status") == "ISSUED":
                 summary["accounts_issued"] += 1
     return summary
+
+
+@app.post("/api/admin/setup-test-competitions")
+async def setup_test_competitions(request: Request):
+    require_host(request)
+    now = time.time()
+    with scrim_db.connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT user_id, name, riot_id
+            FROM roster_entries
+            WHERE user_id IS NOT NULL
+              AND riot_id IS NOT NULL
+              AND riot_id <> ''
+            ORDER BY source_row ASC
+            """
+        ).fetchall()
+        users = [dict(row) for row in rows]
+        connection.execute("DELETE FROM member_competition_participations")
+        for user in users:
+            scrim_db.record_competition_participation(
+                connection,
+                user_id=user["user_id"],
+                competition_id=TEST_COMPETITION_ID,
+                competition_name="test",
+                applied_at=now,
+            )
+            scrim_db.set_competition_participation_status(
+                connection,
+                user_id=user["user_id"],
+                competition_id=TEST_COMPETITION_ID,
+                status="APPROVED",
+                changed_at=now,
+            )
+        total_row = connection.execute(
+            "SELECT COUNT(*) AS count FROM roster_entries"
+        ).fetchone()
+    applications = [
+        {
+            "user_id": user["user_id"],
+            "name": user.get("name") or "",
+            "riot_id": user.get("riot_id") or "",
+            "terms_agreed": True,
+            "applied_at": now,
+            "approved_at": now,
+            "status": "APPROVED",
+        }
+        for user in users
+    ]
+    async with state_lock:
+        store.document = {
+            "version": 2,
+            "active_competition_id": TEST2_COMPETITION_ID,
+            "competitions": [
+                {
+                    "id": TEST_COMPETITION_ID,
+                    "name": "test",
+                    "mode": "tournament",
+                    "created_at": now,
+                    "state": score_competition_state(
+                        "test",
+                        participation_enabled=False,
+                        applications=applications,
+                    ),
+                },
+                {
+                    "id": TEST2_COMPETITION_ID,
+                    "name": "test2",
+                    "mode": "tournament",
+                    "created_at": now + 1,
+                    "state": score_competition_state(
+                        "test2",
+                        participation_enabled=True,
+                        applications=[],
+                    ),
+                },
+            ],
+        }
+        store.save()
+    await broadcast()
+    return {
+        "ok": True,
+        "roster_total": dict(total_row)["count"],
+        "account_issued": len(users),
+        "test_approved": len(users),
+        "test2_applications": 0,
+    }
 
 
 @app.patch("/api/roster/{roster_id}")
