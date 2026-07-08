@@ -303,6 +303,10 @@ class ParticipationApplyInput(BaseModel):
     terms_agreed: bool
 
 
+class ParticipationStatusInput(BaseModel):
+    status: Literal["APPLIED", "APPROVED", "CANCELLED"]
+
+
 class RosterEntryInput(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=80)
     participation_status_text: str | None = Field(default=None, max_length=80)
@@ -354,15 +358,25 @@ def roster_entry_is_applied(entry: dict) -> bool:
     )
 
 
-def roster_payload(entry: dict, applications: dict[int, dict]) -> dict:
+def roster_payload(
+    entry: dict,
+    applications: dict[int, dict],
+    participation_history: dict[int, list[dict]] | None = None,
+) -> dict:
     payload = dict(entry)
     roster_applied = roster_entry_is_applied(entry)
     user_id = entry.get("user_id")
     application = applications.get(user_id) if user_id else None
-    is_applied = roster_applied or bool(application)
+    is_approved = bool(application and application.get("status") == "APPROVED")
+    is_applied = roster_applied or is_approved
     payload["tournament_status"] = "applied" if is_applied else "not_applied"
     payload["tournament_label"] = "\ub300\ud68c \ucc38\uac00" if is_applied else "\ub300\ud68c \ubbf8\ucc38\uac00"
     payload["applied_at"] = application.get("applied_at") if application else None
+    events = (participation_history or {}).get(user_id, []) if user_id else []
+    payload["participation_events"] = events
+    payload["participation_count"] = sum(
+        1 for event in events if event.get("status") == "APPROVED"
+    )
     return payload
 
 
@@ -514,9 +528,11 @@ async def apply_participation(
             ),
             None,
         )
+        applied_at = time.time()
         if existing:
-            existing["applied_at"] = time.time()
+            existing["applied_at"] = applied_at
             existing["terms_agreed"] = True
+            existing.setdefault("status", "APPLIED")
         else:
             applications.append(
                 {
@@ -524,8 +540,20 @@ async def apply_participation(
                     "name": viewer.get("name", ""),
                     "riot_id": viewer.get("riot_id", ""),
                     "terms_agreed": True,
-                    "applied_at": time.time(),
+                    "applied_at": applied_at,
+                    "status": "APPLIED",
                 }
+            )
+        competition = store.active_competition
+        competition_id = competition["id"] if competition else "default"
+        competition_name = competition["name"] if competition else store.state["settings"]["room_name"]
+        with scrim_db.connect() as connection:
+            scrim_db.record_competition_participation(
+                connection,
+                user_id=viewer["user_id"],
+                competition_id=competition_id,
+                competition_name=competition_name,
+                applied_at=applied_at,
             )
         store.save()
     await broadcast()
@@ -559,6 +587,7 @@ async def participation_applications(request: Request):
             "approved": bool(user.get("approved", False)),
             "created_at": user["created_at"],
             "applied_at": applications.get(user["id"], {}).get("applied_at"),
+            "participation_status": applications.get(user["id"], {}).get("status", "APPLIED"),
         }
         if user["id"] in applications:
             applied.append(payload)
@@ -569,6 +598,50 @@ async def participation_applications(request: Request):
         "applied": applied,
         "not_applied": not_applied,
     }
+
+
+@app.patch("/api/participation/applications/{user_id}")
+async def update_participation_application(
+    user_id: int,
+    data: ParticipationStatusInput,
+    request: Request,
+):
+    require_host(request)
+    changed_at = time.time()
+    async with state_lock:
+        competition = store.active_competition
+        competition_id = competition["id"] if competition else "default"
+        competition_name = competition["name"] if competition else store.state["settings"]["room_name"]
+        participation = store.state.setdefault(
+            "participation",
+            {"enabled": False, "terms": "", "applications": []},
+        )
+        applications = participation.setdefault("applications", [])
+        application = next(
+            (item for item in applications if item.get("user_id") == user_id),
+            None,
+        )
+        if application is None:
+            raise HTTPException(404, "참가 신청 기록을 찾을 수 없습니다.")
+        application["status"] = data.status
+        if data.status == "APPROVED":
+            application["approved_at"] = changed_at
+        elif data.status == "CANCELLED":
+            application["cancelled_at"] = changed_at
+        with scrim_db.connect() as connection:
+            try:
+                record = scrim_db.set_competition_participation_status(
+                    connection,
+                    user_id=user_id,
+                    competition_id=competition_id,
+                    status=data.status,
+                    changed_at=changed_at,
+                )
+            except ValueError as exc:
+                raise HTTPException(404, str(exc)) from exc
+        store.save()
+    await broadcast()
+    return record
 
 
 @app.get("/api/members")
@@ -665,8 +738,18 @@ async def list_roster(
             limit=page_size,
             offset=(page - 1) * page_size,
         )
+        participation_rows = scrim_db.list_competition_participations(
+            connection,
+            {entry["user_id"] for entry in entries if entry.get("user_id")},
+        )
+    participation_history: dict[int, list[dict]] = {}
+    for row in participation_rows:
+        participation_history.setdefault(row["user_id"], []).append(row)
     return {
-        "entries": [roster_payload(entry, applications) for entry in entries],
+        "entries": [
+            roster_payload(entry, applications, participation_history)
+            for entry in entries
+        ],
         "pagination": {
             "page": page,
             "page_size": page_size,
@@ -698,7 +781,15 @@ async def update_roster_entry(roster_id: int, data: RosterEntryInput, request: R
         application["user_id"]: application
         for application in participation.get("applications", [])
     }
-    return roster_payload(entry, applications)
+    with scrim_db.connect() as connection:
+        participation_rows = scrim_db.list_competition_participations(
+            connection,
+            {entry["user_id"]} if entry.get("user_id") else set(),
+        )
+    participation_history: dict[int, list[dict]] = {}
+    for row in participation_rows:
+        participation_history.setdefault(row["user_id"], []).append(row)
+    return roster_payload(entry, applications, participation_history)
 
 
 @app.put("/api/settings")

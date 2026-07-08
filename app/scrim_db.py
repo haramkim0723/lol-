@@ -60,6 +60,22 @@ CREATE TABLE IF NOT EXISTS roster_entries (
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS member_competition_participations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  competition_id TEXT NOT NULL,
+  competition_name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'APPLIED'
+    CHECK (status IN ('APPLIED', 'APPROVED', 'CANCELLED')),
+  applied_at REAL NOT NULL,
+  approved_at REAL,
+  cancelled_at REAL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (user_id, competition_id),
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
 CREATE TABLE IF NOT EXISTS teams (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -354,6 +370,22 @@ def migrate_db(connection) -> None:
     email_column = next((row for row in user_columns if row["name"] == "email"), None)
     if email_column is not None and email_column["notnull"]:
         rebuild_users_without_required_email(connection)
+    participation_columns = connection.execute(
+        "PRAGMA table_info(member_competition_participations)"
+    ).fetchall()
+    participation_column_names = {row["name"] for row in participation_columns}
+    if participation_columns and "status" not in participation_column_names:
+        connection.execute(
+            "ALTER TABLE member_competition_participations ADD COLUMN status TEXT NOT NULL DEFAULT 'APPLIED'"
+        )
+    if participation_columns and "approved_at" not in participation_column_names:
+        connection.execute(
+            "ALTER TABLE member_competition_participations ADD COLUMN approved_at REAL"
+        )
+    if participation_columns and "cancelled_at" not in participation_column_names:
+        connection.execute(
+            "ALTER TABLE member_competition_participations ADD COLUMN cancelled_at REAL"
+        )
 
 
 def migrate_postgres_db(connection) -> None:
@@ -362,6 +394,15 @@ def migrate_postgres_db(connection) -> None:
     )
     connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS secondary_riot_id TEXT")
     connection.execute("UPDATE users SET approved = 1 WHERE role = 'ADMIN'")
+    connection.execute(
+        "ALTER TABLE member_competition_participations ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'APPLIED'"
+    )
+    connection.execute(
+        "ALTER TABLE member_competition_participations ADD COLUMN IF NOT EXISTS approved_at DOUBLE PRECISION"
+    )
+    connection.execute(
+        "ALTER TABLE member_competition_participations ADD COLUMN IF NOT EXISTS cancelled_at DOUBLE PRECISION"
+    )
 
 
 def rebuild_users_without_required_email(connection) -> None:
@@ -922,6 +963,123 @@ def update_roster_entry(connection, roster_id: int, fields: dict) -> dict:
         (*allowed.values(), roster_id),
     )
     return issue_roster_account(connection, roster_id)
+
+
+def record_competition_participation(
+    connection,
+    *,
+    user_id: int,
+    competition_id: str,
+    competition_name: str,
+    applied_at: float,
+) -> dict:
+    existing = connection.execute(
+        """
+        SELECT *
+        FROM member_competition_participations
+        WHERE user_id = ? AND competition_id = ?
+        """,
+        (user_id, competition_id),
+    ).fetchone()
+    if existing:
+        connection.execute(
+            """
+            UPDATE member_competition_participations
+            SET competition_name = ?,
+                status = CASE WHEN status = 'CANCELLED' THEN 'APPLIED' ELSE status END,
+                applied_at = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ? AND competition_id = ?
+            """,
+            (competition_name, applied_at, user_id, competition_id),
+        )
+    else:
+        connection.execute(
+            """
+            INSERT INTO member_competition_participations (
+              user_id,
+              competition_id,
+              competition_name,
+              status,
+              applied_at
+            )
+            VALUES (?, ?, ?, 'APPLIED', ?)
+            """,
+            (user_id, competition_id, competition_name, applied_at),
+        )
+    return dict(
+        connection.execute(
+            """
+            SELECT *
+            FROM member_competition_participations
+            WHERE user_id = ? AND competition_id = ?
+            """,
+            (user_id, competition_id),
+        ).fetchone()
+    )
+
+
+def set_competition_participation_status(
+    connection,
+    *,
+    user_id: int,
+    competition_id: str,
+    status: str,
+    changed_at: float,
+) -> dict:
+    if status not in {"APPLIED", "APPROVED", "CANCELLED"}:
+        raise ValueError("지원하지 않는 참가 상태입니다.")
+    timestamp_field = {
+        "APPLIED": "applied_at",
+        "APPROVED": "approved_at",
+        "CANCELLED": "cancelled_at",
+    }[status]
+    connection.execute(
+        f"""
+        UPDATE member_competition_participations
+        SET status = ?,
+            {timestamp_field} = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = ? AND competition_id = ?
+        """,
+        (status, changed_at, user_id, competition_id),
+    )
+    row = connection.execute(
+        """
+        SELECT *
+        FROM member_competition_participations
+        WHERE user_id = ? AND competition_id = ?
+        """,
+        (user_id, competition_id),
+    ).fetchone()
+    if row is None:
+        raise ValueError("참가 신청 기록을 찾을 수 없습니다.")
+    return dict(row)
+
+
+def list_competition_participations(
+    connection,
+    user_ids: set[int] | None = None,
+) -> list[dict]:
+    clauses = []
+    params: list = []
+    if user_ids is not None:
+        if not user_ids:
+            return []
+        placeholders = ", ".join("?" for _ in user_ids)
+        clauses.append(f"user_id IN ({placeholders})")
+        params.extend(sorted(user_ids))
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = connection.execute(
+        f"""
+        SELECT *
+        FROM member_competition_participations
+        {where}
+        ORDER BY applied_at DESC, id DESC
+        """,
+        tuple(params),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def set_user_approval(

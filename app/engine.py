@@ -148,6 +148,7 @@ def add_player(
     primary_position: str,
     secondary_position: str | None = None,
     extra_positions: list[str] | None = None,
+    position_scores: dict[str, float] | None = None,
     profile_icon_url: str | None = None,
     score: int = 0,
     secondary_score: int | None = None,
@@ -165,6 +166,7 @@ def add_player(
         "primary_position": primary_position,
         "secondary_position": secondary_position or None,
         "extra_positions": extra_positions,
+        "position_scores": position_scores or {},
         "profile_icon_url": profile_icon_url,
         "score": score,
         "secondary_score": score if secondary_score is None else secondary_score,
@@ -177,7 +179,10 @@ def add_player(
     return player
 
 
-def player_score_for_position(player: dict[str, Any], position: str) -> int:
+def player_score_for_position(player: dict[str, Any], position: str) -> float:
+    position_scores = player.get("position_scores") or {}
+    if position in position_scores and position_scores[position] not in (None, ""):
+        return float(position_scores[position])
     if (
         position != player.get("primary_position")
         and (

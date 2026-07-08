@@ -49,6 +49,7 @@ let stateSignature = "";
 let riotPreviewData = null;
 let rosterPage = 1;
 let selectedScrimTeamId = null;
+let pendingApiCount = 0;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -61,15 +62,52 @@ function toast(message, error = false) {
   toastTimer = setTimeout(() => node.className = "toast", 2600);
 }
 
-async function api(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.detail || "요청을 처리하지 못했습니다.");
-  return data;
+function setGlobalLoading(active, message = "처리 중...") {
+  let node = $("#global-loading");
+  if (!node) {
+    node = document.createElement("div");
+    node.id = "global-loading";
+    node.className = "global-loading hidden";
+    node.setAttribute("role", "status");
+    node.setAttribute("aria-live", "polite");
+    document.body.appendChild(node);
+  }
+  node.textContent = message;
+  node.classList.toggle("hidden", !active);
 }
+
+async function withButtonLoading(button, label, task) {
+  if (!button) return task();
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.classList.add("loading");
+  button.textContent = label;
+  try {
+    return await task();
+  } finally {
+    button.disabled = false;
+    button.classList.remove("loading");
+    button.textContent = originalText;
+  }
+}
+
+async function api(path, options = {}) {
+  pendingApiCount += 1;
+  setGlobalLoading(true);
+  try {
+    const response = await fetch(path, {
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      ...options,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || "요청 처리에 실패했습니다.");
+    return data;
+  } finally {
+    pendingApiCount = Math.max(0, pendingApiCount - 1);
+    if (pendingApiCount === 0) setGlobalLoading(false);
+  }
+}
+
 
 function escapeHtml(value = "") {
   return String(value).replace(/[&<>"']/g, (char) => ({
@@ -131,6 +169,9 @@ function playerCanPosition(player, position) {
 }
 
 function scoreForPosition(player, position) {
+  if (player?.position_scores?.[position] !== undefined && player.position_scores[position] !== "") {
+    return Number(player.position_scores[position] || 0);
+  }
   if (player?.primary_position !== position && playerCanPosition(player, position)) {
     return Number(player.secondary_score ?? player.score ?? 0);
   }
@@ -759,7 +800,11 @@ function renderParticipationUsers(target, users) {
           <strong>${escapeHtml(user.name)}</strong>
           <span>${escapeHtml(user.riot_id)}</span>
         </div>
-        <small>${user.approved ? "승인 회원" : "승인 대기"}${user.applied_at ? ` · ${formatDateTime(user.applied_at)}` : ""}</small>
+        <small>${participationStatusLabel(user.participation_status)}${user.applied_at ? ` · ${formatDateTime(user.applied_at)}` : ""}</small>
+        ${user.applied_at ? `<div class="participation-actions">
+          <button class="ghost" type="button" data-participation-status="${user.id}" data-status="APPROVED">승인</button>
+          <button class="ghost" type="button" data-participation-status="${user.id}" data-status="CANCELLED">취소</button>
+        </div>` : ""}
       </article>
     `).join("")
     : '<div class="empty-state">해당 인원이 없습니다.</div>';
@@ -800,6 +845,29 @@ function rosterField(entry, name, label, placeholder = "") {
   `;
 }
 
+function participationStatusLabel(status) {
+  if (status === "APPROVED") return "승인";
+  if (status === "CANCELLED") return "취소";
+  return "신청";
+}
+
+function renderParticipationPopover(entry) {
+  const events = entry.participation_events || [];
+  const rows = events.length
+    ? events.map((event) => `
+      <div class="participation-popover-row">
+        <strong>${escapeHtml(event.competition_name || "-")}</strong>
+        <span>${participationStatusLabel(event.status)}${event.applied_at ? ` · ${formatDateTime(event.applied_at)}` : ""}</span>
+      </div>
+    `).join("")
+    : '<div class="participation-popover-empty">참가 기록이 없습니다.</div>';
+  return `
+    <div class="participation-popover hidden" data-participation-popover="${entry.id}">
+      ${rows}
+    </div>
+  `;
+}
+
 function renderMemberRows(entries) {
   const list = $("#member-list");
   if (!entries.length) {
@@ -821,6 +889,8 @@ function renderMemberRows(entries) {
           <span class="user-approval ${rosterStatusClass(entry.account_status)}">${entry.account_status === "ISSUED" ? "발급완료" : "미발급"}</span>
           <span class="user-approval ${participationClass(entry.tournament_status)}">${escapeHtml(entry.tournament_label)}</span>
           <span class="user-approval payment">${escapeHtml(entry.payment_status || "입금 X")}</span>
+          <button class="user-approval participation-count" type="button" data-participation-count="${entry.id}">참가 대회 ${Number(entry.participation_count || 0)}개</button>
+          ${renderParticipationPopover(entry)}
         </div>
       </div>
       <div class="roster-admin-fields">
@@ -1629,6 +1699,22 @@ $("#participation-apply-button").addEventListener("click", async () => {
   } catch (error) { toast(error.message, true); }
 });
 
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-participation-status]");
+  if (!button) return;
+  try {
+    await api(`/api/participation/applications/${button.dataset.participationStatus}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: button.dataset.status }),
+    });
+    await loadParticipationApplications();
+    if (currentView === "members") await loadMembers();
+    toast(button.dataset.status === "APPROVED" ? "참가를 승인했습니다." : "참가를 취소했습니다.");
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
+
 $("#participation-settings-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.target;
@@ -2279,6 +2365,17 @@ $("#member-list").addEventListener("submit", async (event) => {
 });
 
 $("#member-list").addEventListener("click", async (event) => {
+  const participationButton = event.target.closest("[data-participation-count]");
+  if (participationButton) {
+    const id = participationButton.dataset.participationCount;
+    document.querySelectorAll(".participation-popover").forEach((popover) => {
+      popover.classList.toggle(
+        "hidden",
+        popover.dataset.participationPopover !== id || !popover.classList.contains("hidden")
+      );
+    });
+    return;
+  }
   const button = event.target.closest("[data-user-approval]");
   if (!button) return;
   try {

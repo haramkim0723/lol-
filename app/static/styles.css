@@ -117,6 +117,11 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 36px 60px; }
 input:focus, select:focus { border-color: rgba(217, 169, 79, .75) !important; box-shadow: 0 0 0 3px rgba(217,169,79,.08); }
 .wide { grid-column: 1 / -1; }
 button { border: 0; border-radius: 10px; padding: 11px 16px; color: #fff; font-weight: 800; }
+button:disabled,
+button.loading {
+  cursor: wait;
+  opacity: .62;
+}
 .primary { color: #16100a; background: linear-gradient(135deg, var(--gold-light), var(--gold)); }
 .accent { color: #061314; background: linear-gradient(135deg, #59e0d9, #1bb9c6); }
 .ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
@@ -408,6 +413,20 @@ aside { display: grid; gap: 18px; }
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.error { color: #7b1420; background: #ffe1e5; }
+.global-loading {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 1000;
+  padding: 11px 14px;
+  border: 1px solid rgba(217,169,79,.34);
+  border-radius: 10px;
+  color: var(--gold-light);
+  background: rgba(5,10,16,.94);
+  box-shadow: 0 14px 32px rgba(0,0,0,.35);
+  font-size: 12px;
+  font-weight: 900;
+}
 
 .intro-panel { padding: 20px 0 40px; }
 .intro-heading { display: flex; align-items: end; justify-content: space-between; margin-bottom: 24px; }
@@ -548,6 +567,16 @@ aside { display: grid; gap: 18px; }
 .participation-user strong, .participation-user span, .participation-user small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .participation-user span { margin-top: 2px; color: var(--muted); font-size: 11px; }
 .participation-user small { flex: 0 0 auto; color: var(--cyan); font-size: 10px; font-weight: 800; }
+.participation-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+.participation-actions button {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 10px;
+}
 .tournament-heading { display: flex; justify-content: space-between; align-items: end; margin-bottom: 20px; }
 .tournament-heading h2, .bracket-header h2 { margin: 0; font-size: clamp(28px,4vw,46px); letter-spacing: -.05em; }
 .tournament-heading p:not(.eyebrow) { margin: 8px 0 0; color: var(--muted); }
@@ -857,6 +886,7 @@ aside { display: grid; gap: 18px; }
 }
 .roster-admin-head strong { display: block; color: #f8fbff; font-size: 16px; }
 .roster-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.roster-badges { position: relative; }
 .roster-admin-fields,
 .roster-score-fields {
   display: grid;
@@ -887,6 +917,43 @@ aside { display: grid; gap: 18px; }
 .user-approval.payment {
   color: #9ed7ff;
   background: rgba(82,164,255,.1);
+}
+.user-approval.participation-count {
+  border: 1px solid rgba(217,169,79,.25);
+  color: var(--gold-light);
+  background: rgba(5,10,16,.92);
+  cursor: pointer;
+}
+.participation-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 7px;
+  width: min(320px, 82vw);
+  padding: 10px;
+  border: 1px solid rgba(217,169,79,.28);
+  border-radius: 10px;
+  background: #050a10;
+  box-shadow: 0 14px 34px rgba(0,0,0,.38);
+}
+.participation-popover-row {
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.045);
+}
+.participation-popover-row strong {
+  color: #f8fbff;
+  font-size: 12px;
+}
+.participation-popover-row span,
+.participation-popover-empty {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
 }
 .member-pagination {
   display: flex;
