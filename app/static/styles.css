@@ -688,6 +688,27 @@ aside { display: grid; gap: 18px; }
   background: rgba(255,255,255,.05);
   font-size: 11px;
 }
+.scrim-result-image {
+  display: block;
+  overflow: hidden;
+  width: min(360px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255,255,255,.04);
+}
+.scrim-result-image img {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+}
+.scrim-result-archived {
+  padding: 9px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
 .admin-user form { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
 .admin-user form input { margin-top: 0; }
 .admin-user-actions { display: flex; justify-content: flex-end; }

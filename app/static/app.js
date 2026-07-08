@@ -1637,6 +1637,13 @@ function renderScrimResults() {
     const team = teamById(result.team_id);
     const canEdit = Boolean(team?.can_manage_scrim_result);
     const resultLabel = result.result === "WIN" ? "승" : result.result === "LOSE" ? "패" : "무";
+    const image = result.image_url && !result.image_archived
+      ? `<a class="scrim-result-image" href="${escapeHtml(result.image_url)}" target="_blank" rel="noreferrer">
+          <img src="${escapeHtml(result.image_url)}" alt="스크림 결과 이미지" loading="lazy" />
+        </a>`
+      : result.image_url
+        ? '<div class="scrim-result-archived">이미지 보관됨 · 10일 초과 또는 팀별 보관 한도 초과</div>'
+        : "";
     return `
       <article class="team-item scrim-result-item">
         <div class="team-head">
@@ -1646,6 +1653,7 @@ function renderScrimResults() {
           </div>
           ${canEdit ? `<button class="ghost" type="button" data-edit-scrim-result="${result.id}">수정</button>` : ""}
         </div>
+        ${image}
       </article>`;
   }).join("");
 }
@@ -1715,6 +1723,88 @@ async function setMemberApproval(button) {
   toast(button.dataset.approved === "true" ? "회원을 승인했습니다." : "승인을 해제했습니다.");
 }
 
+function loadImageFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("이미지를 읽을 수 없습니다."));
+    };
+    image.src = url;
+  });
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+}
+
+async function compressScrimImage(file, maxBytes = 1048576) {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    throw new Error("JPG, PNG, WebP 이미지만 업로드할 수 있습니다.");
+  }
+  const image = await loadImageFromFile(file);
+  let width = image.naturalWidth || image.width;
+  let height = image.naturalHeight || image.height;
+  const maxSide = 1600;
+  if (Math.max(width, height) > maxSide) {
+    const ratio = maxSide / Math.max(width, height);
+    width = Math.round(width * ratio);
+    height = Math.round(height * ratio);
+  }
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  let quality = 0.86;
+  let blob = null;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    canvas.width = width;
+    canvas.height = height;
+    context.drawImage(image, 0, 0, width, height);
+    blob = await canvasToBlob(canvas, "image/webp", quality);
+    if (blob && blob.size <= maxBytes) break;
+    if (quality > 0.52) {
+      quality -= 0.08;
+    } else {
+      width = Math.round(width * 0.86);
+      height = Math.round(height * 0.86);
+    }
+  }
+  if (!blob || blob.size > maxBytes) {
+    throw new Error("이미지를 1MB 이하로 압축하지 못했습니다. 더 작은 이미지를 선택해 주세요.");
+  }
+  return new File(
+    [blob],
+    `${file.name.replace(/\.[^.]+$/, "") || "scrim-result"}.webp`,
+    { type: "image/webp" }
+  );
+}
+
+async function uploadScrimResultImage(file) {
+  const form = $("#scrim-result-form");
+  const teamId = form.elements.team_id.value;
+  if (!teamId) throw new Error("팀을 먼저 선택해 주세요.");
+  const compressed = await compressScrimImage(file);
+  const response = await fetch(
+    `/api/scrim/results/image?team_id=${encodeURIComponent(teamId)}&filename=${encodeURIComponent(compressed.name)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": compressed.type },
+      body: compressed,
+    }
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.detail || "이미지 업로드에 실패했습니다.");
+  if (!data.url) throw new Error("이미지 업로드 결과 URL이 없습니다.");
+  form.elements.image_url.value = data.url;
+  form.elements.image_size_bytes.value = data.size_bytes;
+  form.elements.image_pathname.value = data.pathname || "";
+  return data;
+}
+
 async function loadScrimData() {
   try {
     await loadScrimTeams();
@@ -1754,6 +1844,19 @@ $("#refresh-teams").addEventListener("click", () =>
   loadScrimTeams().then(() => toast("팀 목록을 새로고침했습니다.")).catch((error) => toast(error.message, true))
 );
 
+$("#scrim-result-image-file").addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    toast("이미지를 1MB 이하로 압축하고 업로드 중입니다.");
+    const data = await uploadScrimResultImage(file);
+    toast(`이미지 업로드 완료 (${Math.round(data.size_bytes / 1024)}KB)`);
+  } catch (error) {
+    event.target.value = "";
+    toast(error.message, true);
+  }
+});
+
 $("#scrim-result-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.target;
@@ -1763,6 +1866,9 @@ $("#scrim-result-form").addEventListener("submit", async (event) => {
   data.our_score = Number(data.our_score);
   data.opponent_score = Number(data.opponent_score);
   data.memo ||= null;
+  data.image_url ||= null;
+  data.image_size_bytes = data.image_size_bytes ? Number(data.image_size_bytes) : null;
+  data.image_pathname ||= null;
   try {
     await api(
       resultId ? `/api/scrim/results/${resultId}` : "/api/scrim/results",
@@ -1772,6 +1878,7 @@ $("#scrim-result-form").addEventListener("submit", async (event) => {
       }
     );
     form.reset();
+    $("#scrim-result-image-file").value = "";
     form.elements.result_id.value = "";
     $("#cancel-result-edit").classList.add("hidden");
     state = await api("/api/state");
@@ -1783,6 +1890,7 @@ $("#scrim-result-form").addEventListener("submit", async (event) => {
 
 $("#cancel-result-edit").addEventListener("click", () => {
   $("#scrim-result-form").reset();
+  $("#scrim-result-image-file").value = "";
   $("#scrim-result-form").elements.result_id.value = "";
   $("#cancel-result-edit").classList.add("hidden");
   renderScrimResultForm();
@@ -1802,6 +1910,9 @@ $("#scrim-result-list").addEventListener("click", (event) => {
   form.elements.our_score.value = result.our_score;
   form.elements.opponent_score.value = result.opponent_score;
   form.elements.memo.value = result.memo || "";
+  form.elements.image_url.value = result.image_url || "";
+  form.elements.image_size_bytes.value = result.image_size_bytes || "";
+  form.elements.image_pathname.value = result.image_pathname || "";
   $("#cancel-result-edit").classList.remove("hidden");
   form.scrollIntoView({ behavior: "smooth", block: "center" });
 });

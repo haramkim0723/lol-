@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 from fastapi import (
     Cookie,
@@ -36,6 +41,11 @@ store = JsonStore()
 state_lock = asyncio.Lock()
 connections: set[WebSocket] = set()
 connection_viewers: dict[WebSocket, dict] = {}
+
+SCRIM_RESULT_IMAGE_MAX_BYTES = int(os.getenv("SCRIM_RESULT_IMAGE_MAX_BYTES", "1048576"))
+SCRIM_RESULT_IMAGE_MAX_PER_TEAM = int(os.getenv("SCRIM_RESULT_IMAGE_MAX_PER_TEAM", "30"))
+SCRIM_RESULT_IMAGE_RETENTION_DAYS = int(os.getenv("SCRIM_RESULT_IMAGE_RETENTION_DAYS", "10"))
+BLOB_API_URL = os.getenv("VERCEL_BLOB_API_URL", "https://vercel.com/api/blob")
 
 
 def captain_presence() -> dict:
@@ -276,6 +286,9 @@ class ScrimResultInput(BaseModel):
     our_score: int = Field(ge=0, le=99)
     opponent_score: int = Field(ge=0, le=99)
     memo: str | None = Field(default=None, max_length=500)
+    image_url: str | None = Field(default=None, max_length=2048)
+    image_size_bytes: int | None = Field(default=None, ge=0)
+    image_pathname: str | None = Field(default=None, max_length=512)
 
 
 class ParticipationSettingsInput(BaseModel):
@@ -370,6 +383,9 @@ async def scrim_management_page():
 
 @app.get("/api/state")
 async def get_state(scrim_auth: str | None = Cookie(default=None)):
+    async with state_lock:
+        apply_scrim_image_retention()
+        store.save()
     result = engine.public_state(store.state, compute_viewer(scrim_auth))
     result["competition_registry"] = store.competition_summary()
     result["captain_presence"] = captain_presence()
@@ -796,6 +812,144 @@ def scrim_result_payload(data: ScrimResultInput) -> dict:
     }
 
 
+def normalize_image_url(value: str | None) -> str | None:
+    normalized = (value or "").strip()
+    if not normalized:
+        return None
+    parsed = urlparse(normalized)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise HTTPException(400, "이미지 URL은 http 또는 https 주소여야 합니다.")
+    return normalized
+
+
+def blob_token_and_store_id() -> tuple[str, str]:
+    token = os.getenv("BLOB_READ_WRITE_TOKEN", "").strip()
+    if not token:
+        raise HTTPException(503, "Vercel Blob 저장소가 아직 연결되지 않았습니다.")
+    parts = token.split("_")
+    store_id = parts[3] if len(parts) > 3 else ""
+    if not store_id:
+        raise HTTPException(503, "Vercel Blob 토큰 형식이 올바르지 않습니다.")
+    return token, store_id
+
+
+def blob_api_request(path: str, *, method: str, body: bytes, headers: dict[str, str]) -> dict | None:
+    token, store_id = blob_token_and_store_id()
+    request = urllib.request.Request(
+        f"{BLOB_API_URL}{path}",
+        data=body,
+        headers={
+            "authorization": f"Bearer {token}",
+            "x-vercel-blob-store-id": store_id,
+            "x-api-version": "12",
+            "x-api-blob-request-id": f"{store_id}:{time.time()}:{uuid.uuid4().hex}",
+            "x-api-blob-request-attempt": "0",
+            **headers,
+        },
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            raw = response.read().decode("utf-8")
+            return json.loads(raw) if raw else None
+    except urllib.error.HTTPError as exc:
+        message = exc.read().decode("utf-8", errors="ignore")
+        raise HTTPException(exc.code, f"Vercel Blob 요청 실패: {message or exc.reason}") from exc
+    except OSError as exc:
+        raise HTTPException(502, f"Vercel Blob 연결 실패: {exc}") from exc
+
+
+def upload_result_image_to_blob(*, team_id: str, filename: str, content_type: str, data: bytes) -> dict:
+    extension = {
+        "image/webp": "webp",
+        "image/jpeg": "jpg",
+        "image/png": "png",
+    }.get(content_type)
+    if extension is None:
+        raise HTTPException(400, "이미지는 JPG, PNG, WebP만 업로드할 수 있습니다.")
+    safe_team_id = "".join(char for char in team_id if char.isalnum() or char in ("-", "_"))[:80]
+    safe_name = Path(filename or f"result.{extension}").stem[:40] or "result"
+    pathname = f"scrim-results/{safe_team_id}/{uuid.uuid4().hex}-{safe_name}.{extension}"
+    query = urllib.parse.urlencode({"pathname": pathname})
+    response = blob_api_request(
+        f"/?{query}",
+        method="PUT",
+        body=data,
+        headers={
+            "content-type": content_type,
+            "x-content-length": str(len(data)),
+            "x-vercel-blob-access": "public",
+            "x-add-random-suffix": "0",
+            "x-content-type": content_type,
+        },
+    )
+    return response or {}
+
+
+def delete_result_image_from_blob(url: str | None) -> None:
+    if not url or not os.getenv("BLOB_READ_WRITE_TOKEN"):
+        return
+    try:
+        blob_api_request(
+            "/delete",
+            method="POST",
+            body=json.dumps({"urls": [url]}).encode("utf-8"),
+            headers={"content-type": "application/json"},
+        )
+    except HTTPException:
+        return
+
+
+def validate_scrim_result_image(data: ScrimResultInput, existing_result: dict | None = None) -> None:
+    data.image_url = normalize_image_url(data.image_url)
+    if not data.image_url:
+        data.image_size_bytes = None
+        data.image_pathname = None
+        return
+    if data.image_size_bytes is not None and data.image_size_bytes > SCRIM_RESULT_IMAGE_MAX_BYTES:
+        raise HTTPException(400, "스크림 결과 이미지는 1MB 이하로 압축해서 올려주세요.")
+    if existing_result and existing_result.get("image_url") == data.image_url:
+        return
+    active_images = [
+        item
+        for item in store.state.setdefault("scrim_results", [])
+        if item.get("team_id") == data.team_id
+        and item.get("image_url")
+        and not item.get("image_archived")
+        and (not existing_result or item.get("id") != existing_result.get("id"))
+    ]
+    if len(active_images) >= SCRIM_RESULT_IMAGE_MAX_PER_TEAM:
+        raise HTTPException(
+            400,
+            f"팀별 결과 이미지는 최대 {SCRIM_RESULT_IMAGE_MAX_PER_TEAM}개까지만 유지합니다. 오래된 이미지를 먼저 정리해주세요.",
+        )
+
+
+def apply_scrim_image_retention() -> None:
+    now = time.time()
+    retention_seconds = SCRIM_RESULT_IMAGE_RETENTION_DAYS * 24 * 60 * 60
+    by_team: dict[str, list[dict]] = {}
+    for result in store.state.setdefault("scrim_results", []):
+        if not result.get("image_url"):
+            continue
+        result["image_archived"] = False
+        age_base = result.get("created_at") or result.get("updated_at") or now
+        if now - float(age_base) > retention_seconds:
+            result["image_archived"] = True
+            delete_result_image_from_blob(result.get("image_url"))
+            result["image_deleted_at"] = result.get("image_deleted_at") or now
+            result["image_url"] = None
+        by_team.setdefault(result.get("team_id", ""), []).append(result)
+    for results in by_team.values():
+        active = [item for item in results if not item.get("image_archived")]
+        active.sort(key=lambda item: item.get("created_at") or item.get("updated_at") or 0, reverse=True)
+        for item in active[SCRIM_RESULT_IMAGE_MAX_PER_TEAM:]:
+            item["image_archived"] = True
+            delete_result_image_from_blob(item.get("image_url"))
+            item["image_deleted_at"] = item.get("image_deleted_at") or now
+            item["image_url"] = None
+
+
 def require_scrim_result_manager(viewer: dict, team_id: str) -> dict:
     team = next(
         (
@@ -823,18 +977,64 @@ def require_scrim_result_manager(viewer: dict, team_id: str) -> dict:
     return team
 
 
+@app.post("/api/scrim/results/image")
+async def upload_scrim_result_image(
+    request: Request,
+    team_id: str,
+    filename: str = "scrim-result.webp",
+):
+    viewer = require_participant(request)
+    require_scrim_result_manager(viewer, team_id)
+    content_type = request.headers.get("content-type", "application/octet-stream").split(";", 1)[0]
+    if content_type not in ("image/jpeg", "image/png", "image/webp"):
+        raise HTTPException(400, "이미지는 JPG, PNG, WebP만 업로드할 수 있습니다.")
+    data = await request.body()
+    if len(data) > SCRIM_RESULT_IMAGE_MAX_BYTES:
+        raise HTTPException(400, "압축된 이미지가 1MB를 초과했습니다.")
+    async with state_lock:
+        active_images = [
+            item
+            for item in store.state.setdefault("scrim_results", [])
+            if item.get("team_id") == team_id
+            and item.get("image_url")
+            and not item.get("image_archived")
+        ]
+        if len(active_images) >= SCRIM_RESULT_IMAGE_MAX_PER_TEAM:
+            raise HTTPException(
+                400,
+                f"팀별 결과 이미지는 최대 {SCRIM_RESULT_IMAGE_MAX_PER_TEAM}개까지만 유지합니다.",
+            )
+    blob = upload_result_image_to_blob(
+        team_id=team_id,
+        filename=filename,
+        content_type=content_type,
+        data=data,
+    )
+    return {
+        "url": blob.get("url"),
+        "download_url": blob.get("downloadUrl"),
+        "pathname": blob.get("pathname"),
+        "content_type": content_type,
+        "size_bytes": len(data),
+    }
+
+
 @app.post("/api/scrim/results")
 async def create_scrim_result(data: ScrimResultInput, request: Request):
     viewer = require_participant(request)
     async with state_lock:
         require_scrim_result_manager(viewer, data.team_id)
+        validate_scrim_result_image(data)
+        apply_scrim_image_retention()
         result = {
             "id": uuid.uuid4().hex,
             **scrim_result_payload(data),
+            "image_archived": False,
             "created_at": time.time(),
             "updated_at": time.time(),
         }
         store.state.setdefault("scrim_results", []).append(result)
+        apply_scrim_image_retention()
         store.save()
     await broadcast()
     return result
@@ -859,8 +1059,11 @@ async def update_scrim_result(
         require_scrim_result_manager(viewer, result["team_id"])
         if data.team_id != result["team_id"]:
             raise HTTPException(400, "결과의 팀은 변경할 수 없습니다.")
+        validate_scrim_result_image(data, result)
         result.update(scrim_result_payload(data))
+        result.setdefault("image_archived", False)
         result["updated_at"] = time.time()
+        apply_scrim_image_retention()
         store.save()
     await broadcast()
     return result

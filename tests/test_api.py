@@ -3,6 +3,7 @@ import tempfile
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 _DATA_FILE = Path(tempfile.gettempdir()) / "lol-auction-api-test.json"
 if _DATA_FILE.exists():
@@ -493,6 +494,27 @@ class ApiFlowTest(unittest.TestCase):
                 )
                 self.assertEqual(approval.status_code, 200)
 
+                with patch(
+                    "app.main.upload_result_image_to_blob",
+                    return_value={
+                        "url": "https://example.public.blob.vercel-storage.com/result.webp",
+                        "downloadUrl": "https://example.public.blob.vercel-storage.com/result.webp?download=1",
+                        "pathname": "scrim-results/team/result.webp",
+                    },
+                ):
+                    uploaded = member_client.post(
+                        "/api/scrim/results/image",
+                        params={"team_id": team_id, "filename": "result.webp"},
+                        content=b"webp-bytes",
+                        headers={"content-type": "image/webp"},
+                    )
+                self.assertEqual(uploaded.status_code, 200)
+                self.assertEqual(uploaded.json()["size_bytes"], 10)
+                self.assertEqual(
+                    uploaded.json()["url"],
+                    "https://example.public.blob.vercel-storage.com/result.webp",
+                )
+
                 created = member_client.post(
                     "/api/scrim/results",
                     json={
@@ -501,10 +523,13 @@ class ApiFlowTest(unittest.TestCase):
                         "opponent_team_name": "Opponent",
                         "our_score": 2,
                         "opponent_score": 1,
+                        "image_url": "https://example.com/result.webp",
+                        "image_size_bytes": 120000,
                     },
                 )
                 self.assertEqual(created.status_code, 200)
                 self.assertEqual(created.json()["result"], "WIN")
+                self.assertEqual(created.json()["image_url"], "https://example.com/result.webp")
 
                 updated = member_client.put(
                     f'/api/scrim/results/{created.json()["id"]}',
@@ -514,10 +539,26 @@ class ApiFlowTest(unittest.TestCase):
                         "opponent_team_name": "Opponent 2",
                         "our_score": 0,
                         "opponent_score": 0,
+                        "image_url": "https://example.com/result.webp",
+                        "image_size_bytes": 120000,
                     },
                 )
                 self.assertEqual(updated.status_code, 200)
                 self.assertEqual(updated.json()["result"], "DRAW")
+
+                too_large = member_client.post(
+                    "/api/scrim/results",
+                    json={
+                        "team_id": team_id,
+                        "match_date": "2026-07-09",
+                        "opponent_team_name": "Opponent",
+                        "our_score": 1,
+                        "opponent_score": 1,
+                        "image_url": "https://example.com/large.webp",
+                        "image_size_bytes": 1048577,
+                    },
+                )
+                self.assertEqual(too_large.status_code, 400)
 
             with TestClient(app) as outsider_client:
                 outsider = outsider_client.post(

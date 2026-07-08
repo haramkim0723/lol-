@@ -32,11 +32,7 @@ class JsonStore:
             or ""
         )
         self.redis_key = os.getenv("STATE_REDIS_KEY", "lol-auction:state")
-        self.postgres_url = (
-            os.getenv("STATE_DATABASE_URL")
-            or os.getenv("SCRIM_DATABASE_URL")
-            or ""
-        )
+        self.postgres_url = os.getenv("STATE_DATABASE_URL") or ""
         self.postgres_key = os.getenv("STATE_DATABASE_KEY", "lol-auction:state")
         self.document = self._load()
 

@@ -66,7 +66,9 @@ STATE_REDIS_KEY=lol-auction:state
 
 로그인은 본 Riot ID + 비밀번호 계정 하나로 통합돼 있어. 공개 회원가입은 기본 차단되고, 강사님이 `/members`에서 회원을 생성해. 새 회원의 기본 비밀번호는 `1234`이고, 본 아이디와 부 아이디를 따로 관리할 수 있어. 운영 환경에서는 반드시 `SCRIM_ADMIN_PASSWORD`와 `SCRIM_SESSION_SECRET`을 변경해.
 
-`SCRIM_DATABASE_URL`을 설정하면 회원/스크림 DB와 대회 상태가 같은 외부 Postgres에 저장돼. 대회 상태만 별도 DB로 분리하려면 `STATE_DATABASE_URL`을 추가로 설정해.
+`SCRIM_DATABASE_URL`은 회원/스크림 DB 전용이야. 대회 상태는 `KV_REST_API_URL`/`KV_REST_API_TOKEN` 또는 `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`으로 별도 저장소를 쓰고, 정말 Postgres에 넣고 싶을 때만 `STATE_DATABASE_URL`을 따로 설정해.
+
+스크림 결과 이미지는 DB에 파일을 직접 넣지 않고 이미지 URL만 저장해. 실제 파일은 Vercel Blob에 저장하고, 앱은 업로드 전에 브라우저에서 1MB 이하로 압축한 뒤 Blob URL을 결과에 저장해. 기본 제한은 이미지 1장 1MB 이하, 팀별 활성 이미지 30개, 10일 초과 이미지는 Blob에서도 삭제 처리야. 운영에서는 Vercel Blob을 프로젝트에 연결해 `BLOB_READ_WRITE_TOKEN`이 환경변수에 있어야 해.
 
 ## 더미 데이터
 
@@ -91,4 +93,4 @@ node --check app\static\app.js
 npx vercel --prod --yes
 ```
 
-Vercel에서는 WebSocket 대신 1초 간격 자동 갱신을 사용해. 데이터를 안정적으로 유지하려면 `SCRIM_DATABASE_URL`에 외부 Postgres를 연결해.
+Vercel에서는 WebSocket 대신 1초 간격 자동 갱신을 사용해. 회원/스크림 데이터는 `SCRIM_DATABASE_URL`의 외부 Postgres에 저장하고, 대회 상태는 Vercel KV/Upstash 같은 별도 상태 저장소에 저장해.
