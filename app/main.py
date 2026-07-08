@@ -326,6 +326,15 @@ class RosterEntryInput(BaseModel):
     notes: str | None = Field(default=None, max_length=300)
 
 
+class RosterImportRow(RosterEntryInput):
+    source_row: int = Field(ge=1)
+    name: str = Field(min_length=1, max_length=80)
+
+
+class RosterImportInput(BaseModel):
+    rows: list[RosterImportRow] = Field(min_length=1, max_length=1000)
+
+
 def member_participation_payload(user: dict, applications: dict[int, dict]) -> dict:
     payload = {
         "id": user["id"],
@@ -762,6 +771,35 @@ async def list_roster(
             "not_applied": max(0, counts["total"] - roster_applied_count),
         },
     }
+
+
+@app.post("/api/roster/import")
+async def import_roster(data: RosterImportInput, request: Request):
+    require_host(request)
+    summary = {
+        "total_rows": len(data.rows),
+        "with_riot_id": 0,
+        "without_riot_id": 0,
+        "created_or_updated": 0,
+        "accounts_issued": 0,
+    }
+    with scrim_db.connect() as connection:
+        for row in data.rows:
+            payload = row.model_dump(exclude_unset=True)
+            source_row = payload.pop("source_row")
+            if payload.get("riot_id"):
+                summary["with_riot_id"] += 1
+            else:
+                summary["without_riot_id"] += 1
+            entry = scrim_db.upsert_roster_entry(
+                connection,
+                source_row=source_row,
+                **payload,
+            )
+            summary["created_or_updated"] += 1
+            if entry.get("account_status") == "ISSUED":
+                summary["accounts_issued"] += 1
+    return summary
 
 
 @app.patch("/api/roster/{roster_id}")
