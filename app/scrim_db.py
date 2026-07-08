@@ -723,6 +723,8 @@ def list_roster_entries(
     has_riot_id: bool | None = None,
     user_ids: set[int] | None = None,
     limit: int = 500,
+    offset: int = 0,
+    participation_status: str | None = None,
 ) -> list[dict]:
     clauses = []
     params: list = []
@@ -738,6 +740,24 @@ def list_roster_entries(
         clauses.append("riot_id IS NOT NULL AND riot_id <> ''")
     elif has_riot_id is False:
         clauses.append("(riot_id IS NULL OR riot_id = '')")
+    if participation_status == "applied":
+        clauses.append(
+            "participation_status_text LIKE ? "
+            "AND participation_status_text NOT LIKE ? "
+            "AND participation_status_text NOT LIKE ?"
+        )
+        params.extend(["%참가%", "%불참%", "%미참가%"])
+    elif participation_status == "not_applied":
+        clauses.append(
+            "("
+            "participation_status_text IS NULL "
+            "OR participation_status_text = '' "
+            "OR participation_status_text NOT LIKE ? "
+            "OR participation_status_text LIKE ? "
+            "OR participation_status_text LIKE ?"
+            ")"
+        )
+        params.extend(["%참가%", "%불참%", "%미참가%"])
     if user_ids is not None:
         if not user_ids:
             return []
@@ -751,11 +771,29 @@ def list_roster_entries(
         FROM roster_entries
         {where}
         ORDER BY source_row ASC
-        LIMIT ?
+        LIMIT ? OFFSET ?
         """,
-        (*params, limit),
+        (*params, limit, offset),
     ).fetchall()
     return [normalize_roster_row(dict(row)) for row in rows]
+
+
+def count_roster_entries(
+    connection,
+    *,
+    query: str = "",
+    has_riot_id: bool | None = None,
+    participation_status: str | None = None,
+) -> int:
+    return len(
+        list_roster_entries(
+            connection,
+            query=query,
+            has_riot_id=has_riot_id,
+            participation_status=participation_status,
+            limit=1_000_000,
+        )
+    )
 
 
 def roster_counts(connection) -> dict:

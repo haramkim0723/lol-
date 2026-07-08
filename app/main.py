@@ -17,6 +17,7 @@ from fastapi import (
     Cookie,
     FastAPI,
     HTTPException,
+    Query,
     Request,
     WebSocket,
     WebSocketDisconnect,
@@ -339,21 +340,26 @@ def member_participation_payload(user: dict, applications: dict[int, dict]) -> d
     application = applications.get(user["id"])
     payload["participation_status"] = "applied" if application else "not_applied"
     payload["participation_label"] = "대회 참가" if application else "대회 미참가"
-    payload["applied_at"] = application.get("applied_at") if application else None
     return payload
+
+
+def roster_entry_is_applied(entry: dict) -> bool:
+    status_text = (entry.get("participation_status_text") or "").strip()
+    return (
+        "\ucc38\uac00" in status_text
+        and "\ubd88\ucc38" not in status_text
+        and "\ubbf8\ucc38\uac00" not in status_text
+    )
 
 
 def roster_payload(entry: dict, applications: dict[int, dict]) -> dict:
     payload = dict(entry)
+    roster_applied = roster_entry_is_applied(entry)
     user_id = entry.get("user_id")
-    if not user_id:
-        payload["tournament_status"] = "not_account"
-        payload["tournament_label"] = "계정 없음"
-        payload["applied_at"] = None
-        return payload
-    application = applications.get(user_id)
-    payload["tournament_status"] = "applied" if application else "not_applied"
-    payload["tournament_label"] = "대회 참가" if application else "대회 미참가"
+    application = applications.get(user_id) if user_id else None
+    is_applied = roster_applied or bool(application)
+    payload["tournament_status"] = "applied" if is_applied else "not_applied"
+    payload["tournament_label"] = "\ub300\ud68c \ucc38\uac00" if is_applied else "\ub300\ud68c \ubbf8\ucc38\uac00"
     payload["applied_at"] = application.get("applied_at") if application else None
     return payload
 
@@ -603,6 +609,8 @@ async def list_roster(
     request: Request,
     query: str = "",
     filter: str = "with_id",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=5, le=100),
 ):
     require_host(request)
     participation = store.state.setdefault(
@@ -615,6 +623,10 @@ async def list_roster(
     }
     with scrim_db.connect() as connection:
         counts = scrim_db.roster_counts(connection)
+        roster_applied_count = scrim_db.count_roster_entries(
+            connection,
+            participation_status="applied",
+        )
         users = [
             user
             for user in scrim_db.search_users(connection, "")
@@ -625,26 +637,44 @@ async def list_roster(
         not_applied_ids = approved_ids - set(applications)
         has_riot_id = None
         user_ids = None
+        participation_status = None
         if filter == "with_id":
             has_riot_id = True
         elif filter == "without_id":
             has_riot_id = False
         elif filter == "applied":
-            user_ids = applied_ids
+            participation_status = "applied"
         elif filter == "not_applied":
-            user_ids = not_applied_ids
+            participation_status = "not_applied"
+        total = scrim_db.count_roster_entries(
+            connection,
+            query=query,
+            has_riot_id=has_riot_id,
+            participation_status=participation_status,
+        )
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        page = min(page, total_pages)
         entries = scrim_db.list_roster_entries(
             connection,
             query=query,
             has_riot_id=has_riot_id,
             user_ids=user_ids,
+            participation_status=participation_status,
+            limit=page_size,
+            offset=(page - 1) * page_size,
         )
     return {
         "entries": [roster_payload(entry, applications) for entry in entries],
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": total_pages,
+        },
         "stats": {
             **counts,
-            "applied": len(applied_ids),
-            "not_applied": len(not_applied_ids),
+            "applied": roster_applied_count,
+            "not_applied": max(0, counts["total"] - roster_applied_count),
         },
     }
 
@@ -767,6 +797,15 @@ async def create_riot_player(data: RiotPlayerInput, request: Request):
         store.save()
     await broadcast()
     return player
+
+
+@app.post("/api/players/riot/preview")
+async def preview_riot_player(data: RiotPlayerInput, request: Request):
+    require_host(request)
+    try:
+        return await lookup_kr_player(data.riot_id)
+    except RiotApiError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.delete("/api/players/{player_id}")

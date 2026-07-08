@@ -181,6 +181,7 @@ async def login(data: LoginInput, response: Response):
         if user is None or not scrim_db.verify_password(
             data.password, user["password_hash"]
         ):
+            response.delete_cookie(SCRIM_AUTH_COOKIE)
             raise HTTPException(401, "롤 아이디 또는 비밀번호가 올바르지 않습니다.")
         scrim_db.touch_last_login(connection, user["id"])
         user = scrim_db.get_user(connection, user["id"])

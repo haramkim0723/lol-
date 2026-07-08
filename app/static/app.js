@@ -46,6 +46,8 @@ let scoreIntroIndex = 0;
 let scoreIntroPlayerId = null;
 let toastTimer = null;
 let stateSignature = "";
+let riotPreviewData = null;
+let rosterPage = 1;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -161,8 +163,17 @@ function setView(view) {
   }
   if (view === "scrim") loadScrimData();
   if (view === "members") {
+    movePlayerRegistrationToMembers();
     loadMembers();
     if (state.viewer.role === "host") searchScrimUsers("");
+  }
+}
+
+function movePlayerRegistrationToMembers() {
+  const slot = $("#member-player-registration-slot");
+  const panel = $(".players-panel");
+  if (slot && panel && !slot.contains(panel)) {
+    slot.appendChild(panel);
   }
 }
 
@@ -672,6 +683,7 @@ function renderMemberRows(entries) {
         <div class="roster-badges">
           <span class="user-approval ${rosterStatusClass(entry.account_status)}">${entry.account_status === "ISSUED" ? "발급완료" : "미발급"}</span>
           <span class="user-approval ${participationClass(entry.tournament_status)}">${escapeHtml(entry.tournament_label)}</span>
+          <span class="user-approval payment">${escapeHtml(entry.payment_status || "입금 X")}</span>
         </div>
       </div>
       <div class="roster-admin-fields">
@@ -702,11 +714,37 @@ function renderMemberRows(entries) {
   `).join("");
 }
 
+function renderRiotPreview(data) {
+  let preview = $("#riot-player-preview");
+  if (!preview) {
+    preview = document.createElement("div");
+    preview.id = "riot-player-preview";
+    preview.className = "riot-player-preview";
+    $("#riot-player-form").after(preview);
+  }
+  const champions = data.champions?.length
+    ? data.champions.slice(0, 5).map((champion) => `
+      <span>${escapeHtml(champion.name)} ${champion.games}판 · ${champion.wins}승 · ${champion.kills}/${champion.deaths}/${champion.assists}</span>
+    `).join("")
+    : "<span>최근 챔피언 기록 없음</span>";
+  preview.innerHTML = `
+    <div class="riot-preview-head">
+      ${data.profile_icon_url ? `<img src="${escapeHtml(data.profile_icon_url)}" alt="" />` : '<div class="avatar"></div>'}
+      <div>
+        <strong>${escapeHtml(data.name)}</strong>
+        <small>${escapeHtml(data.riot_id)} · ${escapeHtml(data.tier)}</small>
+      </div>
+      <button class="accent" type="button" id="add-riot-preview-player">이 정보로 추가</button>
+    </div>
+    <div class="riot-preview-champions">${champions}</div>
+  `;
+}
+
 async function loadMembers() {
   if (state.viewer.role !== "host") return;
   try {
     const query = $("#member-search-form")?.elements.query.value || "";
-    const data = await api(`/api/roster?filter=${encodeURIComponent(rosterFilter)}&query=${encodeURIComponent(query)}`);
+    const data = await api(`/api/roster?filter=${encodeURIComponent(rosterFilter)}&query=${encodeURIComponent(query)}&page=${rosterPage}`);
     $("#member-stat-total").textContent = data.stats.total;
     $("#member-stat-with-id").textContent = data.stats.with_riot_id;
     $("#member-stat-without-id").textContent = data.stats.without_riot_id;
@@ -714,9 +752,36 @@ async function loadMembers() {
     $("#member-stat-applied").textContent = data.stats.applied;
     $("#member-stat-not-applied").textContent = data.stats.not_applied;
     renderMemberRows(data.entries);
+    renderRosterPagination(data.pagination);
   } catch (error) {
     toast(error.message, true);
   }
+}
+
+function renderRosterPagination(pagination) {
+  let node = $("#member-pagination");
+  if (!node) {
+    node = document.createElement("div");
+    node.id = "member-pagination";
+    node.className = "member-pagination";
+    $("#member-list").after(node);
+  }
+  const totalPages = pagination?.total_pages || 1;
+  const current = pagination?.page || 1;
+  const pages = [];
+  for (let page = 1; page <= totalPages; page += 1) {
+    if (
+      page === 1 ||
+      page === totalPages ||
+      Math.abs(page - current) <= 2
+    ) {
+      pages.push(page);
+    }
+  }
+  node.innerHTML = pages.map((page, index) => {
+    const gap = index > 0 && page - pages[index - 1] > 1 ? '<span>...</span>' : "";
+    return `${gap}<button type="button" class="${page === current ? "active" : ""}" data-roster-page="${page}">${page}</button>`;
+  }).join("");
 }
 
 function renderMyPage() {
@@ -1293,9 +1358,9 @@ $("#riot-player-form").addEventListener("submit", async (event) => {
   button.disabled = true;
   button.textContent = "조회 중...";
   try {
-    await api("/api/players/riot", { method: "POST", body: JSON.stringify(data) });
-    event.target.reset();
-    updateSecondaryScoreField(event.target);
+    const preview = await api("/api/players/riot/preview", { method: "POST", body: JSON.stringify(data) });
+    riotPreviewData = { form: data, preview };
+    renderRiotPreview(preview);
     toast("Riot 정보를 확인해 추가했습니다.");
   } catch (error) { toast(error.message, true); }
   finally {
@@ -1977,6 +2042,7 @@ $("#member-create-form")?.addEventListener("submit", async (event) => {
 
 $("#member-search-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  rosterPage = 1;
   await loadMembers();
 });
 
@@ -2014,9 +2080,34 @@ $("#member-list").addEventListener("click", async (event) => {
   } catch (error) { toast(error.message, true); }
 });
 
+document.addEventListener("click", async (event) => {
+  const pageButton = event.target.closest("[data-roster-page]");
+  if (!pageButton) return;
+  rosterPage = Number(pageButton.dataset.rosterPage);
+  await loadMembers();
+});
+
+document.addEventListener("click", async (event) => {
+  if (event.target.id !== "add-riot-preview-player" || !riotPreviewData) return;
+  try {
+    await api("/api/players/riot", {
+      method: "POST",
+      body: JSON.stringify(riotPreviewData.form),
+    });
+    $("#riot-player-form").reset();
+    updateSecondaryScoreField($("#riot-player-form"));
+    $("#riot-player-preview")?.remove();
+    riotPreviewData = null;
+    toast("Riot 정보로 참가자를 추가했습니다.");
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
+
 document.querySelectorAll("[data-roster-filter]").forEach((button) => {
   button.addEventListener("click", async () => {
     rosterFilter = button.dataset.rosterFilter;
+    rosterPage = 1;
     document.querySelectorAll("[data-roster-filter]").forEach((item) => {
       item.classList.toggle("active", item === button);
     });

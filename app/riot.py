@@ -59,10 +59,52 @@ async def lookup_kr_player(riot_id: str) -> dict:
                     f"img/profileicon/{icon_id}.png"
                 )
 
+        champions: dict[str, dict] = {}
+        match_ids_response = await client.get(
+            "https://asia.api.riotgames.com/lol/match/v5/matches/by-puuid/"
+            f"{puuid}/ids",
+            params={"start": 0, "count": 8},
+        )
+        match_ids = match_ids_response.json() if match_ids_response.status_code == 200 else []
+        for match_id in match_ids:
+            match_response = await client.get(
+                f"https://asia.api.riotgames.com/lol/match/v5/matches/{match_id}"
+            )
+            if match_response.status_code != 200:
+                continue
+            participants = match_response.json().get("info", {}).get("participants", [])
+            participant = next(
+                (item for item in participants if item.get("puuid") == puuid),
+                None,
+            )
+            if not participant:
+                continue
+            champion_name = participant.get("championName") or "Unknown"
+            champion = champions.setdefault(
+                champion_name,
+                {
+                    "name": champion_name,
+                    "games": 0,
+                    "wins": 0,
+                    "kills": 0,
+                    "deaths": 0,
+                    "assists": 0,
+                },
+            )
+            champion["games"] += 1
+            champion["wins"] += 1 if participant.get("win") else 0
+            champion["kills"] += int(participant.get("kills") or 0)
+            champion["deaths"] += int(participant.get("deaths") or 0)
+            champion["assists"] += int(participant.get("assists") or 0)
+
     return {
         "name": f"{account.get('gameName', game_name)}#{account.get('tagLine', tag_line)}",
         "riot_id": f"{account.get('gameName', game_name)}#{account.get('tagLine', tag_line)}",
         "tier": tier,
         "profile_icon_url": profile_icon_url,
+        "champions": sorted(
+            champions.values(),
+            key=lambda item: (-item["games"], -item["wins"], item["name"]),
+        ),
     }
 
