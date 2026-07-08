@@ -173,9 +173,25 @@ function movePlayerRegistrationToMembers() {
   const slot = $("#member-player-registration-slot");
   const panel = $(".players-panel");
   if (slot && panel && !slot.contains(panel)) {
-    slot.appendChild(panel);
+    const wrapper = document.createElement("details");
+    wrapper.className = "member-toolbox";
+    wrapper.innerHTML = '<summary><span>03</span><strong>회원 관리 도구</strong><small>Riot API 조회와 점수 검색</small></summary>';
+    wrapper.appendChild(panel);
+    slot.appendChild(wrapper);
   }
+  if (!panel) return;
+  const title = panel.querySelector(".panel-title h2");
+  if (title) title.textContent = "회원 관리";
+  const manualTab = panel.querySelector('[data-tab="manual"]');
+  if (manualTab) manualTab.textContent = "검색";
+  const riotTab = panel.querySelector('[data-tab="riot"]');
+  if (riotTab) riotTab.textContent = "Riot API 조회";
+  const manualButton = panel.querySelector("#manual-player-form button[type='submit']");
+  if (manualButton) manualButton.textContent = "검색";
+  const riotButton = panel.querySelector("#riot-player-form button[type='submit']");
+  if (riotButton) riotButton.textContent = "Riot API 조회";
 }
+
 
 async function enterAuctionView() {
   if (state.auction.status === "setup") {
@@ -1250,14 +1266,39 @@ $("#login-button").addEventListener("click", () => {
 
 $("#login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const payload = Object.fromEntries(new FormData(event.target));
+  const form = event.target;
+  const payload = Object.fromEntries(new FormData(form));
+  payload.riot_id = String(payload.riot_id || "").trim();
+  const button = form.querySelector('button[type="submit"]');
+  const status = $("#login-status");
+  if (status) {
+    status.className = "login-status loading";
+    status.textContent = "로그인 중입니다...";
+  }
+  if (button) {
+    button.disabled = true;
+    button.textContent = "로그인 중...";
+  }
   try {
     await api("/api/scrim/auth/login", { method: "POST", body: JSON.stringify(payload) });
+    if (status) {
+      status.className = "login-status";
+      status.textContent = "로그인 성공. 이동 중입니다...";
+    }
     location.reload();
   } catch (error) {
-    toast(error.message, true);
+    if (status) {
+      status.className = "login-status error";
+      status.textContent = `로그인 실패: ${error.message}`;
+    }
+    toast(`로그인 실패: ${error.message}`, true);
+    if (button) {
+      button.disabled = false;
+      button.textContent = "로그인";
+    }
   }
 });
+
 
 $("#logout-button").addEventListener("click", async () => {
   await api("/api/scrim/auth/logout", { method: "POST" });
@@ -1328,6 +1369,15 @@ $("#captain-form").addEventListener("submit", async (event) => {
 $("#manual-player-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.target));
+  if (event.target.closest("#member-player-registration-slot")) {
+    const query = [data.name, data.riot_id].filter(Boolean).join(" ").trim();
+    const searchInput = $("#member-search-form")?.elements.query;
+    if (searchInput) searchInput.value = query;
+    rosterPage = 1;
+    await loadMembers();
+    toast(query ? "회원 명단을 검색했습니다." : "검색할 이름 또는 Riot ID를 입력해주세요.", !query);
+    return;
+  }
   const selectedTier = data.tier;
   data.tier = DIVISION_TIERS.has(selectedTier)
     ? `${selectedTier} ${TIER_DIVISIONS[data.tier_division]}`
@@ -1361,13 +1411,14 @@ $("#riot-player-form").addEventListener("submit", async (event) => {
     const preview = await api("/api/players/riot/preview", { method: "POST", body: JSON.stringify(data) });
     riotPreviewData = { form: data, preview };
     renderRiotPreview(preview);
-    toast("Riot 정보를 확인해 추가했습니다.");
+    toast("Riot 정보 조회가 완료되었습니다.");
   } catch (error) { toast(error.message, true); }
   finally {
     button.disabled = false;
-    button.textContent = "티어 조회 후 추가";
+    button.textContent = "Riot API 조회";
   }
 });
+
 
 $("#tournament-team-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -2038,6 +2089,13 @@ $("#member-create-form")?.addEventListener("submit", async (event) => {
     await loadMembers();
     toast("회원 계정을 생성했습니다. 기본 비밀번호는 1234입니다.");
   } catch (error) { toast(error.message, true); }
+});
+
+$("#member-search-form").addEventListener("input", async (event) => {
+  if (!event.target.matches('input[name="query"]')) return;
+  rosterPage = 1;
+  window.clearTimeout(window.memberSearchTimer);
+  window.memberSearchTimer = window.setTimeout(loadMembers, 180);
 });
 
 $("#member-search-form").addEventListener("submit", async (event) => {
