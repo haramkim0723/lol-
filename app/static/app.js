@@ -160,7 +160,10 @@ function setView(view) {
     history.pushState({ view }, "", path);
   }
   if (view === "scrim") loadScrimData();
-  if (view === "members") loadMembers();
+  if (view === "members") {
+    loadMembers();
+    if (state.viewer.role === "host") searchScrimUsers("");
+  }
 }
 
 async function enterAuctionView() {

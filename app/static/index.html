@@ -277,6 +277,20 @@
           </form>
           <div id="member-list" class="roster-admin-list"></div>
         </aside>
+
+        <aside id="admin-panel" class="panel admin-panel hidden">
+          <div class="panel-title">
+            <span>ADMIN</span>
+            <h2>회원 관리</h2>
+          </div>
+          <form id="admin-search-form" class="scrim-form compact">
+            <label>회원 검색
+              <input name="query" placeholder="이름 또는 롤 아이디" />
+            </label>
+            <button class="secondary" type="submit">검색</button>
+          </form>
+          <div id="admin-user-list" class="admin-user-list"></div>
+        </aside>
       </section>
 
       <section id="mypage-panel" class="scrim-shell admin-only hidden">
@@ -571,18 +585,18 @@
           </article>
         </section>
 
-        <aside id="admin-panel" class="panel admin-panel hidden">
+        <aside id="scrim-admin-panel-legacy" class="panel admin-panel hidden">
           <div class="panel-title">
             <span>ADMIN</span>
             <h2>회원 관리</h2>
           </div>
-          <form id="admin-search-form" class="scrim-form compact">
+          <form id="scrim-admin-search-form-legacy" class="scrim-form compact">
             <label>회원 검색
               <input name="query" placeholder="이름 또는 롤 아이디" />
             </label>
             <button class="secondary" type="submit">검색</button>
           </form>
-          <div id="admin-user-list" class="admin-user-list"></div>
+          <div id="scrim-admin-user-list-legacy" class="admin-user-list"></div>
         </aside>
       </section>
     </main>
