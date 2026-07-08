@@ -710,11 +710,37 @@ aside { display: grid; gap: 18px; }
 .admin-user form input { margin-top: 0; }
 .admin-user-actions { display: flex; justify-content: flex-end; }
 .admin-user-actions button { padding: 7px 10px; font-size: 10px; }
-.member-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+.member-stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 14px; }
 .member-stats div { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.035); }
 .member-stats strong, .member-stats span { display: block; }
 .member-stats strong { color: var(--gold-light); font-size: 22px; }
 .member-stats span, .mini-status { color: var(--muted); font-size: 11px; font-weight: 800; }
+.member-filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.member-filter-bar button.active { border-color: var(--gold-light); color: #15100a; background: var(--gold-light); }
+.roster-admin-list { display: grid; gap: 10px; }
+.roster-admin-row {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255,255,255,.035);
+}
+.roster-admin-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.roster-admin-head strong { display: block; color: #f8fbff; font-size: 16px; }
+.roster-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.roster-admin-fields,
+.roster-score-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.roster-score-fields { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 8px; }
+.roster-admin-row label { color: var(--muted); font-size: 10px; font-weight: 900; }
+.roster-admin-row input { margin-top: 5px; min-height: 36px; }
 .user-approval {
   padding: 5px 8px;
   border-radius: 999px;
@@ -742,12 +768,17 @@ aside { display: grid; gap: 18px; }
   .player-form button { grid-column: 1 / -1; }
   .captain-form { grid-template-columns: minmax(220px, 1.4fr) 1fr 1fr; }
   .captain-add-button { min-height: 42px; grid-column: 1 / -1; }
+  .member-stats { grid-template-columns: repeat(2, 1fr); }
+  .roster-admin-fields, .roster-score-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 620px) {
   header, main { padding-left: 17px; padding-right: 17px; }
   .form-grid, .player-form, .bid-form, .captain-form { grid-template-columns: 1fr; }
   .wide, .player-form .wide { grid-column: auto; }
   .connection { display: none; }
+  .member-stats, .roster-admin-fields, .roster-score-fields { grid-template-columns: 1fr; }
+  .roster-admin-head { display: grid; }
+  .roster-badges { justify-content: flex-start; }
   .header-actions { flex-wrap: wrap; justify-content: flex-end; }
   .main-nav { order: 3; width: 100%; }
   .main-nav button { flex: 1; }

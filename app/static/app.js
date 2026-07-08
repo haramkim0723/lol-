@@ -633,41 +633,69 @@ function participationClass(status) {
   return "excluded";
 }
 
-function renderMemberRows(members) {
+let rosterFilter = "with_id";
+
+function rosterStatusClass(status) {
+  if (status === "ISSUED" || status === "applied") return "approved";
+  if (status === "not_applied") return "pending";
+  return "excluded";
+}
+
+function rosterField(entry, name, label, placeholder = "") {
+  return `
+    <label>${label}
+      <input name="${name}" value="${escapeHtml(entry[name] || "")}" placeholder="${escapeHtml(placeholder)}" />
+    </label>
+  `;
+}
+
+function renderMemberRows(entries) {
   const list = $("#member-list");
-  if (!members.length) {
-    list.innerHTML = '<div class="empty-state">회원이 없습니다.</div>';
+  if (!entries.length) {
+    list.innerHTML = '<div class="empty-state">조건에 맞는 명단이 없습니다.</div>';
     return;
   }
-  list.innerHTML = members.map((user) => `
-    <article class="admin-user">
-      <div class="admin-user-head">
+  list.innerHTML = entries.map((entry) => `
+    <form class="roster-admin-row" data-roster-entry="${entry.id}">
+      <div class="roster-admin-head">
         <div>
-          <strong>${escapeHtml(user.name)}</strong>
+          <strong>${escapeHtml(entry.name)}</strong>
           <div class="meta">
-            본 ${escapeHtml(user.riot_id)}
-            ${user.secondary_riot_id ? ` · 부 ${escapeHtml(user.secondary_riot_id)}` : ""}
+            엑셀 ${entry.source_row}행
+            ${entry.riot_id ? ` · 본 ${escapeHtml(entry.riot_id)}` : " · Riot ID 없음"}
+            ${entry.secondary_riot_id ? ` · 부 ${escapeHtml(entry.secondary_riot_id)}` : ""}
           </div>
         </div>
-        <span class="user-approval ${participationClass(user.participation_status)}">
-          ${escapeHtml(user.participation_label)}
-        </span>
+        <div class="roster-badges">
+          <span class="user-approval ${rosterStatusClass(entry.account_status)}">${entry.account_status === "ISSUED" ? "발급완료" : "미발급"}</span>
+          <span class="user-approval ${participationClass(entry.tournament_status)}">${escapeHtml(entry.tournament_label)}</span>
+        </div>
+      </div>
+      <div class="roster-admin-fields">
+        ${rosterField(entry, "name", "이름")}
+        ${rosterField(entry, "riot_id", "본 아이디", "Riot ID#KR1")}
+        ${rosterField(entry, "secondary_riot_id", "부 아이디", "선택 입력")}
+        ${rosterField(entry, "preferred_lines", "참가라인")}
+        ${rosterField(entry, "tier", "티어")}
+        ${rosterField(entry, "payment_status", "입금")}
+        ${rosterField(entry, "participation_status_text", "참가여부")}
+        ${rosterField(entry, "absence_reason", "불참사유")}
+        ${rosterField(entry, "top_adjustment", "탑레조정")}
+        ${rosterField(entry, "game_count_adjustment", "판수조정")}
+        ${rosterField(entry, "notes", "기타")}
+      </div>
+      <div class="roster-score-fields">
+        ${rosterField(entry, "score_top", "탑")}
+        ${rosterField(entry, "score_jungle", "정글")}
+        ${rosterField(entry, "score_mid", "미드")}
+        ${rosterField(entry, "score_adc", "원딜")}
+        ${rosterField(entry, "score_support", "서폿")}
       </div>
       <div class="admin-user-actions">
-        <span class="mini-status">${user.role === "ADMIN" ? "관리자" : user.approved ? "승인" : "미승인"}</span>
+        <span class="mini-status">저장 시 Riot ID가 있으면 계정이 자동 발급됩니다. 초기 비밀번호 1234</span>
+        <button class="primary" type="submit">수정 저장</button>
       </div>
-      ${user.role !== "ADMIN" ? `
-        <div class="admin-user-actions">
-          <button class="${user.approved ? "ghost" : "accent"}" type="button" data-user-approval="${user.id}" data-approved="${user.approved ? "false" : "true"}">
-            ${user.approved ? "승인 해제" : "승인"}
-          </button>
-        </div>
-      ` : ""}
-      <form data-password-reset="${user.id}">
-        <input name="new_password" type="password" minlength="4" maxlength="128" placeholder="새 비밀번호" required />
-        <button class="ghost" type="submit">재설정</button>
-      </form>
-    </article>
+    </form>
   `).join("");
 }
 
@@ -675,11 +703,14 @@ async function loadMembers() {
   if (state.viewer.role !== "host") return;
   try {
     const query = $("#member-search-form")?.elements.query.value || "";
-    const data = await api(`/api/members?query=${encodeURIComponent(query)}`);
-    $("#member-stat-total").textContent = data.stats.approved_members;
+    const data = await api(`/api/roster?filter=${encodeURIComponent(rosterFilter)}&query=${encodeURIComponent(query)}`);
+    $("#member-stat-total").textContent = data.stats.total;
+    $("#member-stat-with-id").textContent = data.stats.with_riot_id;
+    $("#member-stat-without-id").textContent = data.stats.without_riot_id;
+    $("#member-stat-issued").textContent = data.stats.account_issued;
     $("#member-stat-applied").textContent = data.stats.applied;
     $("#member-stat-not-applied").textContent = data.stats.not_applied;
-    renderMemberRows(data.members);
+    renderMemberRows(data.entries);
   } catch (error) {
     toast(error.message, true);
   }
@@ -1925,7 +1956,7 @@ $("#admin-user-list").addEventListener("click", async (event) => {
   } catch (error) { toast(error.message, true); }
 });
 
-$("#member-create-form").addEventListener("submit", async (event) => {
+$("#member-create-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const payload = Object.fromEntries(new FormData(event.target));
   payload.password = "1234";
@@ -1947,6 +1978,23 @@ $("#member-search-form").addEventListener("submit", async (event) => {
 });
 
 $("#member-list").addEventListener("submit", async (event) => {
+  const rosterForm = event.target.closest("[data-roster-entry]");
+  if (rosterForm) {
+    event.preventDefault();
+    const payload = Object.fromEntries(new FormData(rosterForm));
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] === "") payload[key] = null;
+    });
+    try {
+      await api(`/api/roster/${rosterForm.dataset.rosterEntry}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      await loadMembers();
+      toast("명단을 저장했습니다. Riot ID가 있으면 계정도 발급됩니다.");
+    } catch (error) { toast(error.message, true); }
+    return;
+  }
   const form = event.target.closest("[data-password-reset]");
   if (!form) return;
   event.preventDefault();
@@ -1961,6 +2009,16 @@ $("#member-list").addEventListener("click", async (event) => {
   try {
     await setMemberApproval(button);
   } catch (error) { toast(error.message, true); }
+});
+
+document.querySelectorAll("[data-roster-filter]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    rosterFilter = button.dataset.rosterFilter;
+    document.querySelectorAll("[data-roster-filter]").forEach((item) => {
+      item.classList.toggle("active", item === button);
+    });
+    await loadMembers();
+  });
 });
 
 $("#mypage-form").addEventListener("submit", async (event) => {

@@ -300,6 +300,25 @@ class ParticipationApplyInput(BaseModel):
     terms_agreed: bool
 
 
+class RosterEntryInput(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    participation_status_text: str | None = Field(default=None, max_length=80)
+    absence_reason: str | None = Field(default=None, max_length=200)
+    payment_status: str | None = Field(default=None, max_length=80)
+    riot_id: str | None = Field(default=None, max_length=100)
+    secondary_riot_id: str | None = Field(default=None, max_length=100)
+    tier: str | None = Field(default=None, max_length=80)
+    top_adjustment: str | None = Field(default=None, max_length=80)
+    game_count_adjustment: str | None = Field(default=None, max_length=80)
+    preferred_lines: str | None = Field(default=None, max_length=120)
+    score_top: str | None = Field(default=None, max_length=40)
+    score_jungle: str | None = Field(default=None, max_length=40)
+    score_mid: str | None = Field(default=None, max_length=40)
+    score_adc: str | None = Field(default=None, max_length=40)
+    score_support: str | None = Field(default=None, max_length=40)
+    notes: str | None = Field(default=None, max_length=300)
+
+
 def member_participation_payload(user: dict, applications: dict[int, dict]) -> dict:
     payload = {
         "id": user["id"],
@@ -320,6 +339,21 @@ def member_participation_payload(user: dict, applications: dict[int, dict]) -> d
     application = applications.get(user["id"])
     payload["participation_status"] = "applied" if application else "not_applied"
     payload["participation_label"] = "대회 참가" if application else "대회 미참가"
+    payload["applied_at"] = application.get("applied_at") if application else None
+    return payload
+
+
+def roster_payload(entry: dict, applications: dict[int, dict]) -> dict:
+    payload = dict(entry)
+    user_id = entry.get("user_id")
+    if not user_id:
+        payload["tournament_status"] = "not_account"
+        payload["tournament_label"] = "계정 없음"
+        payload["applied_at"] = None
+        return payload
+    application = applications.get(user_id)
+    payload["tournament_status"] = "applied" if application else "not_applied"
+    payload["tournament_label"] = "대회 참가" if application else "대회 미참가"
     payload["applied_at"] = application.get("applied_at") if application else None
     return payload
 
@@ -562,6 +596,77 @@ async def list_members(request: Request, query: str = ""):
             ),
         },
     }
+
+
+@app.get("/api/roster")
+async def list_roster(
+    request: Request,
+    query: str = "",
+    filter: str = "with_id",
+):
+    require_host(request)
+    participation = store.state.setdefault(
+        "participation",
+        {"enabled": False, "terms": "", "applications": []},
+    )
+    applications = {
+        application["user_id"]: application
+        for application in participation.get("applications", [])
+    }
+    with scrim_db.connect() as connection:
+        counts = scrim_db.roster_counts(connection)
+        users = [
+            user
+            for user in scrim_db.search_users(connection, "")
+            if user["role"] != "ADMIN" and user.get("approved")
+        ]
+        approved_ids = {user["id"] for user in users}
+        applied_ids = approved_ids & set(applications)
+        not_applied_ids = approved_ids - set(applications)
+        has_riot_id = None
+        user_ids = None
+        if filter == "with_id":
+            has_riot_id = True
+        elif filter == "without_id":
+            has_riot_id = False
+        elif filter == "applied":
+            user_ids = applied_ids
+        elif filter == "not_applied":
+            user_ids = not_applied_ids
+        entries = scrim_db.list_roster_entries(
+            connection,
+            query=query,
+            has_riot_id=has_riot_id,
+            user_ids=user_ids,
+        )
+    return {
+        "entries": [roster_payload(entry, applications) for entry in entries],
+        "stats": {
+            **counts,
+            "applied": len(applied_ids),
+            "not_applied": len(not_applied_ids),
+        },
+    }
+
+
+@app.patch("/api/roster/{roster_id}")
+async def update_roster_entry(roster_id: int, data: RosterEntryInput, request: Request):
+    require_host(request)
+    payload = data.model_dump(exclude_unset=True)
+    try:
+        with scrim_db.connect() as connection:
+            entry = scrim_db.update_roster_entry(connection, roster_id, payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    participation = store.state.setdefault(
+        "participation",
+        {"enabled": False, "terms": "", "applications": []},
+    )
+    applications = {
+        application["user_id"]: application
+        for application in participation.get("applications", [])
+    }
+    return roster_payload(entry, applications)
 
 
 @app.put("/api/settings")

@@ -33,6 +33,33 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS roster_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_row INTEGER NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  participation_status_text TEXT,
+  absence_reason TEXT,
+  payment_status TEXT,
+  riot_id TEXT,
+  secondary_riot_id TEXT,
+  tier TEXT,
+  top_adjustment TEXT,
+  game_count_adjustment TEXT,
+  preferred_lines TEXT,
+  score_top TEXT,
+  score_jungle TEXT,
+  score_mid TEXT,
+  score_adc TEXT,
+  score_support TEXT,
+  notes TEXT,
+  user_id INTEGER,
+  account_status TEXT NOT NULL DEFAULT 'NOT_ELIGIBLE'
+    CHECK (account_status IN ('NOT_ELIGIBLE', 'ISSUED')),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
 CREATE TABLE IF NOT EXISTS teams (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -642,6 +669,221 @@ def reset_user_password(
         (hash_password(new_password), user_id),
     )
     return get_user(connection, user_id)
+
+
+ROSTER_FIELDS = {
+    "name",
+    "participation_status_text",
+    "absence_reason",
+    "payment_status",
+    "riot_id",
+    "secondary_riot_id",
+    "tier",
+    "top_adjustment",
+    "game_count_adjustment",
+    "preferred_lines",
+    "score_top",
+    "score_jungle",
+    "score_mid",
+    "score_adc",
+    "score_support",
+    "notes",
+}
+
+
+def normalize_roster_row(row: dict) -> dict:
+    normalized = dict(row)
+    normalized["has_riot_id"] = bool(clean_optional_text(normalized.get("riot_id")))
+    normalized["account_issued"] = normalized.get("account_status") == "ISSUED"
+    return normalized
+
+
+def get_roster_entry(connection, roster_id: int) -> dict:
+    row = connection.execute(
+        "SELECT * FROM roster_entries WHERE id = ?",
+        (roster_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("명단을 찾을 수 없습니다.")
+    return normalize_roster_row(dict(row))
+
+
+def get_roster_entry_by_source_row(connection, source_row: int) -> dict | None:
+    row = connection.execute(
+        "SELECT * FROM roster_entries WHERE source_row = ?",
+        (source_row,),
+    ).fetchone()
+    return normalize_roster_row(dict(row)) if row is not None else None
+
+
+def list_roster_entries(
+    connection,
+    *,
+    query: str = "",
+    has_riot_id: bool | None = None,
+    user_ids: set[int] | None = None,
+    limit: int = 500,
+) -> list[dict]:
+    clauses = []
+    params: list = []
+    normalized_query = clean_optional_text(query)
+    if normalized_query:
+        pattern = f"%{normalized_query}%"
+        operator = "ILIKE" if db_dialect(connection) == "postgres" else "LIKE"
+        clauses.append(
+            f"(name {operator} ? OR riot_id {operator} ? OR secondary_riot_id {operator} ? OR preferred_lines {operator} ?)"
+        )
+        params.extend([pattern, pattern, pattern, pattern])
+    if has_riot_id is True:
+        clauses.append("riot_id IS NOT NULL AND riot_id <> ''")
+    elif has_riot_id is False:
+        clauses.append("(riot_id IS NULL OR riot_id = '')")
+    if user_ids is not None:
+        if not user_ids:
+            return []
+        placeholders = ", ".join("?" for _ in user_ids)
+        clauses.append(f"user_id IN ({placeholders})")
+        params.extend(sorted(user_ids))
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = connection.execute(
+        f"""
+        SELECT *
+        FROM roster_entries
+        {where}
+        ORDER BY source_row ASC
+        LIMIT ?
+        """,
+        (*params, limit),
+    ).fetchall()
+    return [normalize_roster_row(dict(row)) for row in rows]
+
+
+def roster_counts(connection) -> dict:
+    row = connection.execute(
+        """
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN riot_id IS NOT NULL AND riot_id <> '' THEN 1 ELSE 0 END) AS with_riot_id,
+          SUM(CASE WHEN riot_id IS NULL OR riot_id = '' THEN 1 ELSE 0 END) AS without_riot_id,
+          SUM(CASE WHEN account_status = 'ISSUED' THEN 1 ELSE 0 END) AS account_issued
+        FROM roster_entries
+        """
+    ).fetchone()
+    return {
+        "total": int(row["total"] or 0),
+        "with_riot_id": int(row["with_riot_id"] or 0),
+        "without_riot_id": int(row["without_riot_id"] or 0),
+        "account_issued": int(row["account_issued"] or 0),
+    }
+
+
+def upsert_roster_entry(connection, *, source_row: int, **fields) -> dict:
+    normalized = {
+        field: clean_optional_text(fields.get(field))
+        for field in ROSTER_FIELDS
+        if field in fields
+    }
+    if not normalized.get("name"):
+        raise ValueError("명단 이름은 필수입니다.")
+    existing = get_roster_entry_by_source_row(connection, source_row)
+    if existing is None:
+        columns = ["source_row", *normalized.keys()]
+        values = [source_row, *normalized.values()]
+        placeholders = ", ".join("?" for _ in columns)
+        insert_and_get_id(
+            connection,
+            f"""
+            INSERT INTO roster_entries ({", ".join(columns)})
+            VALUES ({placeholders})
+            """,
+            tuple(values),
+        )
+    else:
+        assignments = ", ".join(f"{field} = ?" for field in normalized)
+        connection.execute(
+            f"""
+            UPDATE roster_entries
+            SET {assignments},
+                updated_at = CURRENT_TIMESTAMP
+            WHERE source_row = ?
+            """,
+            (*normalized.values(), source_row),
+        )
+    entry = get_roster_entry_by_source_row(connection, source_row)
+    if entry and entry.get("riot_id"):
+        return issue_roster_account(connection, entry["id"])
+    return entry
+
+
+def issue_roster_account(connection, roster_id: int, password: str = "1234") -> dict:
+    entry = get_roster_entry(connection, roster_id)
+    riot_id = clean_optional_text(entry.get("riot_id"))
+    if not riot_id:
+        connection.execute(
+            """
+            UPDATE roster_entries
+            SET user_id = NULL,
+                account_status = 'NOT_ELIGIBLE',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (roster_id,),
+        )
+        return get_roster_entry(connection, roster_id)
+    user = get_user_by_riot_id(connection, riot_id)
+    if user is None:
+        user = create_user(
+            connection,
+            name=entry["name"],
+            riot_id=riot_id,
+            secondary_riot_id=entry.get("secondary_riot_id"),
+            password=password,
+            approved=True,
+        )
+    else:
+        connection.execute(
+            """
+            UPDATE users
+            SET name = ?,
+                secondary_riot_id = ?,
+                approved = 1,
+                is_active = 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (entry["name"], clean_optional_text(entry.get("secondary_riot_id")), user["id"]),
+        )
+        user = get_user(connection, user["id"])
+    connection.execute(
+        """
+        UPDATE roster_entries
+        SET user_id = ?,
+            account_status = 'ISSUED',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (user["id"], roster_id),
+    )
+    return get_roster_entry(connection, roster_id)
+
+
+def update_roster_entry(connection, roster_id: int, fields: dict) -> dict:
+    allowed = {key: clean_optional_text(value) for key, value in fields.items() if key in ROSTER_FIELDS}
+    if not allowed:
+        return get_roster_entry(connection, roster_id)
+    if "name" in allowed and not allowed["name"]:
+        raise ValueError("명단 이름은 필수입니다.")
+    assignments = ", ".join(f"{field} = ?" for field in allowed)
+    connection.execute(
+        f"""
+        UPDATE roster_entries
+        SET {assignments},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (*allowed.values(), roster_id),
+    )
+    return issue_roster_account(connection, roster_id)
 
 
 def set_user_approval(

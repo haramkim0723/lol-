@@ -252,32 +252,30 @@
         <aside class="panel admin-panel">
           <div class="panel-title">
             <span>MEMBERS</span>
-            <h2>회원 관리</h2>
+            <h2>수강대난투 26-2 관리</h2>
           </div>
           <div class="member-stats">
-            <div><strong id="member-stat-total">0</strong><span>승인 회원</span></div>
+            <div><strong id="member-stat-total">0</strong><span>전체 인원</span></div>
+            <div><strong id="member-stat-with-id">0</strong><span>Riot ID 있음</span></div>
+            <div><strong id="member-stat-without-id">0</strong><span>Riot ID 없음</span></div>
+            <div><strong id="member-stat-issued">0</strong><span>계정 발급</span></div>
             <div><strong id="member-stat-applied">0</strong><span>대회 참가</span></div>
             <div><strong id="member-stat-not-applied">0</strong><span>대회 미참가</span></div>
           </div>
-          <form id="member-create-form" class="scrim-form compact">
-            <label>이름
-              <input name="name" maxlength="50" required placeholder="회원 이름" />
-            </label>
-            <label>본 아이디
-              <input name="riot_id" maxlength="80" required placeholder="Riot ID#KR1" />
-            </label>
-            <label>부 아이디
-              <input name="secondary_riot_id" maxlength="80" placeholder="선택 입력" />
-            </label>
-            <button class="primary" type="submit">회원 생성</button>
-          </form>
+          <div class="member-filter-bar">
+            <button class="secondary active" type="button" data-roster-filter="with_id">Riot ID 있음</button>
+            <button class="secondary" type="button" data-roster-filter="without_id">Riot ID 없음</button>
+            <button class="secondary" type="button" data-roster-filter="applied">대회 참가</button>
+            <button class="secondary" type="button" data-roster-filter="not_applied">대회 미참가</button>
+            <button class="secondary" type="button" data-roster-filter="all">전체</button>
+          </div>
           <form id="member-search-form" class="scrim-form compact">
-            <label>회원 검색
-              <input name="query" placeholder="이름, 본 아이디, 부 아이디" />
+            <label>명단 검색
+              <input name="query" placeholder="이름, Riot ID, 참가라인 검색" />
             </label>
             <button class="secondary" type="submit">검색</button>
           </form>
-          <div id="member-list" class="admin-user-list"></div>
+          <div id="member-list" class="roster-admin-list"></div>
         </aside>
       </section>
 

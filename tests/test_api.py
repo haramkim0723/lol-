@@ -17,6 +17,7 @@ os.environ["SCRIM_ALLOW_PUBLIC_SIGNUP"] = "true"
 from fastapi.testclient import TestClient
 
 from app.main import app, store
+from app import scrim_db
 from app.scrim_db import db_path as scrim_db_path
 
 ADMIN_RIOT_ID = "장원혁#ADMIN"
@@ -126,6 +127,46 @@ class ApiFlowTest(unittest.TestCase):
             state = captain_client.get("/api/state").json()
             self.assertEqual(state["viewer"]["role"], "captain")
             self.assertNotIn("user_id", state["captains"][0])
+
+    def test_admin_roster_update_issues_member_account(self):
+        with TestClient(app) as client:
+            login = login_as_host(client)
+            self.assertEqual(login.status_code, 200)
+
+            with scrim_db.connect() as connection:
+                entry = scrim_db.upsert_roster_entry(
+                    connection,
+                    source_row=200,
+                    name="Roster User",
+                    riot_id=None,
+                    preferred_lines="MID",
+                )
+
+            roster = client.get("/api/roster?filter=without_id")
+            self.assertEqual(roster.status_code, 200)
+            self.assertTrue(
+                any(item["id"] == entry["id"] for item in roster.json()["entries"])
+            )
+
+            updated = client.patch(
+                f"/api/roster/{entry['id']}",
+                json={
+                    "name": "Roster User",
+                    "riot_id": "RosterUser#KR1",
+                    "secondary_riot_id": "RosterSub#KR1",
+                    "preferred_lines": "MID",
+                },
+            )
+            self.assertEqual(updated.status_code, 200)
+            payload = updated.json()
+            self.assertEqual(payload["account_status"], "ISSUED")
+            self.assertEqual(payload["tournament_status"], "not_applied")
+
+            member_login = client.post(
+                "/api/scrim/auth/login",
+                json={"riot_id": "RosterUser#KR1", "password": "1234"},
+            )
+            self.assertEqual(member_login.status_code, 200)
 
     def test_spectator_cannot_start_auction(self):
         with TestClient(app) as client:
