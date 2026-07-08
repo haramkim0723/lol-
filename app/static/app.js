@@ -76,6 +76,14 @@ function setGlobalLoading(active, message = "처리 중...") {
   node.classList.toggle("hidden", !active);
 }
 
+function requestFailureMessage(error, fallback = "요청에 실패했습니다.") {
+  const message = String(error?.message || "").trim();
+  if (!message) return fallback;
+  if (message === "Failed to fetch") return "서버에 연결하지 못했습니다. 잠시 후 다시 시도해주세요.";
+  if (message.includes("NetworkError")) return "네트워크 오류로 요청에 실패했습니다.";
+  return message;
+}
+
 async function withButtonLoading(button, label, task) {
   if (!button) return task();
   const originalText = button.textContent;
@@ -84,10 +92,15 @@ async function withButtonLoading(button, label, task) {
   button.textContent = label;
   try {
     return await task();
+  } catch (error) {
+    button.textContent = "실패";
+    throw error;
   } finally {
-    button.disabled = false;
-    button.classList.remove("loading");
-    button.textContent = originalText;
+    setTimeout(() => {
+      button.disabled = false;
+      button.classList.remove("loading");
+      button.textContent = originalText;
+    }, 350);
   }
 }
 
@@ -100,13 +113,33 @@ async function api(path, options = {}) {
       ...options,
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.detail || "요청 처리에 실패했습니다.");
+    if (!response.ok) {
+      const detail = data.detail || data.message || "";
+      const statusMessage = response.status === 401
+        ? "로그인이 필요하거나 아이디/비밀번호가 올바르지 않습니다."
+        : response.status === 403
+          ? "권한이 없어 요청에 실패했습니다."
+          : response.status >= 500
+            ? "서버 오류로 요청에 실패했습니다."
+            : "요청 처리에 실패했습니다.";
+      throw new Error(detail || statusMessage);
+    }
     return data;
+  } catch (error) {
+    throw new Error(requestFailureMessage(error));
   } finally {
     pendingApiCount = Math.max(0, pendingApiCount - 1);
     if (pendingApiCount === 0) setGlobalLoading(false);
   }
 }
+
+window.addEventListener("unhandledrejection", (event) => {
+  toast(`실패: ${requestFailureMessage(event.reason)}`, true);
+});
+
+window.addEventListener("error", (event) => {
+  toast(`실패: ${requestFailureMessage(event.error || event.message, "화면 처리 중 오류가 발생했습니다.")}`, true);
+});
 
 
 function escapeHtml(value = "") {
