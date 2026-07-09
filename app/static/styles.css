@@ -815,6 +815,20 @@ aside { display: grid; gap: 18px; }
 .member-stats span, .mini-status { color: var(--muted); font-size: 11px; font-weight: 800; }
 .member-filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 #members-panel .admin-panel { margin: 0 auto; text-align: center; }
+#members-panel {
+  position: relative;
+  left: 50%;
+  width: calc(100vw - 24px);
+  max-width: 2400px;
+  grid-template-columns: minmax(0, 1fr);
+  transform: translateX(-50%);
+}
+#members-panel .admin-panel {
+  width: 100%;
+  max-width: none;
+  padding-left: clamp(18px, 2.2vw, 42px);
+  padding-right: clamp(18px, 2.2vw, 42px);
+}
 #members-panel .panel-title { justify-content: center; }
 #members-panel .member-stats { width: 100%; margin-inline: auto; text-align: center; }
 #members-panel .member-filter-bar { justify-content: center; margin-top: 28px; }
@@ -974,8 +988,8 @@ aside { display: grid; gap: 18px; }
 .roster-sheet-header,
 .roster-admin-row {
   display: grid;
-  grid-template-columns: 54px 130px 170px 160px 105px 90px 90px 105px 150px 90px 90px 160px repeat(5, 68px) 90px 128px 78px;
-  min-width: 2275px;
+  grid-template-columns: 48px 110px 145px 135px 92px 76px 78px 90px 120px 78px 78px 120px repeat(5, 58px) 76px 108px 68px;
+  min-width: 1812px;
 }
 .roster-sheet-header {
   position: sticky;
