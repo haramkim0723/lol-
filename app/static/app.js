@@ -911,12 +911,8 @@ function rosterStatusClass(status) {
   return "excluded";
 }
 
-function rosterField(entry, name, label, placeholder = "") {
-  return `
-    <label>${label}
-      <input name="${name}" value="${escapeHtml(entry[name] || "")}" placeholder="${escapeHtml(placeholder)}" />
-    </label>
-  `;
+function rosterCell(entry, name, placeholder = "") {
+  return `<div class="roster-sheet-cell"><input name="${name}" value="${escapeHtml(entry[name] || "")}" placeholder="${escapeHtml(placeholder)}" aria-label="${name}" /></div>`;
 }
 
 function participationStatusLabel(status) {
@@ -948,51 +944,39 @@ function renderMemberRows(entries) {
     list.innerHTML = '<div class="empty-state">조건에 맞는 명단이 없습니다.</div>';
     return;
   }
-  list.innerHTML = entries.map((entry) => `
-    <form class="roster-admin-row" data-roster-entry="${entry.id}">
-      <div class="roster-admin-head">
-        <div>
-          <strong>${escapeHtml(entry.name)}</strong>
-          <div class="meta">
-            엑셀 ${entry.source_row}행
-            ${entry.riot_id ? ` · 본 ${escapeHtml(entry.riot_id)}` : " · Riot ID 없음"}
-            ${entry.secondary_riot_id ? ` · 부 ${escapeHtml(entry.secondary_riot_id)}` : ""}
+  const headers = ["행", "이름", "본 아이디", "부 아이디", "참가라인", "티어", "입금", "참가여부", "불참사유", "탑레조정", "판수조정", "기타", "탑", "정글", "미드", "원딜", "서폿", "계정", "대회", "저장"];
+  list.innerHTML = `
+    <div class="roster-sheet">
+      <div class="roster-sheet-header">${headers.map((header) => `<div>${header}</div>`).join("")}</div>
+      ${entries.map((entry) => `
+        <form class="roster-admin-row" data-roster-entry="${entry.id}">
+          <div class="roster-sheet-index">${entry.source_row}</div>
+          ${rosterCell(entry, "name")}
+          ${rosterCell(entry, "riot_id", "Riot ID#KR1")}
+          ${rosterCell(entry, "secondary_riot_id", "선택 입력")}
+          ${rosterCell(entry, "preferred_lines")}
+          ${rosterCell(entry, "tier")}
+          ${rosterCell(entry, "payment_status")}
+          ${rosterCell(entry, "participation_status_text")}
+          ${rosterCell(entry, "absence_reason")}
+          ${rosterCell(entry, "top_adjustment")}
+          ${rosterCell(entry, "game_count_adjustment")}
+          ${rosterCell(entry, "notes")}
+          ${rosterCell(entry, "score_top")}
+          ${rosterCell(entry, "score_jungle")}
+          ${rosterCell(entry, "score_mid")}
+          ${rosterCell(entry, "score_adc")}
+          ${rosterCell(entry, "score_support")}
+          <div class="roster-sheet-status"><span class="user-approval ${rosterStatusClass(entry.account_status)}">${entry.account_status === "ISSUED" ? "발급" : "미발급"}</span></div>
+          <div class="roster-sheet-status participation-cell">
+            <span class="user-approval ${participationClass(entry.tournament_status)}">${escapeHtml(entry.tournament_label)}</span>
+            <button class="participation-count" type="button" data-participation-count="${entry.id}">${Number(entry.participation_count || 0)}회</button>
+            ${renderParticipationPopover(entry)}
           </div>
-        </div>
-        <div class="roster-badges">
-          <span class="user-approval ${rosterStatusClass(entry.account_status)}">${entry.account_status === "ISSUED" ? "발급완료" : "미발급"}</span>
-          <span class="user-approval ${participationClass(entry.tournament_status)}">${escapeHtml(entry.tournament_label)}</span>
-          <span class="user-approval payment">${escapeHtml(entry.payment_status || "입금 X")}</span>
-          <button class="user-approval participation-count" type="button" data-participation-count="${entry.id}">참가 대회 ${Number(entry.participation_count || 0)}개</button>
-          ${renderParticipationPopover(entry)}
-        </div>
-      </div>
-      <div class="roster-admin-fields">
-        ${rosterField(entry, "name", "이름")}
-        ${rosterField(entry, "riot_id", "본 아이디", "Riot ID#KR1")}
-        ${rosterField(entry, "secondary_riot_id", "부 아이디", "선택 입력")}
-        ${rosterField(entry, "preferred_lines", "참가라인")}
-        ${rosterField(entry, "tier", "티어")}
-        ${rosterField(entry, "payment_status", "입금")}
-        ${rosterField(entry, "participation_status_text", "참가여부")}
-        ${rosterField(entry, "absence_reason", "불참사유")}
-        ${rosterField(entry, "top_adjustment", "탑레조정")}
-        ${rosterField(entry, "game_count_adjustment", "판수조정")}
-        ${rosterField(entry, "notes", "기타")}
-      </div>
-      <div class="roster-score-fields">
-        ${rosterField(entry, "score_top", "탑")}
-        ${rosterField(entry, "score_jungle", "정글")}
-        ${rosterField(entry, "score_mid", "미드")}
-        ${rosterField(entry, "score_adc", "원딜")}
-        ${rosterField(entry, "score_support", "서폿")}
-      </div>
-      <div class="admin-user-actions">
-        <span class="mini-status">저장 시 Riot ID가 있으면 계정이 자동 발급됩니다. 초기 비밀번호 1234</span>
-        <button class="primary" type="submit">수정 저장</button>
-      </div>
-    </form>
-  `).join("");
+          <div class="roster-sheet-save"><button class="primary" type="submit">저장</button></div>
+        </form>
+      `).join("")}
+    </div>`;
 }
 
 function renderRiotPreview(data) {

@@ -431,6 +431,40 @@ class ApiFlowTest(unittest.TestCase):
             self.assertIn("applicant#KR1", applied_ids)
             self.assertIn("waiting#KR1", not_applied_ids)
 
+    def test_test_competitions_are_rebuilt_from_approved_members(self):
+        with TestClient(app) as host_client:
+            login_as_host(host_client)
+            with TestClient(app) as member_client:
+                member = member_client.post(
+                    "/api/scrim/users",
+                    json={
+                        "name": "정회원",
+                        "riot_id": "member#KR1",
+                        "password": "1234",
+                    },
+                )
+                self.assertEqual(member.status_code, 200)
+            host_client.patch(
+                f'/api/scrim/admin/users/{member.json()["id"]}/approval',
+                json={"approved": True},
+            )
+
+            response = host_client.post("/api/admin/setup-test-competitions")
+
+            self.assertEqual(response.status_code, 200)
+            state = host_client.get("/api/state").json()
+            competitions = state["competition_registry"]["competitions"]
+            self.assertEqual(
+                [competition["name"] for competition in competitions],
+                ["test1", "test2"],
+            )
+            self.assertEqual(state["participation"]["application_count"], 0)
+            host_client.post(
+                "/api/competitions/test-score-approved/select"
+            )
+            test1 = host_client.get("/api/state").json()
+            self.assertEqual(test1["participation"]["application_count"], 1)
+
     def test_participant_registers_team_and_host_sets_score_limit(self):
         with TestClient(app) as client:
             login_as_host(client)

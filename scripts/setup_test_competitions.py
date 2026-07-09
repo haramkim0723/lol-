@@ -39,16 +39,16 @@ def score_state(name: str, *, participation_enabled: bool, applications: list[di
     return state
 
 
-def issued_roster_users() -> list[dict]:
+def active_members() -> list[dict]:
     with scrim_db.connect() as connection:
         rows = connection.execute(
             """
-            SELECT user_id, name, riot_id
-            FROM roster_entries
-            WHERE user_id IS NOT NULL
-              AND riot_id IS NOT NULL
-              AND riot_id <> ''
-            ORDER BY source_row ASC
+            SELECT id AS user_id, name, riot_id
+            FROM users
+            WHERE role = 'USER'
+              AND approved = 1
+              AND is_active = 1
+            ORDER BY name ASC, riot_id ASC
             """
         ).fetchall()
     return [dict(row) for row in rows]
@@ -63,11 +63,11 @@ def reset_local_state(applications: list[dict]) -> None:
         "competitions": [
             {
                 "id": TEST_ID,
-                "name": "test",
-                "mode": "score",
+                "name": "test1",
+                "mode": "tournament",
                 "created_at": now,
                 "state": score_state(
-                    "test",
+                    "test1",
                     participation_enabled=False,
                     applications=applications,
                 ),
@@ -75,7 +75,7 @@ def reset_local_state(applications: list[dict]) -> None:
             {
                 "id": TEST2_ID,
                 "name": "test2",
-                "mode": "score",
+                "mode": "tournament",
                 "created_at": now + 1,
                 "state": score_state(
                     "test2",
@@ -91,7 +91,7 @@ def reset_local_state(applications: list[dict]) -> None:
 def reset_participation_db() -> dict:
     scrim_db.init_db()
     now = time.time()
-    users = issued_roster_users()
+    users = active_members()
     with scrim_db.connect() as connection:
         connection.execute("DELETE FROM member_competition_participations")
         for user in users:
@@ -99,7 +99,7 @@ def reset_participation_db() -> dict:
                 connection,
                 user_id=user["user_id"],
                 competition_id=TEST_ID,
-                competition_name="test",
+                competition_name="test1",
                 applied_at=now,
             )
             scrim_db.set_competition_participation_status(
@@ -109,7 +109,12 @@ def reset_participation_db() -> dict:
                 status="APPROVED",
                 changed_at=now,
             )
-        total = connection.execute("SELECT COUNT(*) AS count FROM roster_entries").fetchone()
+        total = connection.execute(
+            """
+            SELECT COUNT(*) AS count FROM users
+            WHERE role = 'USER' AND approved = 1 AND is_active = 1
+            """
+        ).fetchone()
         issued = connection.execute(
             "SELECT COUNT(*) AS count FROM roster_entries WHERE user_id IS NOT NULL"
         ).fetchone()
@@ -160,7 +165,7 @@ def main() -> None:
     applications = summary.pop("applications")
     if not args.skip_state:
         reset_local_state(applications)
-        summary["state"] = "local test/test2 reset"
+        summary["state"] = "test1/test2 reset"
     for key, value in summary.items():
         print(f"{key}={value}")
 

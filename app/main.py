@@ -847,12 +847,12 @@ async def setup_test_competitions(request: Request):
     with scrim_db.connect() as connection:
         rows = connection.execute(
             """
-            SELECT user_id, name, riot_id
-            FROM roster_entries
-            WHERE user_id IS NOT NULL
-              AND riot_id IS NOT NULL
-              AND riot_id <> ''
-            ORDER BY source_row ASC
+            SELECT id AS user_id, name, riot_id
+            FROM users
+            WHERE role = 'USER'
+              AND approved = 1
+              AND is_active = 1
+            ORDER BY name ASC, riot_id ASC
             """
         ).fetchall()
         users = [dict(row) for row in rows]
@@ -862,7 +862,7 @@ async def setup_test_competitions(request: Request):
                 connection,
                 user_id=user["user_id"],
                 competition_id=TEST_COMPETITION_ID,
-                competition_name="test",
+                competition_name="test1",
                 applied_at=now,
             )
             scrim_db.set_competition_participation_status(
@@ -873,7 +873,11 @@ async def setup_test_competitions(request: Request):
                 changed_at=now,
             )
         total_row = connection.execute(
-            "SELECT COUNT(*) AS count FROM roster_entries"
+            """
+            SELECT COUNT(*) AS count
+            FROM users
+            WHERE role = 'USER' AND approved = 1 AND is_active = 1
+            """
         ).fetchone()
     applications = [
         {
@@ -894,11 +898,11 @@ async def setup_test_competitions(request: Request):
             "competitions": [
                 {
                     "id": TEST_COMPETITION_ID,
-                    "name": "test",
+                    "name": "test1",
                     "mode": "tournament",
                     "created_at": now,
                     "state": score_competition_state(
-                        "test",
+                        "test1",
                         participation_enabled=False,
                         applications=applications,
                     ),
