@@ -814,6 +814,20 @@ aside { display: grid; gap: 18px; }
 .member-stats strong { color: var(--gold-light); font-size: 22px; }
 .member-stats span, .mini-status { color: var(--muted); font-size: 11px; font-weight: 800; }
 .member-filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+#members-panel .admin-panel { margin: 0 auto; text-align: center; }
+#members-panel .panel-title { justify-content: center; }
+#members-panel .member-stats { width: 100%; margin-inline: auto; text-align: center; }
+#members-panel .member-filter-bar { justify-content: center; margin-top: 28px; }
+#members-panel #member-player-registration-slot,
+#members-panel .member-toolbox,
+#members-panel #member-search-form,
+#members-panel .spreadsheet-guide,
+#members-panel .roster-admin-list { margin-left: auto; margin-right: auto; }
+#members-panel .member-toolbox > summary { justify-content: center; }
+#members-panel .member-toolbox > summary small { margin-left: 24px; }
+#members-panel #member-search-form { width: 100%; }
+#members-panel #member-search-form label > span,
+#members-panel .spreadsheet-guide { text-align: center; }
 .member-filter-bar button {
   border: 1px solid rgba(151,170,202,.22);
   color: #f8fbff;
