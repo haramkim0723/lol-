@@ -767,18 +767,6 @@ async def list_roster(
     }
     with scrim_db.connect() as connection:
         counts = scrim_db.roster_counts(connection)
-        roster_applied_count = scrim_db.count_roster_entries(
-            connection,
-            participation_status="applied",
-        )
-        users = [
-            user
-            for user in scrim_db.search_users(connection, "")
-            if user["role"] != "ADMIN" and user.get("approved")
-        ]
-        approved_ids = {user["id"] for user in users}
-        applied_ids = approved_ids & set(applications)
-        not_applied_ids = approved_ids - set(applications)
         has_riot_id = None
         user_ids = None
         participation_status = None
@@ -827,8 +815,8 @@ async def list_roster(
         },
         "stats": {
             **counts,
-            "applied": roster_applied_count,
-            "not_applied": max(0, counts["total"] - roster_applied_count),
+            "applied": counts["applied"],
+            "not_applied": max(0, counts["total"] - counts["applied"]),
         },
     }
 

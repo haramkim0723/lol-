@@ -1052,6 +1052,9 @@ function renderRiotPreview(data) {
 
 async function loadMembers() {
   if (state.viewer.role !== "host") return;
+  ["#member-stat-total", "#member-stat-with-id", "#member-stat-without-id", "#member-stat-issued", "#member-stat-applied", "#member-stat-not-applied"]
+    .forEach((selector) => { $(selector).textContent = "…"; });
+  $("#member-list").innerHTML = '<div class="empty-state member-loading">회원 명단을 불러오는 중입니다...</div>';
   try {
     const query = $("#member-search-form")?.elements.query.value || "";
     const data = await api(`/api/roster?filter=${encodeURIComponent(rosterFilter)}&query=${encodeURIComponent(query)}&page=${rosterPage}`);

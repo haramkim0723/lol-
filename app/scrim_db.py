@@ -844,7 +844,13 @@ def roster_counts(connection) -> dict:
           COUNT(*) AS total,
           SUM(CASE WHEN riot_id IS NOT NULL AND riot_id <> '' THEN 1 ELSE 0 END) AS with_riot_id,
           SUM(CASE WHEN riot_id IS NULL OR riot_id = '' THEN 1 ELSE 0 END) AS without_riot_id,
-          SUM(CASE WHEN account_status = 'ISSUED' THEN 1 ELSE 0 END) AS account_issued
+          SUM(CASE WHEN account_status = 'ISSUED' THEN 1 ELSE 0 END) AS account_issued,
+          SUM(
+            CASE WHEN participation_status_text LIKE '%참가%'
+              AND participation_status_text NOT LIKE '%불참%'
+              AND participation_status_text NOT LIKE '%미참가%'
+            THEN 1 ELSE 0 END
+          ) AS applied
         FROM roster_entries
         """
     ).fetchone()
@@ -853,6 +859,7 @@ def roster_counts(connection) -> dict:
         "with_riot_id": int(row["with_riot_id"] or 0),
         "without_riot_id": int(row["without_riot_id"] or 0),
         "account_issued": int(row["account_issued"] or 0),
+        "applied": int(row["applied"] or 0),
     }
 
 
