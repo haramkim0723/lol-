@@ -706,13 +706,28 @@ aside { display: grid; gap: 18px; }
 .dashboard-main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .scrim-shell .dashboard-main { grid-template-columns: 1fr; }
 .scrim-shell .legacy-team-tool { display: none; }
-.result-form { display: grid; grid-template-columns: 1.1fr .8fr 1.2fr; gap: 10px; align-items: end; margin-bottom: 14px; }
+.result-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: end; margin: 14px 0; }
 .result-form .inline-fields { grid-template-columns: 1fr 1fr; }
 .result-form label { color: var(--muted); font-size: 12px; font-weight: 700; }
 .result-form input, .result-form select { width: 100%; margin-top: 7px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 9px; color: var(--text); background: #0a1018; outline: 0; }
 .result-actions { display: flex; gap: 8px; align-items: center; }
 .result-actions button { min-height: 40px; padding: 8px 12px; font-size: 11px; }
 .scrim-result-item .team-head button { padding: 6px 9px; font-size: 10px; }
+.scrim-stats-panel { position: sticky; top: 18px; }
+.scrim-winrate-list { display: grid; gap: 9px; }
+.scrim-winrate-card { padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.03); }
+.scrim-winrate-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.scrim-winrate-head strong { font-size: 13px; }
+.scrim-winrate-head b { color: var(--gold-light); font-size: 18px; }
+.scrim-winrate-records { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 9px; }
+.scrim-winrate-records span { padding: 7px; border-radius: 7px; color: var(--muted); background: rgba(255,255,255,.035); font-size: 10px; line-height: 1.45; }
+.scrim-winrate-records strong { display: block; color: var(--text); font-size: 12px; }
+.scrim-result-entry { margin-top: 16px; border-top: 1px solid var(--line); }
+.scrim-result-entry summary { cursor: pointer; padding: 14px 0; color: var(--cyan); font-size: 12px; font-weight: 900; }
+.scrim-result-entry .result-actions { grid-column: 1 / -1; }
+.scrim-history-title { margin: 17px 0 9px; color: var(--muted); font-size: 10px; font-weight: 900; letter-spacing: .12em; }
+.scrim-stats-panel .scrim-result-item { padding: 10px; }
+.scrim-stats-panel .scrim-result-item strong { font-size: 12px; }
 .competition-room-format { max-width: 620px; padding: 11px 14px; border: 1px solid rgba(39,211,211,.24); border-radius: 10px; color: #75eeee; background: rgba(39,211,211,.07); font-size: 13px; font-weight: 900; text-align: center; }
 #competition-progress-panel #start-tournament-button { width: 100%; min-height: 50px; margin-top: 14px; font-size: 14px; font-weight: 900; }
 #competition-progress-panel #open-bracket-editor-button { width: 100%; min-height: 44px; margin-top: 9px; }

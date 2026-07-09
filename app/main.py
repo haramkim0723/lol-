@@ -313,15 +313,13 @@ class CustomBracketInput(BaseModel):
 
 
 class ScrimResultInput(BaseModel):
-    team_id: str
+    team_a_id: str
+    team_b_id: str
     match_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
-    opponent_team_name: str = Field(min_length=1, max_length=100)
-    our_score: int = Field(ge=0, le=99)
-    opponent_score: int = Field(ge=0, le=99)
+    best_of: int = Field(default=3)
+    team_a_score: int = Field(ge=0, le=3)
+    team_b_score: int = Field(ge=0, le=3)
     memo: str | None = Field(default=None, max_length=500)
-    image_url: str | None = Field(default=None, max_length=2048)
-    image_size_bytes: int | None = Field(default=None, ge=0)
-    image_pathname: str | None = Field(default=None, max_length=512)
 
 
 class ParticipationSettingsInput(BaseModel):
@@ -1282,14 +1280,25 @@ async def select_tournament_winner(
 
 
 def scrim_result_payload(data: ScrimResultInput) -> dict:
-    result = "DRAW"
-    if data.our_score > data.opponent_score:
-        result = "WIN"
-    elif data.our_score < data.opponent_score:
-        result = "LOSE"
+    if data.team_a_id == data.team_b_id:
+        raise HTTPException(400, "서로 다른 두 팀을 선택해 주세요.")
+    if data.best_of not in (3, 5):
+        raise HTTPException(400, "경기 방식은 BO3 또는 BO5만 선택할 수 있습니다.")
+    winning_score = data.best_of // 2 + 1
+    high_score = max(data.team_a_score, data.team_b_score)
+    low_score = min(data.team_a_score, data.team_b_score)
+    if high_score != winning_score or low_score >= winning_score:
+        raise HTTPException(
+            400,
+            f"BO{data.best_of} 결과는 승리 팀이 {winning_score}세트를 이기도록 입력해 주세요.",
+        )
     return {
         **data.model_dump(),
-        "result": result,
+        "winner_team_id": (
+            data.team_a_id
+            if data.team_a_score > data.team_b_score
+            else data.team_b_id
+        ),
     }
 
 
@@ -1458,64 +1467,32 @@ def require_scrim_result_manager(viewer: dict, team_id: str) -> dict:
     return team
 
 
-@app.post("/api/scrim/results/image")
-async def upload_scrim_result_image(
-    request: Request,
-    team_id: str,
-    filename: str = "scrim-result.webp",
-):
-    viewer = require_participant(request)
-    require_scrim_result_manager(viewer, team_id)
-    content_type = request.headers.get("content-type", "application/octet-stream").split(";", 1)[0]
-    if content_type not in ("image/jpeg", "image/png", "image/webp"):
-        raise HTTPException(400, "이미지는 JPG, PNG, WebP만 업로드할 수 있습니다.")
-    data = await request.body()
-    if len(data) > SCRIM_RESULT_IMAGE_MAX_BYTES:
-        raise HTTPException(400, "압축된 이미지가 1MB를 초과했습니다.")
-    async with state_lock:
-        active_images = [
-            item
-            for item in store.state.setdefault("scrim_results", [])
-            if item.get("team_id") == team_id
-            and item.get("image_url")
-            and not item.get("image_archived")
-        ]
-        if len(active_images) >= SCRIM_RESULT_IMAGE_MAX_PER_TEAM:
-            raise HTTPException(
-                400,
-                f"팀별 결과 이미지는 최대 {SCRIM_RESULT_IMAGE_MAX_PER_TEAM}개까지만 유지합니다.",
-            )
-    blob = upload_result_image_to_blob(
-        team_id=team_id,
-        filename=filename,
-        content_type=content_type,
-        data=data,
-    )
-    return {
-        "url": blob.get("url"),
-        "download_url": blob.get("downloadUrl"),
-        "pathname": blob.get("pathname"),
-        "content_type": content_type,
-        "size_bytes": len(data),
-    }
-
-
 @app.post("/api/scrim/results")
 async def create_scrim_result(data: ScrimResultInput, request: Request):
     viewer = require_participant(request)
     async with state_lock:
-        require_scrim_result_manager(viewer, data.team_id)
-        validate_scrim_result_image(data)
-        apply_scrim_image_retention()
+        permission_granted = False
+        try:
+            require_scrim_result_manager(viewer, data.team_a_id)
+            permission_granted = True
+        except HTTPException as error:
+            if error.status_code == 404:
+                raise
+        try:
+            require_scrim_result_manager(viewer, data.team_b_id)
+            permission_granted = True
+        except HTTPException as error:
+            if error.status_code == 404:
+                raise
+        if not permission_granted:
+            raise HTTPException(403, "참가 팀원 또는 강사님만 결과를 등록할 수 있습니다.")
         result = {
             "id": uuid.uuid4().hex,
             **scrim_result_payload(data),
-            "image_archived": False,
             "created_at": time.time(),
             "updated_at": time.time(),
         }
         store.state.setdefault("scrim_results", []).append(result)
-        apply_scrim_image_retention()
         store.save()
     await broadcast()
     return result
@@ -1537,14 +1514,26 @@ async def update_scrim_result(
         )
         if result is None:
             raise HTTPException(404, "결과를 찾을 수 없습니다.")
-        require_scrim_result_manager(viewer, result["team_id"])
-        if data.team_id != result["team_id"]:
-            raise HTTPException(400, "결과의 팀은 변경할 수 없습니다.")
-        validate_scrim_result_image(data, result)
+        original_team_ids = {result.get("team_a_id"), result.get("team_b_id")}
+        permission_granted = False
+        try:
+            require_scrim_result_manager(viewer, result["team_a_id"])
+            permission_granted = True
+        except HTTPException as error:
+            if error.status_code == 404:
+                raise
+        try:
+            require_scrim_result_manager(viewer, result["team_b_id"])
+            permission_granted = True
+        except HTTPException as error:
+            if error.status_code == 404:
+                raise
+        if not permission_granted:
+            raise HTTPException(403, "참가 팀원 또는 강사님만 결과를 수정할 수 있습니다.")
+        if {data.team_a_id, data.team_b_id} != original_team_ids:
+            raise HTTPException(400, "등록된 경기의 팀은 변경할 수 없습니다.")
         result.update(scrim_result_payload(data))
-        result.setdefault("image_archived", False)
         result["updated_at"] = time.time()
-        apply_scrim_image_retention()
         store.save()
     await broadcast()
     return result

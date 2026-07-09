@@ -2297,28 +2297,87 @@ function manageableScrimTeams() {
 function renderScrimResultForm() {
   const form = $("#scrim-result-form");
   const locked = $("#scrim-result-locked");
-  const teams = manageableScrimTeams();
-  form.classList.toggle("hidden", !teams.length);
-  locked.classList.toggle("hidden", Boolean(teams.length));
-  if (!teams.length) return;
-  const select = form.elements.team_id;
-  const selected = select.value;
-  select.innerHTML = teams.map((team) =>
-    `<option value="${team.id}">${escapeHtml(team.name)}</option>`
-  ).join("");
-  if (teams.some((team) => team.id === selected)) {
-    select.value = selected;
-  }
+  const allTeams = state.tournament.teams.filter((team) => team.status === "approved");
+  const canManage = manageableScrimTeams().length > 0;
+  form.classList.toggle("hidden", !canManage || allTeams.length < 2);
+  locked.classList.toggle("hidden", canManage && allTeams.length >= 2);
+  if (!canManage || allTeams.length < 2) return;
+  ["team_a_id", "team_b_id"].forEach((name, index) => {
+    const select = form.elements[name];
+    const selected = select.value;
+    select.innerHTML = allTeams.map((team) =>
+      `<option value="${team.id}">${escapeHtml(team.name)}</option>`
+    ).join("");
+    if (allTeams.some((team) => team.id === selected)) select.value = selected;
+    else select.selectedIndex = Math.min(index, allTeams.length - 1);
+  });
   if (!form.elements.match_date.value) {
     form.elements.match_date.value = new Date().toISOString().slice(0, 10);
   }
+}
+
+function scrimStatsByTeam() {
+  const stats = new Map(state.tournament.teams.map((team) => [team.id, {
+    team, setWins: 0, setLosses: 0, seriesWins: 0, seriesLosses: 0,
+    bo3Wins: 0, bo3Losses: 0, bo5Wins: 0, bo5Losses: 0,
+  }]));
+  (state.scrim_results || []).forEach((result) => {
+    const a = stats.get(result.team_a_id);
+    const b = stats.get(result.team_b_id);
+    if (!a || !b) return;
+    a.setWins += Number(result.team_a_score);
+    a.setLosses += Number(result.team_b_score);
+    b.setWins += Number(result.team_b_score);
+    b.setLosses += Number(result.team_a_score);
+    const aWon = result.winner_team_id === result.team_a_id;
+    a.seriesWins += aWon ? 1 : 0;
+    a.seriesLosses += aWon ? 0 : 1;
+    b.seriesWins += aWon ? 0 : 1;
+    b.seriesLosses += aWon ? 1 : 0;
+    const prefix = Number(result.best_of || 3) === 5 ? "bo5" : "bo3";
+    a[`${prefix}Wins`] += aWon ? 1 : 0;
+    a[`${prefix}Losses`] += aWon ? 0 : 1;
+    b[`${prefix}Wins`] += aWon ? 0 : 1;
+    b[`${prefix}Losses`] += aWon ? 1 : 0;
+  });
+  return [...stats.values()].sort((left, right) => {
+    const leftRate = left.seriesWins / Math.max(1, left.seriesWins + left.seriesLosses);
+    const rightRate = right.seriesWins / Math.max(1, right.seriesWins + right.seriesLosses);
+    return rightRate - leftRate || right.seriesWins - left.seriesWins;
+  });
+}
+
+function percent(wins, losses) {
+  const total = wins + losses;
+  return total ? `${Math.round(wins / total * 100)}%` : "-";
+}
+
+function renderScrimWinrates() {
+  const list = $("#scrim-winrate-list");
+  const stats = scrimStatsByTeam();
+  list.innerHTML = stats.length ? stats.map((item, index) => `
+    <article class="scrim-winrate-card">
+      <div class="scrim-winrate-head">
+        <strong>${index + 1}. ${escapeHtml(item.team.name)}</strong>
+        <b>${percent(item.seriesWins, item.seriesLosses)}</b>
+      </div>
+      <div class="scrim-winrate-records">
+        <span>세트 승률<strong>${percent(item.setWins, item.setLosses)} · ${item.setWins}승 ${item.setLosses}패</strong></span>
+        <span>시리즈 승률<strong>${item.seriesWins}승 ${item.seriesLosses}패</strong></span>
+        <span>BO3<strong>${item.bo3Wins}승 ${item.bo3Losses}패</strong></span>
+        <span>BO5<strong>${item.bo5Wins}승 ${item.bo5Losses}패</strong></span>
+      </div>
+    </article>
+  `).join("") : '<div class="empty-state">등록된 팀이 없습니다.</div>';
 }
 
 function renderScrimResults() {
   const list = $("#scrim-result-list");
   const teamById = (id) => state.tournament.teams.find((team) => team.id === id);
   const results = [...(state.scrim_results || [])]
-    .filter((result) => !selectedScrimTeamId || result.team_id === selectedScrimTeamId)
+    .filter((result) => !selectedScrimTeamId
+      || result.team_a_id === selectedScrimTeamId
+      || result.team_b_id === selectedScrimTeamId)
     .sort((left, right) => String(right.match_date).localeCompare(String(left.match_date)));
   if (!results.length) {
     const selectedTeam = selectedScrimTeamId ? teamById(selectedScrimTeamId) : null;
@@ -2326,26 +2385,18 @@ function renderScrimResults() {
     return;
   }
   list.innerHTML = results.map((result) => {
-    const team = teamById(result.team_id);
-    const canEdit = Boolean(team?.can_manage_scrim_result);
-    const resultLabel = result.result === "WIN" ? "승" : result.result === "LOSE" ? "패" : "무";
-    const image = result.image_url && !result.image_archived
-      ? `<a class="scrim-result-image" href="${escapeHtml(result.image_url)}" target="_blank" rel="noreferrer">
-          <img src="${escapeHtml(result.image_url)}" alt="대회 경기 결과 이미지" loading="lazy" />
-        </a>`
-      : result.image_url
-        ? '<div class="scrim-result-archived">이미지 보관됨 · 10일 초과 또는 팀별 보관 한도 초과</div>'
-        : "";
+    const teamA = teamById(result.team_a_id);
+    const teamB = teamById(result.team_b_id);
+    const canEdit = Boolean(teamA?.can_manage_scrim_result || teamB?.can_manage_scrim_result);
     return `
       <article class="team-item scrim-result-item">
         <div class="team-head">
           <div>
-            <strong>${escapeHtml(team?.name || "삭제된 팀")} ${result.our_score} : ${result.opponent_score} ${escapeHtml(result.opponent_team_name)}</strong>
-            <div class="meta">${escapeHtml(result.match_date)} · ${resultLabel}${result.memo ? ` · ${escapeHtml(result.memo)}` : ""}</div>
+            <strong>${escapeHtml(teamA?.name || "삭제된 팀")} ${result.team_a_score} : ${result.team_b_score} ${escapeHtml(teamB?.name || "삭제된 팀")}</strong>
+            <div class="meta">${escapeHtml(result.match_date)} · BO${result.best_of || 3}${result.memo ? ` · ${escapeHtml(result.memo)}` : ""}</div>
           </div>
           ${canEdit ? `<button class="ghost" type="button" data-edit-scrim-result="${result.id}">수정</button>` : ""}
         </div>
-        ${image}
       </article>`;
   }).join("");
 }
@@ -2385,6 +2436,7 @@ function renderScrimAdminUsers(users) {
 async function loadScrimTeams() {
   renderScrimTeams();
   renderScrimResultForm();
+  renderScrimWinrates();
   renderScrimResults();
 }
 
@@ -2413,88 +2465,6 @@ async function setMemberApproval(button) {
     await searchScrimUsers($("#admin-search-form").elements.query.value || "");
   }
   toast(button.dataset.approved === "true" ? "회원을 승인했습니다." : "승인을 해제했습니다.");
-}
-
-function loadImageFromFile(file) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const image = new Image();
-    image.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(image);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("이미지를 읽을 수 없습니다."));
-    };
-    image.src = url;
-  });
-}
-
-function canvasToBlob(canvas, type, quality) {
-  return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
-}
-
-async function compressScrimImage(file, maxBytes = 1048576) {
-  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-    throw new Error("JPG, PNG, WebP 이미지만 업로드할 수 있습니다.");
-  }
-  const image = await loadImageFromFile(file);
-  let width = image.naturalWidth || image.width;
-  let height = image.naturalHeight || image.height;
-  const maxSide = 1600;
-  if (Math.max(width, height) > maxSide) {
-    const ratio = maxSide / Math.max(width, height);
-    width = Math.round(width * ratio);
-    height = Math.round(height * ratio);
-  }
-  const canvas = document.createElement("canvas");
-  const context = canvas.getContext("2d");
-  let quality = 0.86;
-  let blob = null;
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    canvas.width = width;
-    canvas.height = height;
-    context.drawImage(image, 0, 0, width, height);
-    blob = await canvasToBlob(canvas, "image/webp", quality);
-    if (blob && blob.size <= maxBytes) break;
-    if (quality > 0.52) {
-      quality -= 0.08;
-    } else {
-      width = Math.round(width * 0.86);
-      height = Math.round(height * 0.86);
-    }
-  }
-  if (!blob || blob.size > maxBytes) {
-    throw new Error("이미지를 1MB 이하로 압축하지 못했습니다. 더 작은 이미지를 선택해 주세요.");
-  }
-  return new File(
-    [blob],
-    `${file.name.replace(/\.[^.]+$/, "") || "scrim-result"}.webp`,
-    { type: "image/webp" }
-  );
-}
-
-async function uploadScrimResultImage(file) {
-  const form = $("#scrim-result-form");
-  const teamId = form.elements.team_id.value;
-  if (!teamId) throw new Error("팀을 먼저 선택해 주세요.");
-  const compressed = await compressScrimImage(file);
-  const response = await fetch(
-    `/api/scrim/results/image?team_id=${encodeURIComponent(teamId)}&filename=${encodeURIComponent(compressed.name)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": compressed.type },
-      body: compressed,
-    }
-  );
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.detail || "이미지 업로드에 실패했습니다.");
-  if (!data.url) throw new Error("이미지 업로드 결과 URL이 없습니다.");
-  form.elements.image_url.value = data.url;
-  form.elements.image_size_bytes.value = data.size_bytes;
-  form.elements.image_pathname.value = data.pathname || "";
-  return data;
 }
 
 async function loadScrimData() {
@@ -2547,31 +2517,16 @@ $("#team-list").addEventListener("click", (event) => {
   $("#scrim-result-list").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
-$("#scrim-result-image-file").addEventListener("change", async (event) => {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  try {
-    toast("이미지를 1MB 이하로 압축하고 업로드 중입니다.");
-    const data = await uploadScrimResultImage(file);
-    toast(`이미지 업로드 완료 (${Math.round(data.size_bytes / 1024)}KB)`);
-  } catch (error) {
-    event.target.value = "";
-    toast(error.message, true);
-  }
-});
-
 $("#scrim-result-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.target;
   const data = Object.fromEntries(new FormData(form));
   const resultId = data.result_id;
   delete data.result_id;
-  data.our_score = Number(data.our_score);
-  data.opponent_score = Number(data.opponent_score);
+  data.best_of = Number(data.best_of);
+  data.team_a_score = Number(data.team_a_score);
+  data.team_b_score = Number(data.team_b_score);
   data.memo ||= null;
-  data.image_url ||= null;
-  data.image_size_bytes = data.image_size_bytes ? Number(data.image_size_bytes) : null;
-  data.image_pathname ||= null;
   try {
     await api(
       resultId ? `/api/scrim/results/${resultId}` : "/api/scrim/results",
@@ -2581,7 +2536,6 @@ $("#scrim-result-form").addEventListener("submit", async (event) => {
       }
     );
     form.reset();
-    $("#scrim-result-image-file").value = "";
     form.elements.result_id.value = "";
     $("#cancel-result-edit").classList.add("hidden");
     state = await api("/api/state");
@@ -2593,7 +2547,6 @@ $("#scrim-result-form").addEventListener("submit", async (event) => {
 
 $("#cancel-result-edit").addEventListener("click", () => {
   $("#scrim-result-form").reset();
-  $("#scrim-result-image-file").value = "";
   $("#scrim-result-form").elements.result_id.value = "";
   $("#cancel-result-edit").classList.add("hidden");
   renderScrimResultForm();
@@ -2606,16 +2559,15 @@ $("#scrim-result-list").addEventListener("click", (event) => {
   if (!result) return;
   const form = $("#scrim-result-form");
   renderScrimResultForm();
+  $("#scrim-result-entry").open = true;
   form.elements.result_id.value = result.id;
-  form.elements.team_id.value = result.team_id;
   form.elements.match_date.value = result.match_date;
-  form.elements.opponent_team_name.value = result.opponent_team_name;
-  form.elements.our_score.value = result.our_score;
-  form.elements.opponent_score.value = result.opponent_score;
+  form.elements.best_of.value = result.best_of || 3;
+  form.elements.team_a_id.value = result.team_a_id;
+  form.elements.team_b_id.value = result.team_b_id;
+  form.elements.team_a_score.value = result.team_a_score;
+  form.elements.team_b_score.value = result.team_b_score;
   form.elements.memo.value = result.memo || "";
-  form.elements.image_url.value = result.image_url || "";
-  form.elements.image_size_bytes.value = result.image_size_bytes || "";
-  form.elements.image_pathname.value = result.image_pathname || "";
   $("#cancel-result-edit").classList.remove("hidden");
   form.scrollIntoView({ behavior: "smooth", block: "center" });
 });
