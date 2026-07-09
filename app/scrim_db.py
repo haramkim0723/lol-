@@ -887,6 +887,20 @@ def get_roster_entry_by_source_row(connection, source_row: int) -> dict | None:
     return normalize_roster_row(dict(row)) if row is not None else None
 
 
+def get_roster_entry_by_user_id(connection, user_id: int) -> dict | None:
+    row = connection.execute(
+        """
+        SELECT *
+        FROM roster_entries
+        WHERE user_id = ?
+        ORDER BY source_row ASC
+        LIMIT 1
+        """,
+        (user_id,),
+    ).fetchone()
+    return normalize_roster_row(dict(row)) if row is not None else None
+
+
 def list_roster_entries(
     connection,
     *,
@@ -896,6 +910,7 @@ def list_roster_entries(
     limit: int = 500,
     offset: int = 0,
     participation_status: str | None = None,
+    payment_status: str | None = None,
 ) -> list[dict]:
     clauses = []
     params: list = []
@@ -929,6 +944,12 @@ def list_roster_entries(
             ")"
         )
         params.extend(["%참가%", "%불참%", "%미참가%"])
+    if payment_status == "paid":
+        clauses.append("UPPER(TRIM(COALESCE(payment_status, ''))) = ?")
+        params.append("O")
+    elif payment_status == "unpaid":
+        clauses.append("UPPER(TRIM(COALESCE(payment_status, ''))) <> ?")
+        params.append("O")
     if user_ids is not None:
         if not user_ids:
             return []
@@ -955,6 +976,7 @@ def count_roster_entries(
     query: str = "",
     has_riot_id: bool | None = None,
     participation_status: str | None = None,
+    payment_status: str | None = None,
 ) -> int:
     return len(
         list_roster_entries(
@@ -962,6 +984,7 @@ def count_roster_entries(
             query=query,
             has_riot_id=has_riot_id,
             participation_status=participation_status,
+            payment_status=payment_status,
             limit=1_000_000,
         )
     )

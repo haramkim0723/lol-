@@ -139,7 +139,8 @@ class ApiFlowTest(unittest.TestCase):
                     source_row=200,
                     name="Roster User",
                     riot_id=None,
-                    preferred_lines="MID",
+                    tier="D3",
+                    preferred_lines="미드,서폿",
                 )
 
             roster = client.get("/api/roster?filter=without_id")
@@ -154,7 +155,8 @@ class ApiFlowTest(unittest.TestCase):
                     "name": "Roster User",
                     "riot_id": "RosterUser#KR1",
                     "secondary_riot_id": "RosterSub#KR1",
-                    "preferred_lines": "MID",
+                    "tier": "D3",
+                    "preferred_lines": "미드,서폿",
                 },
             )
             self.assertEqual(updated.status_code, 200)
@@ -187,6 +189,87 @@ class ApiFlowTest(unittest.TestCase):
                 json={"riot_id": "RosterUser#KR1", "password": "1234"},
             )
             self.assertEqual(member_login.status_code, 200)
+            member_state = client.get("/api/state")
+            self.assertEqual(member_state.status_code, 200)
+            viewer = member_state.json()["viewer"]
+            self.assertEqual(viewer["roster_tier"], "D3")
+            self.assertEqual(
+                viewer["score_lines"],
+                [
+                    {
+                        "position": "MID",
+                        "label": "미드",
+                        "role": "주 라인",
+                        "score": "34.3",
+                    },
+                    {
+                        "position": "SUP",
+                        "label": "서폿",
+                        "role": "부 라인",
+                        "score": "33.2",
+                    },
+                ],
+            )
+
+    def test_roster_applied_unpaid_filter(self):
+        with TestClient(app) as client:
+            login = login_as_host(client)
+            self.assertEqual(login.status_code, 200)
+            with scrim_db.connect() as connection:
+                unpaid = scrim_db.upsert_roster_entry(
+                    connection,
+                    source_row=210,
+                    name="Unpaid Applied",
+                    participation_status_text="\ub300\ud68c \ucc38\uac00",
+                    payment_status="X",
+                )
+                scrim_db.upsert_roster_entry(
+                    connection,
+                    source_row=211,
+                    name="Paid Applied",
+                    participation_status_text="\ub300\ud68c \ucc38\uac00",
+                    payment_status="O",
+                )
+                scrim_db.upsert_roster_entry(
+                    connection,
+                    source_row=212,
+                    name="Unpaid Not Applied",
+                    participation_status_text="\ub300\ud68c \ubbf8\ucc38\uac00",
+                    payment_status="X",
+                )
+
+            roster = client.get("/api/roster?filter=applied_unpaid")
+            self.assertEqual(roster.status_code, 200)
+            payload = roster.json()
+            self.assertEqual(payload["stats"]["applied_unpaid"], 1)
+            self.assertEqual([entry["id"] for entry in payload["entries"]], [unpaid["id"]])
+
+    def test_roster_riot_preview_returns_tier_scores(self):
+        async def fake_lookup_kr_player(riot_id: str):
+            return {
+                "name": "RosterUser#KR1",
+                "riot_id": "RosterUser#KR1",
+                "tier": "DIAMOND III \u00b7 12 LP",
+                "champions": [],
+                "profile_icon_url": None,
+            }
+
+        with TestClient(app) as client:
+            login = login_as_host(client)
+            self.assertEqual(login.status_code, 200)
+            with patch("app.main.lookup_kr_player", fake_lookup_kr_player):
+                response = client.post(
+                    "/api/roster/riot/preview",
+                    json={
+                        "riot_id": "RosterUser#KR1",
+                        "preferred_lines": "\ubbf8\ub4dc,\uc11c\ud3ff",
+                    },
+                )
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertEqual(payload["tier"], "D3")
+            self.assertEqual(payload["scores"]["score_mid"], "34.3")
+            self.assertEqual(payload["scores"]["score_support"], "33.2")
 
     def test_spectator_cannot_start_auction(self):
         with TestClient(app) as client:

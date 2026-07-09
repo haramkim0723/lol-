@@ -290,6 +290,7 @@
             <div><strong id="member-stat-without-id">0</strong><span>Riot ID 없음</span></div>
             <div><strong id="member-stat-issued">0</strong><span>계정 발급</span></div>
             <div><strong id="member-stat-applied">0</strong><span>대회 참가</span></div>
+            <div><strong id="member-stat-applied-unpaid">0</strong><span>참가 미입금</span></div>
             <div><strong id="member-stat-not-applied">0</strong><span>대회 미참가</span></div>
           </div>
           <div id="member-player-registration-slot"></div>
@@ -297,6 +298,7 @@
             <button class="secondary active" type="button" data-roster-filter="with_id">Riot ID 있음</button>
             <button class="secondary" type="button" data-roster-filter="without_id">Riot ID 없음</button>
             <button class="secondary" type="button" data-roster-filter="applied">대회 참가</button>
+            <button class="secondary" type="button" data-roster-filter="applied_unpaid">참가 미입금</button>
             <button class="secondary" type="button" data-roster-filter="not_applied">대회 미참가</button>
             <button class="secondary" type="button" data-roster-filter="all">전체</button>
           </div>
@@ -338,6 +340,13 @@
             <span>MY PAGE</span>
             <h2>마이페이지</h2>
           </div>
+          <section class="mypage-score-card">
+            <div class="mypage-score-heading">
+              <div><span>MY SCORE</span><h3>내 포지션 점수</h3></div>
+              <strong id="mypage-score-tier">-</strong>
+            </div>
+            <div id="mypage-score-list" class="mypage-score-list"></div>
+          </section>
           <form id="mypage-form" class="scrim-form compact">
             <label>본 아이디
               <input name="riot_id" maxlength="80" required placeholder="Riot ID#KR1" />

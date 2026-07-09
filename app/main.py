@@ -69,18 +69,45 @@ def compute_viewer(token: str | None) -> dict:
     user = current_user_or_none(token)
     if user is None:
         return {"role": "spectator", "captain_id": None, "authenticated": False}
+    with scrim_db.connect() as connection:
+        roster = scrim_db.get_roster_entry_by_user_id(connection, user["id"])
+    score_fields = {
+        "TOP": ("탑", "score_top"),
+        "JUG": ("정글", "score_jungle"),
+        "MID": ("미드", "score_mid"),
+        "ADC": ("원딜", "score_adc"),
+        "SUP": ("서폿", "score_support"),
+    }
+    score_lines = []
+    if roster:
+        for index, position in enumerate(
+            scrim_db.roster_positions(roster.get("preferred_lines"))
+        ):
+            label, field = score_fields[position]
+            score = roster.get(field)
+            if score not in (None, ""):
+                score_lines.append(
+                    {
+                        "position": position,
+                        "label": label,
+                        "role": "주 라인" if index == 0 else "부 라인" if index == 1 else "추가 라인",
+                        "score": score,
+                    }
+                )
+    base = {
+        "captain_id": None,
+        "authenticated": True,
+        "approved": bool(user.get("approved")),
+        "user_id": user["id"],
+        "riot_id": user["riot_id"],
+        "secondary_riot_id": user.get("secondary_riot_id"),
+        "nickname": user.get("nickname"),
+        "name": user["name"],
+        "roster_tier": roster.get("tier") if roster else None,
+        "score_lines": score_lines,
+    }
     if user["role"] == "ADMIN":
-        return {
-            "role": "host",
-            "captain_id": None,
-            "authenticated": True,
-            "approved": True,
-            "user_id": user["id"],
-            "riot_id": user["riot_id"],
-            "secondary_riot_id": user.get("secondary_riot_id"),
-            "nickname": user.get("nickname"),
-            "name": user["name"],
-        }
+        return {**base, "role": "host", "approved": True}
     captain = next(
         (
             c
@@ -90,40 +117,10 @@ def compute_viewer(token: str | None) -> dict:
         None,
     )
     if captain:
-        return {
-            "role": "captain",
-            "captain_id": captain["id"],
-            "authenticated": True,
-            "approved": True,
-            "user_id": user["id"],
-            "riot_id": user["riot_id"],
-            "secondary_riot_id": user.get("secondary_riot_id"),
-            "nickname": user.get("nickname"),
-            "name": user["name"],
-        }
+        return {**base, "role": "captain", "captain_id": captain["id"], "approved": True}
     if user.get("approved"):
-        return {
-            "role": "participant",
-            "captain_id": None,
-            "authenticated": True,
-            "approved": True,
-            "user_id": user["id"],
-            "riot_id": user["riot_id"],
-            "secondary_riot_id": user.get("secondary_riot_id"),
-            "nickname": user.get("nickname"),
-            "name": user["name"],
-        }
-    return {
-        "role": "spectator",
-        "captain_id": None,
-        "authenticated": True,
-        "approved": False,
-        "user_id": user["id"],
-        "riot_id": user["riot_id"],
-        "secondary_riot_id": user.get("secondary_riot_id"),
-        "nickname": user.get("nickname"),
-        "name": user["name"],
-    }
+        return {**base, "role": "participant", "approved": True}
+    return {**base, "role": "spectator", "approved": False}
 
 
 def require_host(request: Request) -> dict:
@@ -252,6 +249,13 @@ class RiotPlayerInput(BaseModel):
     extra_positions: list[Literal["TOP", "JUG", "MID", "ADC", "SUP"]] = Field(default_factory=list, max_length=2)
     score: int = Field(default=0, ge=0, le=1000)
     secondary_score: int | None = Field(default=None, ge=0, le=1000)
+
+
+class RosterRiotLookupInput(BaseModel):
+    riot_id: str = Field(min_length=3, max_length=100)
+    preferred_lines: str | None = Field(default=None, max_length=120)
+    top_adjustment: str | None = Field(default=None, max_length=80)
+    game_count_adjustment: str | None = Field(default=None, max_length=80)
 
 
 class BidInput(BaseModel):
@@ -415,6 +419,11 @@ def roster_entry_is_applied(entry: dict) -> bool:
         and "\ubd88\ucc38" not in status_text
         and "\ubbf8\ucc38\uac00" not in status_text
     )
+
+
+def roster_tier_from_riot_tier(tier: str | None) -> str | None:
+    base = str(tier or "").split("\u00b7", 1)[0].strip()
+    return scrim_db.normalize_roster_tier(base)
 
 
 def roster_payload(
@@ -776,6 +785,7 @@ async def list_roster(
         has_riot_id = None
         user_ids = None
         participation_status = None
+        payment_status = None
         if filter == "with_id":
             has_riot_id = True
         elif filter == "without_id":
@@ -784,11 +794,15 @@ async def list_roster(
             participation_status = "applied"
         elif filter == "not_applied":
             participation_status = "not_applied"
+        elif filter == "applied_unpaid":
+            participation_status = "applied"
+            payment_status = "unpaid"
         total = scrim_db.count_roster_entries(
             connection,
             query=query,
             has_riot_id=has_riot_id,
             participation_status=participation_status,
+            payment_status=payment_status,
         )
         total_pages = max(1, (total + page_size - 1) // page_size)
         page = min(page, total_pages)
@@ -798,12 +812,18 @@ async def list_roster(
             has_riot_id=has_riot_id,
             user_ids=user_ids,
             participation_status=participation_status,
+            payment_status=payment_status,
             limit=page_size,
             offset=(page - 1) * page_size,
         )
         participation_rows = scrim_db.list_competition_participations(
             connection,
             {entry["user_id"] for entry in entries if entry.get("user_id")},
+        )
+        applied_unpaid_count = scrim_db.count_roster_entries(
+            connection,
+            participation_status="applied",
+            payment_status="unpaid",
         )
     participation_history: dict[int, list[dict]] = {}
     for row in participation_rows:
@@ -823,6 +843,7 @@ async def list_roster(
             **counts,
             "applied": counts["applied"],
             "not_applied": max(0, counts["total"] - counts["applied"]),
+            "applied_unpaid": applied_unpaid_count,
         },
     }
 
@@ -947,6 +968,29 @@ async def setup_test_competitions(request: Request):
         "test2_applications": 0,
         "roster_added": roster_sync["added"],
         "roster_linked": roster_sync["linked"],
+    }
+
+
+@app.post("/api/roster/riot/preview")
+async def preview_roster_riot(data: RosterRiotLookupInput, request: Request):
+    require_host(request)
+    try:
+        riot = await lookup_kr_player(data.riot_id)
+    except RiotApiError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    tier = roster_tier_from_riot_tier(riot.get("tier"))
+    score_source = {
+        "tier": tier,
+        "preferred_lines": data.preferred_lines,
+        "top_adjustment": data.top_adjustment,
+        "game_count_adjustment": data.game_count_adjustment,
+    }
+    return {
+        "name": riot.get("name"),
+        "riot_id": riot.get("riot_id"),
+        "riot_tier": riot.get("tier"),
+        "tier": tier,
+        "scores": scrim_db.calculate_roster_scores(score_source),
     }
 
 

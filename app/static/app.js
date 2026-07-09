@@ -968,6 +968,13 @@ function rosterCell(entry, name, placeholder = "") {
   return `<div class="roster-sheet-cell"><input name="${name}" value="${escapeHtml(entry[name] || "")}" placeholder="${escapeHtml(placeholder)}" aria-label="${name}" /></div>`;
 }
 
+function rosterTierCell(entry) {
+  return `<div class="roster-sheet-cell roster-tier-cell">
+    <input name="tier" value="${escapeHtml(entry.tier || "")}" aria-label="tier" />
+    <button class="roster-riot-fill" type="button" data-roster-riot-fill title="Riot ID로 티어와 점수 조회">조회</button>
+  </div>`;
+}
+
 function rosterPaymentCell(entry) {
   const paid = String(entry.payment_status || "").trim().toUpperCase() === "O";
   return `<div class="roster-sheet-cell roster-payment-cell">
@@ -1018,7 +1025,7 @@ function renderMemberRows(entries) {
           ${rosterCell(entry, "riot_id", "Riot ID#KR1")}
           ${rosterCell(entry, "secondary_riot_id", "선택 입력")}
           ${rosterCell(entry, "preferred_lines", "순서대로 주, 부 라인")}
-          ${rosterCell(entry, "tier")}
+          ${rosterTierCell(entry)}
           ${rosterPaymentCell(entry)}
           ${rosterCell(entry, "participation_status_text")}
           ${rosterCell(entry, "absence_reason")}
@@ -1072,7 +1079,7 @@ async function loadMembers() {
   if (state.viewer.role !== "host") return;
   try {
     if (!memberRosterCache) {
-      ["#member-stat-total", "#member-stat-with-id", "#member-stat-without-id", "#member-stat-issued", "#member-stat-applied", "#member-stat-not-applied"]
+      ["#member-stat-total", "#member-stat-with-id", "#member-stat-without-id", "#member-stat-issued", "#member-stat-applied", "#member-stat-applied-unpaid", "#member-stat-not-applied"]
         .forEach((selector) => { $(selector).textContent = "…"; });
       $("#member-list").innerHTML = '<div class="empty-state member-loading">회원 명단을 한 번 불러오는 중입니다...</div>';
       memberRosterCache = await api("/api/roster?filter=all&page=1&page_size=500");
@@ -1083,6 +1090,7 @@ async function loadMembers() {
     $("#member-stat-without-id").textContent = data.stats.without_riot_id;
     $("#member-stat-issued").textContent = data.stats.account_issued;
     $("#member-stat-applied").textContent = data.stats.applied;
+    $("#member-stat-applied-unpaid").textContent = data.stats.applied_unpaid || 0;
     $("#member-stat-not-applied").textContent = data.stats.not_applied;
     const query = ($("#member-search-form")?.elements.query.value || "").trim().toLocaleLowerCase();
     const entries = data.entries.filter((entry) => {
@@ -1091,6 +1099,7 @@ async function loadMembers() {
       if (rosterFilter === "with_id" && !hasRiotId) return false;
       if (rosterFilter === "without_id" && hasRiotId) return false;
       if (rosterFilter === "applied" && !applied) return false;
+      if (rosterFilter === "applied_unpaid" && (!applied || String(entry.payment_status || "").trim().toUpperCase() === "O")) return false;
       if (rosterFilter === "not_applied" && applied) return false;
       if (!query) return true;
       return [entry.name, entry.riot_id, entry.secondary_riot_id, entry.preferred_lines]
@@ -1109,6 +1118,48 @@ async function reloadMembers() {
   memberRosterCache = null;
   dirtyRosterIds.clear();
   await loadMembers();
+}
+
+function updateRosterFormCache(form, values) {
+  const id = Number(form.dataset.rosterEntry);
+  const cached = memberRosterCache?.entries.find((entry) => entry.id === id);
+  Object.entries(values).forEach(([field, value]) => {
+    if (form.elements[field]) form.elements[field].value = value ?? "";
+    if (cached) cached[field] = value ?? "";
+  });
+  form.classList.add("dirty");
+  dirtyRosterIds.add(id);
+}
+
+async function autofillRosterFromRiot(form, button) {
+  const riotId = form.elements.riot_id?.value?.trim();
+  if (!riotId) {
+    toast("Riot ID를 먼저 입력해 주세요.", true);
+    return;
+  }
+  const payload = {
+    riot_id: riotId,
+    preferred_lines: form.elements.preferred_lines?.value || null,
+    top_adjustment: form.elements.top_adjustment?.value || null,
+    game_count_adjustment: form.elements.game_count_adjustment?.value || null,
+  };
+  await withButtonLoading(button, "조회중", async () => {
+    const preview = await api("/api/roster/riot/preview", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    const scores = preview.scores || {};
+    updateRosterFormCache(form, {
+      riot_id: preview.riot_id || riotId,
+      tier: preview.tier || "",
+      score_top: scores.score_top,
+      score_jungle: scores.score_jungle,
+      score_mid: scores.score_mid,
+      score_adc: scores.score_adc,
+      score_support: scores.score_support,
+    });
+    toast(preview.tier ? `${preview.riot_id} 티어와 점수를 채웠습니다.` : `${preview.riot_id}의 점수표 티어를 찾지 못했습니다.`, !preview.tier);
+  });
 }
 
 function renderRosterPagination(pagination) {
@@ -1141,6 +1192,16 @@ function renderMyPage() {
   const viewer = state.viewer || {};
   const form = $("#mypage-form");
   if (!form || !viewer.authenticated) return;
+  $("#mypage-score-tier").textContent = viewer.roster_tier || "티어 미등록";
+  const scoreLines = viewer.score_lines || [];
+  $("#mypage-score-list").innerHTML = scoreLines.length
+    ? scoreLines.map((line) => `
+      <article class="mypage-score-item">
+        <div><span>${escapeHtml(line.role)}</span><strong>${escapeHtml(line.label)}</strong></div>
+        <b>${escapeHtml(line.score)}<small>점</small></b>
+      </article>
+    `).join("")
+    : '<div class="empty-state">티어와 참가라인이 등록되면 내 점수가 표시됩니다.</div>';
   form.elements.riot_id.value = viewer.riot_id || "";
   form.elements.secondary_riot_id.value = viewer.secondary_riot_id || "";
   form.elements.nickname.value = viewer.nickname || "";
@@ -2707,6 +2768,17 @@ $("#member-list").addEventListener("submit", async (event) => {
 });
 
 $("#member-list").addEventListener("click", async (event) => {
+  const riotFillButton = event.target.closest("[data-roster-riot-fill]");
+  if (riotFillButton) {
+    const form = riotFillButton.closest("[data-roster-entry]");
+    if (!form) return;
+    try {
+      await autofillRosterFromRiot(form, riotFillButton);
+    } catch (error) {
+      toast(error.message, true);
+    }
+    return;
+  }
   const paymentButton = event.target.closest("[data-payment-toggle]");
   if (paymentButton) {
     const form = paymentButton.closest("[data-roster-entry]");

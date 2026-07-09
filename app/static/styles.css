@@ -699,6 +699,18 @@ aside { display: grid; gap: 18px; }
 .login-card label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 11px; }
 .login-card input, .login-card select { display: block; width: 100%; margin-top: 7px; padding: 12px; border-radius: 10px; border: 1px solid var(--line); color: #fff; background: #080d14; }
 .login-card form > button { width: 100%; margin-top: 7px; }
+.mypage-score-card { margin-bottom: 18px; padding: 16px; border: 1px solid rgba(217,169,79,.3); border-radius: 12px; background: rgba(217,169,79,.06); }
+.mypage-score-heading { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
+.mypage-score-heading span { color: var(--gold-light); font-size: 9px; font-weight: 900; letter-spacing: .16em; }
+.mypage-score-heading h3 { margin: 3px 0 0; font-size: 17px; }
+.mypage-score-heading > strong { color: var(--cyan); font-size: 12px; }
+.mypage-score-list { display: grid; gap: 8px; }
+.mypage-score-item { display: flex; justify-content: space-between; align-items: center; padding: 11px 12px; border-radius: 9px; background: rgba(5,11,18,.55); }
+.mypage-score-item span, .mypage-score-item strong { display: block; }
+.mypage-score-item span { color: var(--muted); font-size: 9px; font-weight: 800; }
+.mypage-score-item strong { margin-top: 3px; font-size: 13px; }
+.mypage-score-item b { color: var(--gold-light); font-size: 22px; }
+.mypage-score-item small { margin-left: 2px; font-size: 10px; }
 
 .scrim-shell { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
 .scrim-shell.admin-only { grid-template-columns: minmax(0, 960px); }
@@ -1075,6 +1087,24 @@ aside { display: grid; gap: 18px; }
   background: #07101a;
   box-shadow: inset 0 0 0 1px rgba(217,169,79,.2);
 }
+.roster-tier-cell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 4px;
+}
+.roster-tier-cell input { min-width: 0; }
+.roster-riot-fill {
+  min-width: 0;
+  height: 34px;
+  padding: 0;
+  border-radius: 6px;
+  border-color: rgba(92, 211, 255, .32);
+  color: var(--cyan);
+  background: rgba(92, 211, 255, .08);
+  font-size: 9px;
+  font-weight: 900;
+}
+.roster-riot-fill:hover { border-color: rgba(92, 211, 255, .62); }
 .roster-sheet-status { justify-content: center; position: relative; }
 .participation-cell { gap: 4px; }
 .participation-cell .participation-count {
