@@ -846,13 +846,14 @@ def roster_counts(connection) -> dict:
           SUM(CASE WHEN riot_id IS NULL OR riot_id = '' THEN 1 ELSE 0 END) AS without_riot_id,
           SUM(CASE WHEN account_status = 'ISSUED' THEN 1 ELSE 0 END) AS account_issued,
           SUM(
-            CASE WHEN participation_status_text LIKE '%참가%'
-              AND participation_status_text NOT LIKE '%불참%'
-              AND participation_status_text NOT LIKE '%미참가%'
+            CASE WHEN participation_status_text LIKE ?
+              AND participation_status_text NOT LIKE ?
+              AND participation_status_text NOT LIKE ?
             THEN 1 ELSE 0 END
           ) AS applied
         FROM roster_entries
-        """
+        """,
+        ("%참가%", "%불참%", "%미참가%"),
     ).fetchone()
     return {
         "total": int(row["total"] or 0),
