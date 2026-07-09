@@ -91,6 +91,8 @@ def reset_local_state(applications: list[dict]) -> None:
 def reset_participation_db() -> dict:
     scrim_db.init_db()
     now = time.time()
+    with scrim_db.connect() as connection:
+        roster_sync = scrim_db.sync_roster_from_approved_members(connection)
     users = active_members()
     with scrim_db.connect() as connection:
         connection.execute("DELETE FROM member_competition_participations")
@@ -152,6 +154,8 @@ def reset_participation_db() -> dict:
         "account_issued": dict(issued)["count"],
         "test_approved": dict(approved)["count"],
         "test2_records": dict(test2)["count"],
+        "roster_added": roster_sync["added"],
+        "roster_linked": roster_sync["linked"],
     }
 
 

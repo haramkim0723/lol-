@@ -7,6 +7,7 @@ import json
 import os
 import secrets
 import sqlite3
+import time
 
 from fastapi import APIRouter, Cookie, HTTPException, Query, Response
 from pydantic import BaseModel, Field
@@ -16,6 +17,7 @@ from . import scrim_db
 
 router = APIRouter(prefix="/api/scrim", tags=["scrim-management"])
 SCRIM_AUTH_COOKIE = "scrim_auth"
+SESSION_TTL_SECONDS = 60 * 60
 
 
 class UserCreateInput(BaseModel):
@@ -79,6 +81,7 @@ def make_session(user: dict) -> str:
             "user_id": user["id"],
             "role": user["role"],
             "nonce": secrets.token_hex(4),
+            "expires_at": int(time.time()) + SESSION_TTL_SECONDS,
         },
         separators=(",", ":"),
     )
@@ -97,6 +100,10 @@ def read_session(token: str | None) -> dict | None:
     except (ValueError, json.JSONDecodeError):
         return None
     if not isinstance(data.get("user_id"), int):
+        return None
+    if not isinstance(data.get("expires_at"), int):
+        return None
+    if data["expires_at"] <= int(time.time()):
         return None
     return data
 
@@ -123,6 +130,7 @@ def set_session_cookie(response: Response, user: dict) -> None:
         httponly=True,
         samesite="lax",
         secure=bool(os.getenv("VERCEL")),
+        max_age=SESSION_TTL_SECONDS,
     )
 
 

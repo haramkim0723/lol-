@@ -464,6 +464,9 @@ class ApiFlowTest(unittest.TestCase):
             )
             test1 = host_client.get("/api/state").json()
             self.assertEqual(test1["participation"]["application_count"], 1)
+            roster = host_client.get("/api/roster?filter=all").json()
+            self.assertEqual(roster["stats"]["total"], 1)
+            self.assertEqual(roster["entries"][0]["user_id"], member.json()["id"])
 
     def test_participant_registers_team_and_host_sets_score_limit(self):
         with TestClient(app) as client:

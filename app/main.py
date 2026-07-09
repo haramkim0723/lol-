@@ -845,6 +845,7 @@ async def setup_test_competitions(request: Request):
     require_host(request)
     now = time.time()
     with scrim_db.connect() as connection:
+        roster_sync = scrim_db.sync_roster_from_approved_members(connection)
         rows = connection.execute(
             """
             SELECT id AS user_id, name, riot_id
@@ -928,6 +929,8 @@ async def setup_test_competitions(request: Request):
         "account_issued": len(users),
         "test_approved": len(users),
         "test2_applications": 0,
+        "roster_added": roster_sync["added"],
+        "roster_linked": roster_sync["linked"],
     }
 
 

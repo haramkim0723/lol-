@@ -946,6 +946,78 @@ def issue_roster_account(connection, roster_id: int, password: str = "1234") -> 
     return get_roster_entry(connection, roster_id)
 
 
+def sync_roster_from_approved_members(connection) -> dict:
+    members = connection.execute(
+        """
+        SELECT id, name, riot_id, secondary_riot_id
+        FROM users
+        WHERE role = 'USER' AND approved = 1 AND is_active = 1
+        ORDER BY name ASC, riot_id ASC
+        """
+    ).fetchall()
+    next_row_record = connection.execute(
+        "SELECT COALESCE(MAX(source_row), 0) + 1 AS next_row FROM roster_entries"
+    ).fetchone()
+    next_row = int(dict(next_row_record)["next_row"])
+    added = 0
+    linked = 0
+    for member_row in members:
+        member = dict(member_row)
+        existing = connection.execute(
+            """
+            SELECT id, user_id
+            FROM roster_entries
+            WHERE user_id = ? OR riot_id = ?
+            ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END, source_row ASC
+            LIMIT 1
+            """,
+            (member["id"], member["riot_id"], member["id"]),
+        ).fetchone()
+        if existing is not None:
+            existing = dict(existing)
+            connection.execute(
+                """
+                UPDATE roster_entries
+                SET user_id = ?,
+                    account_status = 'ISSUED',
+                    name = ?,
+                    riot_id = ?,
+                    secondary_riot_id = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    member["id"],
+                    member["name"],
+                    member["riot_id"],
+                    member.get("secondary_riot_id"),
+                    existing["id"],
+                ),
+            )
+            if existing.get("user_id") != member["id"]:
+                linked += 1
+            continue
+        connection.execute(
+            """
+            INSERT INTO roster_entries (
+                source_row, name, riot_id, secondary_riot_id,
+                user_id, account_status
+            )
+            VALUES (?, ?, ?, ?, ?, 'ISSUED')
+            """,
+            (
+                next_row,
+                member["name"],
+                member["riot_id"],
+                member.get("secondary_riot_id"),
+                member["id"],
+            ),
+        )
+        next_row += 1
+        added += 1
+    return {"member_total": len(members), "added": added, "linked": linked}
+
+
 def update_roster_entry(connection, roster_id: int, fields: dict) -> dict:
     allowed = {key: clean_optional_text(value) for key, value in fields.items() if key in ROSTER_FIELDS}
     if not allowed:

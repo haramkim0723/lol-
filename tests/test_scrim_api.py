@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.scrim_db import db_path
+from app.scrim_api import make_session, read_session
 
 
 class ScrimApiTest(unittest.TestCase):
@@ -237,6 +238,15 @@ class ScrimApiTest(unittest.TestCase):
             competition_room = client.get("/competition-room")
             self.assertEqual(competition_room.status_code, 200)
             self.assertIn("대회 진행방", competition_room.text)
+
+    def test_login_session_expires_after_one_hour(self):
+        user = {"id": 123, "role": "USER"}
+        with patch("app.scrim_api.time.time", return_value=1_000):
+            token = make_session(user)
+        with patch("app.scrim_api.time.time", return_value=4_599):
+            self.assertEqual(read_session(token)["user_id"], 123)
+        with patch("app.scrim_api.time.time", return_value=4_600):
+            self.assertIsNone(read_session(token))
 
 
 if __name__ == "__main__":
