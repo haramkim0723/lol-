@@ -922,6 +922,7 @@ aside { display: grid; gap: 18px; }
 .roster-sheet-header > div {
   display: flex;
   align-items: center;
+  justify-content: center;
   min-height: 42px;
   padding: 8px 10px;
   border-right: 1px solid rgba(151,170,202,.13);
@@ -966,8 +967,10 @@ aside { display: grid; gap: 18px; }
   color: #e8eef6;
   background: transparent;
   font-size: 11px;
+  text-align: center;
   outline: none;
 }
+.roster-sheet-cell input::placeholder { text-align: center; }
 .roster-sheet-cell input:hover { border-color: rgba(151,170,202,.25); background: rgba(255,255,255,.025); }
 .roster-sheet-cell input:focus {
   border-color: var(--gold);
