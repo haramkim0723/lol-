@@ -25,8 +25,13 @@ def new_state() -> dict[str, Any]:
         "players": [],
         "tournament": {
             "score_limit": 40,
+            "format": "single_elimination",
+            "group_count": 2,
+            "qualifiers_per_group": 2,
             "status": "registration",
             "teams": [],
+            "groups": [],
+            "qualified_team_ids": [],
             "rounds": [],
             "champion_id": None,
         },
@@ -422,6 +427,74 @@ def start_tournament(state: dict[str, Any]) -> None:
     ]
     if len(approved) < 2:
         raise ValueError("승인된 팀이 두 팀 이상 필요합니다.")
+    if tournament.get("format") == "group_then_knockout":
+        group_count = tournament.get("group_count", 2)
+        if len(approved) < group_count:
+            raise ValueError("승인된 팀 수가 조 수보다 적습니다.")
+        qualifiers = tournament.get("qualifiers_per_group", 2)
+        if len(approved) < group_count * qualifiers:
+            raise ValueError(
+                f"조당 {qualifiers}팀 진출에는 승인 팀이 최소 "
+                f"{group_count * qualifiers}팀 필요합니다."
+            )
+        random.SystemRandom().shuffle(approved)
+        groups = [
+            {"name": f"{chr(65 + index)}조", "team_ids": [], "qualified_team_ids": []}
+            for index in range(group_count)
+        ]
+        for index, team_id in enumerate(approved):
+            groups[index % group_count]["team_ids"].append(team_id)
+        tournament["groups"] = groups
+        tournament["qualified_team_ids"] = []
+        tournament["rounds"] = []
+        tournament["champion_id"] = None
+        tournament["status"] = "group"
+        return
+    _create_knockout(tournament, approved)
+
+
+def set_group_qualifiers(
+    state: dict[str, Any], group_index: int, team_ids: list[str]
+) -> None:
+    tournament = state["tournament"]
+    if tournament["status"] != "group":
+        raise ValueError("조별 진행 단계가 아닙니다.")
+    try:
+        group = tournament["groups"][group_index]
+    except IndexError as exc:
+        raise ValueError("조를 찾을 수 없습니다.") from exc
+    limit = tournament.get("qualifiers_per_group", 2)
+    if len(team_ids) > limit:
+        raise ValueError(f"한 조에서 최대 {limit}팀까지 진출할 수 있습니다.")
+    if len(set(team_ids)) != len(team_ids) or any(
+        team_id not in group["team_ids"] for team_id in team_ids
+    ):
+        raise ValueError("해당 조에 속하지 않은 팀이 포함되어 있습니다.")
+    group["qualified_team_ids"] = team_ids
+    tournament["qualified_team_ids"] = [
+        team_id
+        for item in tournament["groups"]
+        for team_id in item["qualified_team_ids"]
+    ]
+
+
+def start_group_knockout(state: dict[str, Any]) -> None:
+    tournament = state["tournament"]
+    if tournament["status"] != "group":
+        raise ValueError("조별 진행 단계가 아닙니다.")
+    required = tournament.get("qualifiers_per_group", 2)
+    if any(len(group["qualified_team_ids"]) != required for group in tournament["groups"]):
+        raise ValueError(f"각 조에서 진출팀을 {required}팀씩 선택해 주세요.")
+    seeds = [
+        team_id
+        for rank in range(required)
+        for group in tournament["groups"]
+        for team_id in group["qualified_team_ids"][rank:rank + 1]
+    ]
+    _create_knockout(tournament, seeds)
+
+
+def _create_knockout(tournament: dict[str, Any], approved: list[str]) -> None:
     random.SystemRandom().shuffle(approved)
     bracket_size = 1
     while bracket_size < len(approved):

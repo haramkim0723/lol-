@@ -35,7 +35,7 @@ let currentView = location.pathname === "/score-players"
     ? "members"
   : location.pathname === "/mypage"
     ? "mypage"
-  : location.pathname === "/scrim"
+  : ["/competition-room", "/scrim"].includes(location.pathname)
     ? "scrim"
     : "intro";
 let authPromptOpen = false;
@@ -318,7 +318,7 @@ function setView(view) {
     : view === "participation" ? "/participation"
     : view === "members" ? "/members"
     : view === "mypage" ? "/mypage"
-    : view === "scrim" ? "/scrim" : "/";
+    : view === "scrim" ? "/competition-room" : "/";
   if (location.pathname !== path) {
     history.pushState({ view }, "", path);
   }
@@ -744,17 +744,31 @@ function renderTournament() {
   const registrationOpen = tournament.status === "registration";
   $("#tournament-status").textContent =
     tournament.status === "registration" ? "TEAM REGISTRATION"
+      : tournament.status === "group" ? "GROUP STAGE"
       : tournament.status === "running" ? "TOURNAMENT LIVE" : "TOURNAMENT FINISHED";
   $("#tournament-team-form").classList.toggle("hidden", !registrationOpen);
   $("#team-registration-closed").classList.toggle("hidden", registrationOpen);
   $("#tournament-registration-area").classList.toggle("hidden", !registrationOpen);
   $("#team-registration-closed-tournament").classList.toggle("hidden", registrationOpen);
-  $("#tournament-bracket-section").classList.toggle("hidden", registrationOpen);
+  $("#tournament-bracket-section").classList.toggle(
+    "hidden", !["running", "finished"].includes(tournament.status)
+  );
+  $("#tournament-group-section").classList.toggle("hidden", tournament.status !== "group");
   $("#tournament-host-controls").classList.toggle("hidden", !isHost);
   $("#tournament-score-limit-input").value = tournament.score_limit;
+  $("#tournament-format-input").value = tournament.format || "single_elimination";
+  $("#tournament-group-count-input").value = tournament.group_count || 2;
+  $("#tournament-qualifiers-input").value = tournament.qualifiers_per_group || 2;
+  const settingsLocked = ["running", "finished"].includes(tournament.status);
+  ["#tournament-score-limit-input", "#tournament-format-input", "#tournament-group-count-input", "#tournament-qualifiers-input", "#save-tournament-settings"]
+    .forEach((selector) => { $(selector).disabled = settingsLocked; });
+  $("#start-tournament-button").classList.toggle("hidden", !registrationOpen);
+  $("#start-tournament-button").textContent =
+    tournament.format === "group_then_knockout" ? "조 추첨하기" : "본선 대진표 생성";
   $("#team-score-limit").textContent = tournament.score_limit;
   $("#simulator-score-limit").textContent = tournament.score_limit;
   $("#open-team-register").classList.toggle("hidden", !registrationOpen);
+  renderTournamentGroups();
 
   renderTeamSelectors(
     "#tournament-team-form",
@@ -789,6 +803,33 @@ function renderTournament() {
   updateTeamScore();
   updateSimulatorScore();
   renderTournamentBracket();
+}
+
+function renderTournamentGroups() {
+  const tournament = state.tournament;
+  const isHost = state.viewer.role === "host";
+  const teamById = (id) => tournament.teams.find((team) => team.id === id);
+  $("#start-group-knockout-button").classList.toggle(
+    "hidden", tournament.status !== "group" || !isHost
+  );
+  $("#tournament-groups").innerHTML = (tournament.groups || []).map((group, groupIndex) => `
+    <article class="registered-team">
+      <div class="registered-team-head">
+        <strong>${escapeHtml(group.name)}</strong>
+        <span>${(group.qualified_team_ids || []).length} / ${tournament.qualifiers_per_group}팀 선택</span>
+      </div>
+      <div class="registered-team-members">
+        ${group.team_ids.map((teamId) => {
+          const checked = (group.qualified_team_ids || []).includes(teamId);
+          return `<label class="registered-team-member">
+            <input type="checkbox" data-group-qualifier="${groupIndex}" value="${teamId}"
+              ${checked ? "checked" : ""} ${isHost ? "" : "disabled"} />
+            <strong>${escapeHtml(teamById(teamId)?.name || "-")}</strong>
+          </label>`;
+        }).join("")}
+      </div>
+    </article>
+  `).join("");
 }
 
 function renderParticipation() {
@@ -1474,7 +1515,7 @@ window.addEventListener("popstate", () => {
     : location.pathname === "/participation" ? "participation"
     : location.pathname === "/members" ? "members"
     : location.pathname === "/mypage" ? "mypage"
-    : location.pathname === "/scrim" ? "scrim" : "intro";
+    : ["/competition-room", "/scrim"].includes(location.pathname) ? "scrim" : "intro";
   if (state) setView(currentView);
 });
 
@@ -1552,6 +1593,12 @@ $("#competition-form").addEventListener("submit", async (event) => {
   } catch (error) { toast(error.message, true); }
 });
 
+$("#competition-form").elements.mode.addEventListener("change", (event) => {
+  $("#competition-tournament-options").classList.toggle(
+    "hidden", event.target.value !== "tournament"
+  );
+});
+
 $("#teacher-score-limit-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const scoreLimit = Number(
@@ -1560,11 +1607,20 @@ $("#teacher-score-limit-form").addEventListener("submit", async (event) => {
   try {
     await api("/api/tournament/settings", {
       method: "PUT",
-      body: JSON.stringify({ score_limit: scoreLimit }),
+      body: JSON.stringify(tournamentSettingsPayload(scoreLimit)),
     });
     toast(`점수제 팀 총점을 ${scoreLimit}점으로 설정했습니다.`);
   } catch (error) { toast(error.message, true); }
 });
+
+function tournamentSettingsPayload(scoreLimit = Number($("#tournament-score-limit-input").value)) {
+  return {
+    score_limit: scoreLimit,
+    format: $("#tournament-format-input").value || state.tournament.format || "single_elimination",
+    group_count: Number($("#tournament-group-count-input").value || state.tournament.group_count || 2),
+    qualifiers_per_group: Number($("#tournament-qualifiers-input").value || state.tournament.qualifiers_per_group || 2),
+  };
+}
 
 $("#active-competition-select").addEventListener("change", async (event) => {
   if (state.viewer.role !== "host") {
@@ -1697,15 +1753,38 @@ $("#save-tournament-settings").addEventListener("click", async () => {
   try {
     await api("/api/tournament/settings", {
       method: "PUT",
-      body: JSON.stringify({ score_limit: Number($("#tournament-score-limit-input").value) }),
+      body: JSON.stringify(tournamentSettingsPayload()),
     });
-    toast("팀 총점 제한을 저장했습니다.");
+    toast("대회 진행 설정을 저장했습니다.");
   } catch (error) { toast(error.message, true); }
 });
 $("#start-tournament-button").addEventListener("click", async () => {
   try {
     await api("/api/tournament/start", { method: "POST" });
-    toast("대진표를 생성했습니다.");
+    toast(state.tournament.format === "group_then_knockout" ? "조 추첨을 완료했습니다." : "대진표를 생성했습니다.");
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#tournament-groups").addEventListener("change", async (event) => {
+  const input = event.target.closest("[data-group-qualifier]");
+  if (!input) return;
+  const groupIndex = Number(input.dataset.groupQualifier);
+  const teamIds = $$(`[data-group-qualifier="${groupIndex}"]:checked`).map((item) => item.value);
+  try {
+    await api("/api/tournament/groups/qualifiers", {
+      method: "PUT",
+      body: JSON.stringify({ group_index: groupIndex, team_ids: teamIds }),
+    });
+  } catch (error) {
+    input.checked = !input.checked;
+    toast(error.message, true);
+  }
+});
+
+$("#start-group-knockout-button").addEventListener("click", async () => {
+  try {
+    await api("/api/tournament/groups/start-knockout", { method: "POST" });
+    toast("진출팀으로 본선 대진표를 생성했습니다.");
   } catch (error) { toast(error.message, true); }
 });
 
@@ -1976,7 +2055,7 @@ function renderScrimTeams() {
           <strong>${escapeHtml(team.name)}</strong>
           <div class="meta">${team.status === "approved" ? "승인" : team.status === "rejected" ? "반려" : "승인 대기"} · 총 ${team.total_score}점</div>
         </div>
-        <span class="team-status ${team.status}">${team.can_manage_scrim_result ? "결과 등록 가능" : "읽기 전용"}</span>
+        <span class="team-status ${team.status}">${team.can_manage_scrim_result ? "경기 결과 등록 가능" : "읽기 전용"}</span>
       </div>
       <div class="member-list">
         ${POSITIONS.map((position) => {
@@ -2029,7 +2108,7 @@ function renderScrimResults() {
     const resultLabel = result.result === "WIN" ? "승" : result.result === "LOSE" ? "패" : "무";
     const image = result.image_url && !result.image_archived
       ? `<a class="scrim-result-image" href="${escapeHtml(result.image_url)}" target="_blank" rel="noreferrer">
-          <img src="${escapeHtml(result.image_url)}" alt="스크림 결과 이미지" loading="lazy" />
+          <img src="${escapeHtml(result.image_url)}" alt="대회 경기 결과 이미지" loading="lazy" />
         </a>`
       : result.image_url
         ? '<div class="scrim-result-archived">이미지 보관됨 · 10일 초과 또는 팀별 보관 한도 초과</div>'

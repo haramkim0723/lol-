@@ -197,6 +197,42 @@ class TournamentEngineTest(unittest.TestCase):
         self.assertEqual(self.state["tournament"]["champion_id"], winner)
         self.assertEqual(self.state["tournament"]["status"], "finished")
 
+    def test_group_draw_qualifiers_then_knockout(self):
+        team_ids = []
+        for team_index in range(4):
+            members = {}
+            for position in engine.POSITIONS:
+                player = engine.add_player(
+                    self.state,
+                    f"{team_index}-{position}",
+                    "",
+                    "GOLD",
+                    position,
+                    score=1,
+                )
+                members[position] = player["id"]
+            team = engine.register_tournament_team(
+                self.state, f"{team_index}팀", members, f"123{team_index}"
+            )
+            engine.approve_tournament_team(self.state, team["id"], True)
+            team_ids.append(team["id"])
+        tournament = self.state["tournament"]
+        tournament["format"] = "group_then_knockout"
+        tournament["group_count"] = 2
+        tournament["qualifiers_per_group"] = 1
+
+        engine.start_tournament(self.state)
+
+        self.assertEqual(tournament["status"], "group")
+        self.assertEqual(len(tournament["groups"]), 2)
+        for index, group in enumerate(tournament["groups"]):
+            engine.set_group_qualifiers(
+                self.state, index, [group["team_ids"][0]]
+            )
+        engine.start_group_knockout(self.state)
+        self.assertEqual(tournament["status"], "running")
+        self.assertEqual(len(tournament["rounds"][0]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

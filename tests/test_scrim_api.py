@@ -234,6 +234,10 @@ class ScrimApiTest(unittest.TestCase):
             self.assertIn('data-view="scrim"', response.text)
             self.assertIn("/static/app.js", response.text)
 
+            competition_room = client.get("/competition-room")
+            self.assertEqual(competition_room.status_code, 200)
+            self.assertIn("대회 진행방", competition_room.text)
+
 
 if __name__ == "__main__":
     unittest.main()

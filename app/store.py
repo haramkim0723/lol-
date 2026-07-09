@@ -6,6 +6,7 @@ import tempfile
 import urllib.error
 import urllib.request
 import uuid
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -190,6 +191,8 @@ class JsonStore:
     def _normalize_event(self, state: dict[str, Any]) -> dict[str, Any]:
         defaults = new_state()
         state.setdefault("tournament", defaults["tournament"])
+        for key, value in defaults["tournament"].items():
+            state["tournament"].setdefault(key, deepcopy(value))
         state.setdefault("participation", defaults["participation"])
         state.setdefault("scrim_results", defaults["scrim_results"])
         state.setdefault("settings", defaults["settings"])

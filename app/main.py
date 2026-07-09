@@ -260,6 +260,9 @@ class BidInput(BaseModel):
 
 class TournamentSettingsInput(BaseModel):
     score_limit: int = Field(ge=0, le=5000)
+    format: Literal["single_elimination", "group_then_knockout"] = "single_elimination"
+    group_count: int = Field(default=2, ge=2, le=16)
+    qualifiers_per_group: int = Field(default=2, ge=1, le=8)
 
 
 class TournamentTeamInput(BaseModel):
@@ -280,6 +283,11 @@ class MatchWinnerInput(BaseModel):
     round_index: int = Field(ge=0)
     match_index: int = Field(ge=0)
     team_id: str
+
+
+class GroupQualifiersInput(BaseModel):
+    group_index: int = Field(ge=0)
+    team_ids: list[str] = Field(max_length=8)
 
 
 class ScrimResultInput(BaseModel):
@@ -413,6 +421,11 @@ class TeamRecommendationInput(BaseModel):
 class CompetitionInput(BaseModel):
     name: str = Field(min_length=1, max_length=50)
     mode: Literal["auction", "tournament"]
+    tournament_format: Literal[
+        "single_elimination", "group_then_knockout"
+    ] = "single_elimination"
+    group_count: int = Field(default=2, ge=2, le=16)
+    qualifiers_per_group: int = Field(default=2, ge=1, le=8)
 
 
 @app.get("/")
@@ -460,6 +473,11 @@ async def scrim_management_page():
     return FileResponse(ROOT / "static" / "index.html")
 
 
+@app.get("/competition-room")
+async def competition_room_page():
+    return FileResponse(ROOT / "static" / "index.html")
+
+
 @app.get("/api/state")
 async def get_state(scrim_auth: str | None = Cookie(default=None)):
     async with state_lock:
@@ -480,6 +498,12 @@ async def create_competition(data: CompetitionInput, request: Request):
     require_host(request)
     async with state_lock:
         competition = store.create_competition(data.name, data.mode)
+        if data.mode == "tournament":
+            tournament = competition["state"]["tournament"]
+            tournament["format"] = data.tournament_format
+            tournament["group_count"] = data.group_count
+            tournament["qualifiers_per_group"] = data.qualifiers_per_group
+            store.save()
     await broadcast()
     return {
         "id": competition["id"],
@@ -1088,9 +1112,22 @@ async def update_tournament_settings(
 ):
     require_host(request)
     async with state_lock:
-        if store.state["tournament"]["status"] != "registration":
-            raise HTTPException(409, "토너먼트 시작 후에는 제한을 바꿀 수 없습니다.")
-        store.state["tournament"]["score_limit"] = data.score_limit
+        tournament = store.state["tournament"]
+        if tournament["status"] in ("running", "finished"):
+            raise HTTPException(409, "본선 시작 후에는 대회 형식을 바꿀 수 없습니다.")
+        tournament["score_limit"] = data.score_limit
+        changed = (
+            tournament.get("format") != data.format
+            or tournament.get("group_count") != data.group_count
+            or tournament.get("qualifiers_per_group") != data.qualifiers_per_group
+        )
+        tournament["format"] = data.format
+        tournament["group_count"] = data.group_count
+        tournament["qualifiers_per_group"] = data.qualifiers_per_group
+        if changed and tournament["status"] == "group":
+            tournament["status"] = "registration"
+            tournament["groups"] = []
+            tournament["qualified_team_ids"] = []
         store.save()
     await broadcast()
     return {"ok": True}
@@ -1160,6 +1197,22 @@ async def delete_tournament_team(team_id: str, request: Request):
 async def start_tournament(request: Request):
     require_host(request)
     return await mutate(lambda: engine.start_tournament(store.state))
+
+
+@app.put("/api/tournament/groups/qualifiers")
+async def update_group_qualifiers(data: GroupQualifiersInput, request: Request):
+    require_host(request)
+    return await mutate(
+        lambda: engine.set_group_qualifiers(
+            store.state, data.group_index, data.team_ids
+        )
+    )
+
+
+@app.post("/api/tournament/groups/start-knockout")
+async def start_group_knockout(request: Request):
+    require_host(request)
+    return await mutate(lambda: engine.start_group_knockout(store.state))
 
 
 @app.post("/api/tournament/winner")
@@ -1284,7 +1337,7 @@ def validate_scrim_result_image(data: ScrimResultInput, existing_result: dict | 
         data.image_pathname = None
         return
     if data.image_size_bytes is not None and data.image_size_bytes > SCRIM_RESULT_IMAGE_MAX_BYTES:
-        raise HTTPException(400, "스크림 결과 이미지는 1MB 이하로 압축해서 올려주세요.")
+        raise HTTPException(400, "대회 경기 결과 이미지는 1MB 이하로 압축해서 올려주세요.")
     if existing_result and existing_result.get("image_url") == data.image_url:
         return
     active_images = [

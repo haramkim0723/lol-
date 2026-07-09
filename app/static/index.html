@@ -29,7 +29,7 @@
           <button type="button" data-view="members">회원 관리</button>
           <button type="button" data-view="mypage">마이페이지</button>
           <button type="button" data-view="auction">경매장</button>
-          <button type="button" data-view="scrim">스크림</button>
+          <button type="button" data-view="scrim">대회 진행방</button>
         </nav>
         <div id="role-badge" class="role-badge">관전자</div>
         <button id="login-button" class="ghost small-button hidden" type="button">로그인</button>
@@ -79,6 +79,16 @@
               <option value="auction">경매 대회</option>
               <option value="tournament">점수제 대회</option>
             </select>
+            <div id="competition-tournament-options" class="hidden">
+              <label>진행 방식
+                <select name="tournament_format">
+                  <option value="single_elimination">바로 싱글 엘리미네이션</option>
+                  <option value="group_then_knockout">조별 추첨 후 본선</option>
+                </select>
+              </label>
+              <label>조 수<input name="group_count" type="number" min="2" max="16" value="2" /></label>
+              <label>조당 진출팀 수<input name="qualifiers_per_group" type="number" min="1" max="8" value="2" /></label>
+            </div>
             <button class="primary" type="submit">대회 생성</button>
           </form>
           <div id="competition-list" class="competition-list"></div>
@@ -428,9 +438,24 @@
           <div id="tournament-team-list" class="tournament-team-list"></div>
           <div id="tournament-host-controls" class="tournament-host-controls hidden">
             <label>팀 총점 제한<input id="tournament-score-limit-input" type="number" min="0" /></label>
-            <button id="save-tournament-settings" class="ghost" type="button">제한 저장</button>
-            <button id="start-tournament-button" class="accent" type="button">대진표 생성</button>
+            <label>진행 방식
+              <select id="tournament-format-input">
+                <option value="single_elimination">바로 싱글 엘리미네이션</option>
+                <option value="group_then_knockout">조별 추첨 후 본선</option>
+              </select>
+            </label>
+            <label>조 수<input id="tournament-group-count-input" type="number" min="2" max="16" /></label>
+            <label>조당 진출팀<input id="tournament-qualifiers-input" type="number" min="1" max="8" /></label>
+            <button id="save-tournament-settings" class="ghost" type="button">대회 설정 저장</button>
+            <button id="start-tournament-button" class="accent" type="button">진행 시작</button>
           </div>
+        </div>
+
+        <div id="tournament-group-section" class="panel hidden">
+          <div class="panel-title"><span>GROUPS</span><h2>조 편성 및 진출팀</h2></div>
+          <p class="guide">강사님이 각 조의 본선 진출팀을 선택해 주세요.</p>
+          <div id="tournament-groups" class="tournament-team-list"></div>
+          <button id="start-group-knockout-button" class="accent hidden" type="button">진출팀으로 본선 대진표 생성</button>
         </div>
 
         <div id="tournament-bracket-section" class="tournament-bracket-section hidden">
@@ -539,7 +564,7 @@
             <div class="panel-title row">
               <div>
                 <span>RESULT</span>
-                <h2>스크림 결과 등록</h2>
+                <h2>대회 경기 결과</h2>
               </div>
             </div>
             <form id="scrim-result-form" class="scrim-form result-form">
@@ -580,7 +605,7 @@
               </div>
             </form>
             <div id="scrim-result-locked" class="empty-state hidden">
-              팀장 또는 강사님만 결과를 등록할 수 있습니다.
+              해당 팀원 또는 강사님만 경기 결과를 등록할 수 있습니다.
             </div>
             <div id="scrim-result-list" class="team-list"></div>
           </article>
