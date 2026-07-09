@@ -968,6 +968,16 @@ function rosterCell(entry, name, placeholder = "") {
   return `<div class="roster-sheet-cell"><input name="${name}" value="${escapeHtml(entry[name] || "")}" placeholder="${escapeHtml(placeholder)}" aria-label="${name}" /></div>`;
 }
 
+function rosterPaymentCell(entry) {
+  const paid = String(entry.payment_status || "").trim().toUpperCase() === "O";
+  return `<div class="roster-sheet-cell roster-payment-cell">
+    <input name="payment_status" type="hidden" value="${paid ? "O" : "X"}" />
+    <button class="roster-payment-toggle ${paid ? "paid" : "unpaid"}" type="button" data-payment-toggle aria-label="입금 상태">
+      ${paid ? "O" : "X"}
+    </button>
+  </div>`;
+}
+
 function participationStatusLabel(status) {
   if (status === "APPROVED") return "승인";
   if (status === "CANCELLED") return "취소";
@@ -1009,7 +1019,7 @@ function renderMemberRows(entries) {
           ${rosterCell(entry, "secondary_riot_id", "선택 입력")}
           ${rosterCell(entry, "preferred_lines", "순서대로 주, 부 라인")}
           ${rosterCell(entry, "tier")}
-          ${rosterCell(entry, "payment_status")}
+          ${rosterPaymentCell(entry)}
           ${rosterCell(entry, "participation_status_text")}
           ${rosterCell(entry, "absence_reason")}
           ${rosterCell(entry, "top_adjustment")}
@@ -2697,6 +2707,22 @@ $("#member-list").addEventListener("submit", async (event) => {
 });
 
 $("#member-list").addEventListener("click", async (event) => {
+  const paymentButton = event.target.closest("[data-payment-toggle]");
+  if (paymentButton) {
+    const form = paymentButton.closest("[data-roster-entry]");
+    const input = form?.elements.payment_status;
+    if (!form || !input) return;
+    input.value = input.value === "O" ? "X" : "O";
+    paymentButton.textContent = input.value;
+    paymentButton.classList.toggle("paid", input.value === "O");
+    paymentButton.classList.toggle("unpaid", input.value !== "O");
+    form.classList.add("dirty");
+    const id = Number(form.dataset.rosterEntry);
+    dirtyRosterIds.add(id);
+    const cached = memberRosterCache?.entries.find((entry) => entry.id === id);
+    if (cached) cached.payment_status = input.value;
+    return;
+  }
   const participationButton = event.target.closest("[data-participation-count]");
   if (participationButton) {
     const id = participationButton.dataset.participationCount;

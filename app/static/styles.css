@@ -1115,6 +1115,25 @@ aside { display: grid; gap: 18px; }
 }
 .roster-score-fields { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 8px; }
 .roster-admin-row label { color: var(--muted); font-size: 10px; font-weight: 900; }
+.roster-payment-cell { display: grid; place-items: center; }
+.roster-payment-toggle {
+  width: 34px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 1000;
+}
+.roster-payment-toggle.paid {
+  border-color: rgba(77, 221, 151, .45);
+  color: #75e7aa;
+  background: rgba(77, 221, 151, .12);
+}
+.roster-payment-toggle.unpaid {
+  border-color: rgba(255, 103, 111, .4);
+  color: #ff8d94;
+  background: rgba(255, 103, 111, .1);
+}
 .user-approval {
   padding: 5px 8px;
   border-radius: 999px;
