@@ -470,6 +470,11 @@ async def index():
     return FileResponse(ROOT / "static" / "index.html")
 
 
+@app.get("/riot.txt")
+async def riot_verification():
+    return FileResponse(ROOT / "static" / "riot.txt", media_type="text/plain")
+
+
 @app.get("/team-simulator")
 async def team_simulator_page():
     return FileResponse(ROOT / "static" / "index.html")
