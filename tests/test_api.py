@@ -162,6 +162,26 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(payload["account_status"], "ISSUED")
             self.assertEqual(payload["tournament_status"], "not_applied")
 
+            bulk = client.patch(
+                "/api/roster",
+                json={
+                    "rows": [
+                        {
+                            "id": entry["id"],
+                            "name": "Roster User",
+                            "notes": "일괄 저장 확인",
+                        }
+                    ]
+                },
+            )
+            self.assertEqual(bulk.status_code, 200)
+            self.assertEqual(bulk.json()["updated"], 1)
+            with scrim_db.connect() as connection:
+                self.assertEqual(
+                    scrim_db.get_roster_entry(connection, entry["id"])["notes"],
+                    "일괄 저장 확인",
+                )
+
             member_login = client.post(
                 "/api/scrim/auth/login",
                 json={"riot_id": "RosterUser#KR1", "password": "1234"},

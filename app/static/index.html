@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>LoL Auction</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260709-3" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260709-4" />
   </head>
   <body>
     <div class="background-glow"></div>
@@ -310,7 +310,10 @@
             </label>
             <button class="secondary" type="submit">검색하기</button>
           </form>
-          <p class="spreadsheet-guide">셀을 직접 수정한 뒤 오른쪽의 저장 버튼을 눌러주세요. 표는 좌우로 스크롤할 수 있습니다.</p>
+          <div class="spreadsheet-toolbar">
+            <p class="spreadsheet-guide">셀을 직접 수정한 뒤 행별 저장 또는 전체 저장을 눌러주세요.</p>
+            <button id="save-all-roster-button" class="primary" type="button">변경사항 전체 저장</button>
+          </div>
           <div id="member-list" class="roster-admin-list"></div>
         </aside>
 
@@ -669,6 +672,6 @@
     </div>
 
     <div id="toast" class="toast"></div>
-    <script src="/static/app.js?v=20260709-3"></script>
+    <script src="/static/app.js?v=20260709-4"></script>
   </body>
 </html>

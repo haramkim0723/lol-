@@ -976,6 +976,9 @@ aside { display: grid; gap: 18px; }
   font-weight: 900;
 }
 .spreadsheet-guide { margin: 0 0 10px; color: var(--muted); font-size: 10px; font-weight: 700; }
+.spreadsheet-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 14px auto 10px; }
+.spreadsheet-toolbar .spreadsheet-guide { margin: 0; }
+.spreadsheet-toolbar button { min-height: 40px; padding: 8px 14px; font-size: 10px; white-space: nowrap; }
 .roster-admin-list {
   max-width: 100%;
   border: 1px solid rgba(151,170,202,.2);

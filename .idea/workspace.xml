@@ -4,16 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="e4d521f6-d569-49a7-916c-9cb2764314c8" name="변경" comment="zz">
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/engine.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/static/app.js" beforeDir="false" afterPath="$PROJECT_DIR$/app/static/app.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/static/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/app/static/index.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/store.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/store.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/SCRIM_REQUIREMENTS_STATUS.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/SCRIM_REQUIREMENTS_STATUS.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_engine.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_scrim_api.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scrim_api.py" afterDir="false" />
+    <list default="true" id="e4d521f6-d569-49a7-916c-9cb2764314c8" name="변경" comment="집커밋">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -53,6 +45,43 @@
       <option name="presentableId" value="Default" />
       <updated>1783419481116</updated>
     </task>
+    <task id="LOCAL-00001" summary="집커밋">
+      <option name="closed" value="true" />
+      <created>1783570050482</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1783570050482</updated>
+    </task>
+    <task id="LOCAL-00002" summary="집커밋">
+      <option name="closed" value="true" />
+      <created>1783573377926</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1783573377926</updated>
+    </task>
+    <task id="LOCAL-00003" summary="집커밋">
+      <option name="closed" value="true" />
+      <created>1783574580362</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1783574580362</updated>
+    </task>
+    <task id="LOCAL-00004" summary="집커밋">
+      <option name="closed" value="true" />
+      <created>1783575202173</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1783575202173</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="집커밋" />
+    <option name="LAST_COMMIT_MESSAGE" value="집커밋" />
   </component>
 </project>

@@ -52,6 +52,14 @@ let selectedScrimTeamId = null;
 let pendingApiCount = 0;
 let participationHostView = "settings";
 let bracketDraft = null;
+let memberRosterCache = null;
+const dirtyRosterIds = new Set();
+const ROSTER_EDIT_FIELDS = [
+  "name", "riot_id", "secondary_riot_id", "preferred_lines", "tier",
+  "payment_status", "participation_status_text", "absence_reason",
+  "top_adjustment", "game_count_adjustment", "notes", "score_top",
+  "score_jungle", "score_mid", "score_adc", "score_support",
+];
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -994,7 +1002,7 @@ function renderMemberRows(entries) {
     <div class="roster-sheet">
       <div class="roster-sheet-header">${headers.map((header) => `<div>${header}</div>`).join("")}</div>
       ${entries.map((entry) => `
-        <form class="roster-admin-row" data-roster-entry="${entry.id}">
+        <form class="roster-admin-row${dirtyRosterIds.has(entry.id) ? " dirty" : ""}" data-roster-entry="${entry.id}">
           <div class="roster-sheet-index">${entry.source_row}</div>
           ${rosterCell(entry, "name")}
           ${rosterCell(entry, "riot_id", "Riot ID#KR1")}
@@ -1052,23 +1060,45 @@ function renderRiotPreview(data) {
 
 async function loadMembers() {
   if (state.viewer.role !== "host") return;
-  ["#member-stat-total", "#member-stat-with-id", "#member-stat-without-id", "#member-stat-issued", "#member-stat-applied", "#member-stat-not-applied"]
-    .forEach((selector) => { $(selector).textContent = "…"; });
-  $("#member-list").innerHTML = '<div class="empty-state member-loading">회원 명단을 불러오는 중입니다...</div>';
   try {
-    const query = $("#member-search-form")?.elements.query.value || "";
-    const data = await api(`/api/roster?filter=${encodeURIComponent(rosterFilter)}&query=${encodeURIComponent(query)}&page=${rosterPage}`);
+    if (!memberRosterCache) {
+      ["#member-stat-total", "#member-stat-with-id", "#member-stat-without-id", "#member-stat-issued", "#member-stat-applied", "#member-stat-not-applied"]
+        .forEach((selector) => { $(selector).textContent = "…"; });
+      $("#member-list").innerHTML = '<div class="empty-state member-loading">회원 명단을 한 번 불러오는 중입니다...</div>';
+      memberRosterCache = await api("/api/roster?filter=all&page=1&page_size=500");
+    }
+    const data = memberRosterCache;
     $("#member-stat-total").textContent = data.stats.total;
     $("#member-stat-with-id").textContent = data.stats.with_riot_id;
     $("#member-stat-without-id").textContent = data.stats.without_riot_id;
     $("#member-stat-issued").textContent = data.stats.account_issued;
     $("#member-stat-applied").textContent = data.stats.applied;
     $("#member-stat-not-applied").textContent = data.stats.not_applied;
-    renderMemberRows(data.entries);
-    renderRosterPagination(data.pagination);
+    const query = ($("#member-search-form")?.elements.query.value || "").trim().toLocaleLowerCase();
+    const entries = data.entries.filter((entry) => {
+      const hasRiotId = Boolean(entry.riot_id);
+      const applied = entry.tournament_status === "applied";
+      if (rosterFilter === "with_id" && !hasRiotId) return false;
+      if (rosterFilter === "without_id" && hasRiotId) return false;
+      if (rosterFilter === "applied" && !applied) return false;
+      if (rosterFilter === "not_applied" && applied) return false;
+      if (!query) return true;
+      return [entry.name, entry.riot_id, entry.secondary_riot_id, entry.preferred_lines]
+        .some((value) => String(value || "").toLocaleLowerCase().includes(query));
+    });
+    renderMemberRows(entries);
+    $("#member-pagination")?.remove();
   } catch (error) {
+    memberRosterCache = null;
+    $("#member-list").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
     toast(error.message, true);
   }
+}
+
+async function reloadMembers() {
+  memberRosterCache = null;
+  dirtyRosterIds.clear();
+  await loadMembers();
 }
 
 function renderRosterPagination(pagination) {
@@ -2013,7 +2043,7 @@ document.addEventListener("click", async (event) => {
       body: JSON.stringify({ status: button.dataset.status }),
     });
     await loadParticipationApplications();
-    if (currentView === "members") await loadMembers();
+    if (currentView === "members") await reloadMembers();
     toast(button.dataset.status === "APPROVED" ? "참가를 승인했습니다." : "참가 신청을 거절했습니다.");
   } catch (error) {
     toast(error.message, true);
@@ -2378,7 +2408,7 @@ async function setMemberApproval(button) {
     body: JSON.stringify({ approved: button.dataset.approved === "true" }),
   });
   if (currentView === "members") {
-    await loadMembers();
+    await reloadMembers();
   } else {
     await searchScrimUsers($("#admin-search-form").elements.query.value || "");
   }
@@ -2625,7 +2655,7 @@ $("#member-create-form")?.addEventListener("submit", async (event) => {
       body: JSON.stringify(payload),
     });
     event.target.reset();
-    await loadMembers();
+    await reloadMembers();
     toast("회원 계정을 생성했습니다. 기본 비밀번호는 1234입니다.");
   } catch (error) { toast(error.message, true); }
 });
@@ -2643,6 +2673,47 @@ $("#member-search-form").addEventListener("submit", async (event) => {
   await loadMembers();
 });
 
+$("#save-all-roster-button").addEventListener("click", async () => {
+  if (!dirtyRosterIds.size) {
+    toast("변경된 명단이 없습니다.");
+    return;
+  }
+  const rows = [...dirtyRosterIds].map((id) => {
+    const entry = memberRosterCache.entries.find((item) => item.id === id);
+    return Object.fromEntries([
+      ["id", id],
+      ...ROSTER_EDIT_FIELDS.map((field) => [field, entry[field] === "" ? null : entry[field]]),
+    ]);
+  });
+  const button = $("#save-all-roster-button");
+  button.disabled = true;
+  button.textContent = `${rows.length}명 저장 중...`;
+  try {
+    await api("/api/roster", {
+      method: "PATCH",
+      body: JSON.stringify({ rows }),
+    });
+    await reloadMembers();
+    toast(`${rows.length}명의 명단을 한 번에 저장했습니다.`);
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = "변경사항 전체 저장";
+  }
+});
+
+$("#member-list").addEventListener("input", (event) => {
+  const form = event.target.closest("[data-roster-entry]");
+  if (!form) return;
+  form.classList.add("dirty");
+  dirtyRosterIds.add(Number(form.dataset.rosterEntry));
+  const cached = memberRosterCache?.entries.find(
+    (entry) => entry.id === Number(form.dataset.rosterEntry)
+  );
+  if (cached && event.target.name) cached[event.target.name] = event.target.value;
+});
+
 $("#member-list").addEventListener("submit", async (event) => {
   const rosterForm = event.target.closest("[data-roster-entry]");
   if (rosterForm) {
@@ -2652,10 +2723,14 @@ $("#member-list").addEventListener("submit", async (event) => {
       if (payload[key] === "") payload[key] = null;
     });
     try {
-      await api(`/api/roster/${rosterForm.dataset.rosterEntry}`, {
+      const updated = await api(`/api/roster/${rosterForm.dataset.rosterEntry}`, {
         method: "PATCH",
         body: JSON.stringify(payload),
       });
+      const id = Number(rosterForm.dataset.rosterEntry);
+      const cached = memberRosterCache?.entries.find((entry) => entry.id === id);
+      if (cached) Object.assign(cached, updated);
+      dirtyRosterIds.delete(id);
       await loadMembers();
       toast("명단을 저장했습니다. Riot ID가 있으면 계정도 발급됩니다.");
     } catch (error) { toast(error.message, true); }

@@ -365,6 +365,14 @@ class RosterImportInput(BaseModel):
     rows: list[RosterImportRow] = Field(min_length=1, max_length=1000)
 
 
+class RosterBulkUpdateRow(RosterEntryInput):
+    id: int = Field(ge=1)
+
+
+class RosterBulkUpdateInput(BaseModel):
+    rows: list[RosterBulkUpdateRow] = Field(min_length=1, max_length=1000)
+
+
 TEST_COMPETITION_ID = "test-score-approved"
 TEST2_COMPETITION_ID = "test2-score-open"
 
@@ -754,7 +762,7 @@ async def list_roster(
     query: str = "",
     filter: str = "with_id",
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=20, ge=5, le=100),
+    page_size: int = Query(default=20, ge=5, le=500),
 ):
     require_host(request)
     participation = store.state.setdefault(
@@ -970,6 +978,22 @@ async def update_roster_entry(roster_id: int, data: RosterEntryInput, request: R
     for row in participation_rows:
         participation_history.setdefault(row["user_id"], []).append(row)
     return roster_payload(entry, applications, participation_history)
+
+
+@app.patch("/api/roster")
+async def bulk_update_roster(data: RosterBulkUpdateInput, request: Request):
+    require_host(request)
+    try:
+        with scrim_db.connect() as connection:
+            for row in data.rows:
+                scrim_db.update_roster_entry(
+                    connection,
+                    row.id,
+                    row.model_dump(exclude={"id"}, exclude_unset=True),
+                )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "updated": len(data.rows)}
 
 
 @app.put("/api/settings")
