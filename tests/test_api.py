@@ -617,6 +617,429 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(response.json()["total_score"], 40)
             self.assertNotIn("registration_pin", response.json())
 
+    def test_five_team_test_tournament_and_scrim_winrates(self):
+        def create_team(client: TestClient, index: int) -> dict:
+            members = {}
+            for position_index, position in enumerate(("TOP", "JUG", "MID", "ADC", "SUP")):
+                player = client.post(
+                    "/api/players",
+                    json={
+                        "name": f"Test {index} {position}",
+                        "riot_id": f"test{index}-{position.lower()}#KR1",
+                        "tier": "GOLD",
+                        "score": 1,
+                        "primary_position": position,
+                        "secondary_position": None,
+                    },
+                )
+                self.assertEqual(player.status_code, 200)
+                members[position] = player.json()["id"]
+            team = client.post(
+                "/api/tournament/teams",
+                json={
+                    "name": f"Test Team {index}",
+                    "registration_pin": f"100{index}",
+                    "members": members,
+                },
+            )
+            self.assertEqual(team.status_code, 200)
+            approval = client.post(
+                f'/api/tournament/teams/{team.json()["id"]}/approval',
+                json={"approved": True},
+            )
+            self.assertEqual(approval.status_code, 200)
+            return approval.json()
+
+        def scrim_stats(state_payload: dict) -> dict[str, dict[str, int]]:
+            stats = {
+                team["id"]: {
+                    "set_wins": 0,
+                    "set_losses": 0,
+                    "series_wins": 0,
+                    "series_losses": 0,
+                    "bo3_wins": 0,
+                    "bo3_losses": 0,
+                    "bo5_wins": 0,
+                    "bo5_losses": 0,
+                }
+                for team in state_payload["tournament"]["teams"]
+            }
+            for result in state_payload["scrim_results"]:
+                a = stats[result["team_a_id"]]
+                b = stats[result["team_b_id"]]
+                a["set_wins"] += result["team_a_score"]
+                a["set_losses"] += result["team_b_score"]
+                b["set_wins"] += result["team_b_score"]
+                b["set_losses"] += result["team_a_score"]
+                a_won = result["winner_team_id"] == result["team_a_id"]
+                a["series_wins"] += 1 if a_won else 0
+                a["series_losses"] += 0 if a_won else 1
+                b["series_wins"] += 0 if a_won else 1
+                b["series_losses"] += 1 if a_won else 0
+                prefix = "bo5" if result["best_of"] == 5 else "bo3"
+                a[f"{prefix}_wins"] += 1 if a_won else 0
+                a[f"{prefix}_losses"] += 0 if a_won else 1
+                b[f"{prefix}_wins"] += 0 if a_won else 1
+                b[f"{prefix}_losses"] += 1 if a_won else 0
+            return stats
+
+        with TestClient(app) as host_client:
+            login_as_host(host_client)
+            settings = host_client.put(
+                "/api/tournament/settings",
+                json={
+                    "score_limit": 100,
+                    "format": "group_then_knockout",
+                    "group_count": 2,
+                    "qualifiers_per_group": 2,
+                },
+            )
+            self.assertEqual(settings.status_code, 200)
+            teams = [create_team(host_client, index) for index in range(1, 6)]
+            self.assertEqual(len(teams), 5)
+
+            start = host_client.post("/api/tournament/start")
+            self.assertEqual(start.status_code, 200)
+            group_state = host_client.get("/api/state").json()
+            self.assertEqual(group_state["tournament"]["status"], "group")
+            self.assertEqual(len(group_state["tournament"]["teams"]), 5)
+            for group_index, group in enumerate(group_state["tournament"]["groups"]):
+                qualifiers = group["team_ids"][:2]
+                response = host_client.put(
+                    "/api/tournament/groups/qualifiers",
+                    json={"group_index": group_index, "team_ids": qualifiers},
+                )
+                self.assertEqual(response.status_code, 200)
+            knockout = host_client.post("/api/tournament/groups/start-knockout")
+            self.assertEqual(knockout.status_code, 200)
+            knockout_state = host_client.get("/api/state").json()
+            first_match = knockout_state["tournament"]["rounds"][0][0]
+            winner_id = first_match["team1_id"] or first_match["team2_id"]
+            winner = host_client.post(
+                "/api/tournament/winner",
+                json={"round_index": 0, "match_index": 0, "team_id": winner_id},
+            )
+            self.assertEqual(winner.status_code, 200)
+
+            for team_a, team_b, best_of, score_a, score_b in (
+                (teams[0], teams[1], 3, 2, 0),
+                (teams[0], teams[2], 3, 1, 2),
+                (teams[3], teams[4], 5, 3, 2),
+            ):
+                result = host_client.post(
+                    "/api/scrim/results",
+                    json={
+                        "team_a_id": team_a["id"],
+                        "team_b_id": team_b["id"],
+                        "match_date": "2026-07-10",
+                        "best_of": best_of,
+                        "team_a_score": score_a,
+                        "team_b_score": score_b,
+                    },
+                )
+                self.assertEqual(result.status_code, 200)
+
+            state_payload = host_client.get("/api/state").json()
+            self.assertEqual(len(state_payload["scrim_results"]), 3)
+            stats = scrim_stats(state_payload)
+            self.assertEqual(stats[teams[0]["id"]]["series_wins"], 1)
+            self.assertEqual(stats[teams[0]["id"]]["series_losses"], 1)
+            self.assertEqual(stats[teams[0]["id"]]["set_wins"], 3)
+            self.assertEqual(stats[teams[0]["id"]]["set_losses"], 2)
+            self.assertEqual(stats[teams[3]["id"]]["bo5_wins"], 1)
+            self.assertEqual(
+                round(
+                    stats[teams[0]["id"]]["series_wins"]
+                    / (
+                        stats[teams[0]["id"]]["series_wins"]
+                        + stats[teams[0]["id"]]["series_losses"]
+                    )
+                    * 100
+                ),
+                50,
+            )
+
+    def test_participation_approval_updates_member_and_roster_views(self):
+        with TestClient(app) as host_client:
+            login_as_host(host_client)
+            with TestClient(app) as member_client:
+                member = member_client.post(
+                    "/api/scrim/users",
+                    json={
+                        "name": "Roster Applicant",
+                        "riot_id": "roster-applicant#KR1",
+                        "password": "1234",
+                    },
+                )
+                self.assertEqual(member.status_code, 200)
+                approval = host_client.patch(
+                    f'/api/scrim/admin/users/{member.json()["id"]}/approval',
+                    json={"approved": True},
+                )
+                self.assertEqual(approval.status_code, 200)
+
+            setup = host_client.post("/api/admin/setup-test-competitions")
+            self.assertEqual(setup.status_code, 200)
+            select = host_client.post("/api/competitions/test2-score-open/select")
+            self.assertEqual(select.status_code, 200)
+            state = host_client.get("/api/state").json()
+            self.assertTrue(state["participation"]["enabled"])
+
+            with TestClient(app) as member_client:
+                login = member_client.post(
+                    "/api/scrim/auth/login",
+                    json={"riot_id": "roster-applicant#KR1", "password": "1234"},
+                )
+                self.assertEqual(login.status_code, 200)
+                apply = member_client.post(
+                    "/api/participation/apply",
+                    json={"terms_agreed": True},
+                )
+                self.assertEqual(apply.status_code, 200)
+
+            applications = host_client.get("/api/participation/applications")
+            self.assertEqual(applications.status_code, 200)
+            applied = applications.json()["applied"]
+            self.assertEqual([user["riot_id"] for user in applied], ["roster-applicant#KR1"])
+            self.assertEqual(applied[0]["participation_status"], "APPLIED")
+
+            approved = host_client.patch(
+                f'/api/participation/applications/{member.json()["id"]}',
+                json={"status": "APPROVED"},
+            )
+            self.assertEqual(approved.status_code, 200)
+            self.assertEqual(approved.json()["status"], "APPROVED")
+
+            members = host_client.get("/api/members").json()
+            matching_members = [
+                item
+                for item in members["members"]
+                if item["riot_id"] == "roster-applicant#KR1"
+            ]
+            self.assertEqual(len(matching_members), 1)
+            self.assertEqual(matching_members[0]["participation_status"], "applied")
+            self.assertEqual(members["stats"]["applied"], 1)
+
+            roster = host_client.get("/api/roster?filter=applied").json()
+            self.assertEqual(roster["stats"]["applied"], 1)
+            matching_roster = [
+                entry
+                for entry in roster["entries"]
+                if entry["riot_id"] == "roster-applicant#KR1"
+            ]
+            self.assertEqual(len(matching_roster), 1)
+            self.assertEqual(matching_roster[0]["tournament_status"], "applied")
+
+    def test_test3_full_flow_from_new_competition_to_results(self):
+        positions = ("TOP", "JUG", "MID", "ADC", "SUP")
+
+        def scrim_stats(state_payload: dict) -> dict[str, dict[str, int]]:
+            stats = {
+                team["id"]: {
+                    "set_wins": 0,
+                    "set_losses": 0,
+                    "series_wins": 0,
+                    "series_losses": 0,
+                }
+                for team in state_payload["tournament"]["teams"]
+            }
+            for result in state_payload["scrim_results"]:
+                a = stats[result["team_a_id"]]
+                b = stats[result["team_b_id"]]
+                a["set_wins"] += result["team_a_score"]
+                a["set_losses"] += result["team_b_score"]
+                b["set_wins"] += result["team_b_score"]
+                b["set_losses"] += result["team_a_score"]
+                a_won = result["winner_team_id"] == result["team_a_id"]
+                a["series_wins"] += 1 if a_won else 0
+                a["series_losses"] += 0 if a_won else 1
+                b["series_wins"] += 0 if a_won else 1
+                b["series_losses"] += 1 if a_won else 0
+            return stats
+
+        with TestClient(app) as host_client:
+            login_as_host(host_client)
+            users = []
+            for index in range(10):
+                with TestClient(app) as member_client:
+                    member = member_client.post(
+                        "/api/scrim/users",
+                        json={
+                            "name": f"Test3 Member {index + 1}",
+                            "riot_id": f"test3-member-{index + 1}#KR1",
+                            "password": "1234",
+                        },
+                    )
+                    self.assertEqual(member.status_code, 200)
+                    approval = host_client.patch(
+                        f'/api/scrim/admin/users/{member.json()["id"]}/approval',
+                        json={"approved": True},
+                    )
+                    self.assertEqual(approval.status_code, 200)
+                    users.append(member.json())
+
+            created = host_client.post(
+                "/api/competitions",
+                json={
+                    "name": "test3",
+                    "mode": "tournament",
+                    "tournament_format": "single_elimination",
+                },
+            )
+            self.assertEqual(created.status_code, 200)
+            competition_id = created.json()["id"]
+            initial_state = host_client.get("/api/state").json()
+            self.assertEqual(
+                initial_state["competition_registry"]["active_competition_id"],
+                competition_id,
+            )
+            self.assertEqual(initial_state["settings"]["room_name"], "test3")
+            self.assertEqual(initial_state["participation"]["application_count"], 0)
+            self.assertFalse(initial_state["participation"]["enabled"])
+            self.assertEqual(initial_state["tournament"]["status"], "registration")
+            self.assertEqual(initial_state["tournament"]["teams"], [])
+            self.assertEqual(initial_state["scrim_results"], [])
+
+            applications = host_client.get("/api/participation/applications")
+            self.assertEqual(applications.status_code, 200)
+            self.assertEqual(applications.json()["applied"], [])
+            self.assertEqual(
+                {user["riot_id"] for user in applications.json()["not_applied"]},
+                {user["riot_id"] for user in users},
+            )
+
+            settings = host_client.put(
+                "/api/participation/settings",
+                json={"enabled": True, "terms": "test3 participation terms"},
+            )
+            self.assertEqual(settings.status_code, 200)
+
+            approved_user_ids = []
+            for user in users:
+                with TestClient(app) as member_client:
+                    login = member_client.post(
+                        "/api/scrim/auth/login",
+                        json={"riot_id": user["riot_id"], "password": "1234"},
+                    )
+                    self.assertEqual(login.status_code, 200)
+                    apply = member_client.post(
+                        "/api/participation/apply",
+                        json={"terms_agreed": True},
+                    )
+                    self.assertEqual(apply.status_code, 200)
+                pending = host_client.get("/api/participation/applications").json()
+                pending_user = next(
+                    item for item in pending["applied"] if item["riot_id"] == user["riot_id"]
+                )
+                self.assertEqual(pending_user["participation_status"], "APPLIED")
+                approved = host_client.patch(
+                    f'/api/participation/applications/{user["id"]}',
+                    json={"status": "APPROVED"},
+                )
+                self.assertEqual(approved.status_code, 200)
+                self.assertEqual(approved.json()["status"], "APPROVED")
+                approved_user_ids.append(user["id"])
+
+            after_approval = host_client.get("/api/state").json()
+            self.assertEqual(after_approval["participation"]["application_count"], 10)
+            roster = host_client.get("/api/roster?filter=applied&page_size=20").json()
+            self.assertEqual(roster["stats"]["applied"], 10)
+            self.assertEqual(
+                {entry["riot_id"] for entry in roster["entries"]},
+                {user["riot_id"] for user in users},
+            )
+
+            player_ids = []
+            for index, user in enumerate(users):
+                position = positions[index % len(positions)]
+                player = host_client.post(
+                    "/api/players",
+                    json={
+                        "name": user["name"],
+                        "riot_id": user["riot_id"],
+                        "tier": "GOLD",
+                        "score": 1,
+                        "primary_position": position,
+                        "secondary_position": None,
+                    },
+                )
+                self.assertEqual(player.status_code, 200)
+                player_ids.append(player.json()["id"])
+
+            teams = []
+            for team_index, captain_user in enumerate((users[0], users[5])):
+                with TestClient(app) as captain_client:
+                    login = captain_client.post(
+                        "/api/scrim/auth/login",
+                        json={"riot_id": captain_user["riot_id"], "password": "1234"},
+                    )
+                    self.assertEqual(login.status_code, 200)
+                    offset = team_index * 5
+                    team = captain_client.post(
+                        "/api/tournament/teams",
+                        json={
+                            "name": f"test3 Team {team_index + 1}",
+                            "registration_pin": f"300{team_index + 1}",
+                            "members": {
+                                position: player_ids[offset + position_index]
+                                for position_index, position in enumerate(positions)
+                            },
+                        },
+                    )
+                    self.assertEqual(team.status_code, 200)
+                    teams.append(team.json())
+                approval = host_client.post(
+                    f'/api/tournament/teams/{teams[-1]["id"]}/approval',
+                    json={"approved": True},
+                )
+                self.assertEqual(approval.status_code, 200)
+
+            with TestClient(app) as captain_client:
+                login = captain_client.post(
+                    "/api/scrim/auth/login",
+                    json={"riot_id": users[0]["riot_id"], "password": "1234"},
+                )
+                self.assertEqual(login.status_code, 200)
+                scrim_result = captain_client.post(
+                    "/api/scrim/results",
+                    json={
+                        "team_a_id": teams[0]["id"],
+                        "team_b_id": teams[1]["id"],
+                        "match_date": "2026-07-10",
+                        "best_of": 3,
+                        "team_a_score": 2,
+                        "team_b_score": 1,
+                    },
+                )
+                self.assertEqual(scrim_result.status_code, 200)
+                self.assertEqual(scrim_result.json()["winner_team_id"], teams[0]["id"])
+
+            state_with_scrim = host_client.get("/api/state").json()
+            stats = scrim_stats(state_with_scrim)
+            self.assertEqual(stats[teams[0]["id"]]["series_wins"], 1)
+            self.assertEqual(stats[teams[1]["id"]]["series_losses"], 1)
+            self.assertEqual(stats[teams[0]["id"]]["set_wins"], 2)
+            self.assertEqual(stats[teams[0]["id"]]["set_losses"], 1)
+
+            start = host_client.post("/api/tournament/start")
+            self.assertEqual(start.status_code, 200)
+            running_state = host_client.get("/api/state").json()
+            self.assertEqual(running_state["tournament"]["status"], "running")
+            match = running_state["tournament"]["rounds"][0][0]
+            self.assertEqual({match["team1_id"], match["team2_id"]}, {teams[0]["id"], teams[1]["id"]})
+            winner = host_client.post(
+                "/api/tournament/winner",
+                json={
+                    "round_index": 0,
+                    "match_index": 0,
+                    "team_id": teams[0]["id"],
+                },
+            )
+            self.assertEqual(winner.status_code, 200)
+            finished_state = host_client.get("/api/state").json()
+            self.assertEqual(finished_state["tournament"]["status"], "finished")
+            self.assertEqual(finished_state["tournament"]["champion_id"], teams[0]["id"])
+
     def test_team_member_can_create_and_update_scrim_result(self):
         with TestClient(app) as host_client:
             login_as_host(host_client)

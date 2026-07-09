@@ -726,6 +726,8 @@ async def update_participation_application(
                     status=data.status,
                     changed_at=changed_at,
                 )
+                if data.status == "APPROVED":
+                    scrim_db.sync_roster_from_approved_members(connection)
             except ValueError as exc:
                 raise HTTPException(404, str(exc)) from exc
         store.save()
@@ -785,32 +787,34 @@ async def list_roster(
         application["user_id"]: application
         for application in participation.get("applications", [])
     }
+    roster_view_filters = {"applied", "not_applied", "applied_unpaid"}
     with scrim_db.connect() as connection:
         counts = scrim_db.roster_counts(connection)
         has_riot_id = None
         user_ids = None
         participation_status = None
         payment_status = None
+        filter_after_payload = filter in roster_view_filters
         if filter == "with_id":
             has_riot_id = True
         elif filter == "without_id":
             has_riot_id = False
-        elif filter == "applied":
+        elif filter == "applied" and not filter_after_payload:
             participation_status = "applied"
-        elif filter == "not_applied":
+        elif filter == "not_applied" and not filter_after_payload:
             participation_status = "not_applied"
         elif filter == "applied_unpaid":
-            participation_status = "applied"
             payment_status = "unpaid"
-        total = scrim_db.count_roster_entries(
-            connection,
-            query=query,
-            has_riot_id=has_riot_id,
-            participation_status=participation_status,
-            payment_status=payment_status,
-        )
-        total_pages = max(1, (total + page_size - 1) // page_size)
-        page = min(page, total_pages)
+        if not filter_after_payload:
+            total = scrim_db.count_roster_entries(
+                connection,
+                query=query,
+                has_riot_id=has_riot_id,
+                participation_status=participation_status,
+                payment_status=payment_status,
+            )
+            total_pages = max(1, (total + page_size - 1) // page_size)
+            page = min(page, total_pages)
         entries = scrim_db.list_roster_entries(
             connection,
             query=query,
@@ -818,26 +822,72 @@ async def list_roster(
             user_ids=user_ids,
             participation_status=participation_status,
             payment_status=payment_status,
-            limit=page_size,
-            offset=(page - 1) * page_size,
+            limit=1_000_000 if filter_after_payload else page_size,
+            offset=0 if filter_after_payload else (page - 1) * page_size,
         )
+        unpaid_entries_for_stats = scrim_db.list_roster_entries(
+            connection,
+            payment_status="unpaid",
+            limit=1_000_000,
+        )
+        all_entries_for_stats = scrim_db.list_roster_entries(
+            connection,
+            limit=1_000_000,
+        )
+        history_user_ids = {
+            entry["user_id"]
+            for entry in [*entries, *unpaid_entries_for_stats, *all_entries_for_stats]
+            if entry.get("user_id")
+        }
         participation_rows = scrim_db.list_competition_participations(
             connection,
-            {entry["user_id"] for entry in entries if entry.get("user_id")},
-        )
-        applied_unpaid_count = scrim_db.count_roster_entries(
-            connection,
-            participation_status="applied",
-            payment_status="unpaid",
+            history_user_ids,
         )
     participation_history: dict[int, list[dict]] = {}
     for row in participation_rows:
         participation_history.setdefault(row["user_id"], []).append(row)
+    payload_entries = [
+        roster_payload(entry, applications, participation_history)
+        for entry in entries
+    ]
+    unpaid_payload_entries = [
+        roster_payload(entry, applications, participation_history)
+        for entry in unpaid_entries_for_stats
+    ]
+    all_payload_entries = [
+        roster_payload(entry, applications, participation_history)
+        for entry in all_entries_for_stats
+    ]
+    applied_roster_count = sum(
+        1 for entry in all_payload_entries if entry["tournament_status"] == "applied"
+    )
+    applied_unpaid_count = sum(
+        1
+        for entry in unpaid_payload_entries
+        if entry["tournament_status"] == "applied"
+    )
+    if filter == "applied":
+        payload_entries = [
+            entry for entry in payload_entries if entry["tournament_status"] == "applied"
+        ]
+    elif filter == "not_applied":
+        payload_entries = [
+            entry for entry in payload_entries if entry["tournament_status"] != "applied"
+        ]
+    elif filter == "applied_unpaid":
+        payload_entries = [
+            entry
+            for entry in payload_entries
+            if entry["tournament_status"] == "applied"
+            and str(entry.get("payment_status") or "").strip().upper() != "O"
+        ]
+    if filter_after_payload:
+        total = len(payload_entries)
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        page = min(page, total_pages)
+        payload_entries = payload_entries[(page - 1) * page_size : page * page_size]
     return {
-        "entries": [
-            roster_payload(entry, applications, participation_history)
-            for entry in entries
-        ],
+        "entries": payload_entries,
         "pagination": {
             "page": page,
             "page_size": page_size,
@@ -846,8 +896,8 @@ async def list_roster(
         },
         "stats": {
             **counts,
-            "applied": counts["applied"],
-            "not_applied": max(0, counts["total"] - counts["applied"]),
+            "applied": applied_roster_count,
+            "not_applied": max(0, counts["total"] - applied_roster_count),
             "applied_unpaid": applied_unpaid_count,
         },
     }
