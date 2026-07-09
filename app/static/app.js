@@ -1007,7 +1007,7 @@ function renderMemberRows(entries) {
           ${rosterCell(entry, "name")}
           ${rosterCell(entry, "riot_id", "Riot ID#KR1")}
           ${rosterCell(entry, "secondary_riot_id", "선택 입력")}
-          ${rosterCell(entry, "preferred_lines")}
+          ${rosterCell(entry, "preferred_lines", "순서대로 주, 부 라인")}
           ${rosterCell(entry, "tier")}
           ${rosterCell(entry, "payment_status")}
           ${rosterCell(entry, "participation_status_text")}

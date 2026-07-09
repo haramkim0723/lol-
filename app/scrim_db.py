@@ -4,6 +4,7 @@ import os
 import secrets
 import hashlib
 import hmac
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -731,6 +732,135 @@ ROSTER_FIELDS = {
     "notes",
 }
 
+ROSTER_POSITION_FIELDS = {
+    "TOP": "score_top",
+    "JUG": "score_jungle",
+    "MID": "score_mid",
+    "ADC": "score_adc",
+    "SUP": "score_support",
+}
+
+ROSTER_POSITION_ALIASES = {
+    "탑": "TOP",
+    "top": "TOP",
+    "정글": "JUG",
+    "jg": "JUG",
+    "jungle": "JUG",
+    "미드": "MID",
+    "mid": "MID",
+    "원딜": "ADC",
+    "adc": "ADC",
+    "바텀": "ADC",
+    "bottom": "ADC",
+    "서폿": "SUP",
+    "서포터": "SUP",
+    "sup": "SUP",
+    "support": "SUP",
+}
+
+# 수강대난투 26-2.xlsx의 '점수표' 시트 기준: TOP, JUG, MID, ADC, SUP
+ROSTER_TIER_SCORES = {
+    "GM1300": (65.5, 65.5, 65.0, 63.0, 64.0),
+    "GM1200": (63.4, 63.1, 63.0, 61.0, 62.1),
+    "GM1100": (60.2, 60.0, 60.5, 59.9, 60.2),
+    "GM1000": (58.7, 58.0, 58.5, 57.9, 58.7),
+    "GM900": (56.4, 57.0, 57.5, 55.9, 56.7),
+    "M799": (54.2, 56.4, 55.4, 53.9, 54.7),
+    "M699": (51.5, 53.6, 52.6, 51.0, 52.0),
+    "M599": (49.9, 50.4, 50.8, 49.5, 50.4),
+    "M499": (48.3, 48.7, 49.2, 48.0, 48.6),
+    "M399": (46.7, 47.1, 47.5, 46.5, 46.8),
+    "M299": (45.0, 45.4, 45.8, 46.1, 45.2),
+    "M199": (43.4, 43.8, 44.2, 44.4, 43.6),
+    "M99": (41.2, 41.6, 42.1, 42.2, 41.8),
+    "D1": (36.9, 38.3, 37.6, 37.8, 36.4),
+    "D2": (35.3, 36.6, 35.9, 36.0, 34.8),
+    "D3": (33.6, 34.9, 34.3, 34.5, 33.2),
+    "D4": (32.0, 33.3, 32.6, 32.7, 31.7),
+    "E1": (29.8, 31.0, 30.4, 30.6, 29.4),
+    "E2": (28.2, 29.4, 28.8, 28.9, 27.9),
+    "E3": (26.6, 27.6, 27.1, 27.1, 26.3),
+    "E4": (25.0, 26.0, 25.5, 25.5, 24.8),
+    "P1": (22.8, 23.6, 23.3, 23.2, 22.6),
+    "P2": (21.7, 22.6, 22.1, 22.2, 21.6),
+    "P3": (20.6, 21.5, 21.0, 21.1, 20.5),
+    "P4": (19.5, 20.2, 19.9, 19.4, 19.5),
+    "G1": (17.9, 16.5, 16.5, 16.9, 19.1),
+    "G2": (16.8, 15.5, 15.6, 16.0, 17.9),
+    "G3": (15.7, 14.5, 14.4, 15.0, 16.8),
+    "G4": (14.6, 13.5, 13.5, 14.1, 15.6),
+    "S1": (13.6, 12.5, 12.6, 13.0, 14.5),
+    "S2": (12.8, 11.7, 11.7, 12.4, 13.7),
+    "S3": (11.9, 11.0, 11.0, 11.7, 12.8),
+    "S4": (11.1, 10.2, 10.2, 10.9, 11.8),
+    "B1": (10.2, 9.4, 9.5, 9.5, 10.9),
+    "B2": (9.3, 8.5, 8.5, 8.3, 10.0),
+    "B3": (8.5, 7.8, 7.8, 7.6, 9.0),
+    "B4": (7.6, 7.0, 7.0, 6.8, 8.1),
+    "I1": (6.9, 6.4, 6.4, 6.3, 7.4),
+    "I2": (6.3, 5.8, 5.8, 5.6, 6.7),
+    "I3": (5.6, 5.2, 5.3, 5.0, 6.0),
+    "I4": (5.0, 4.6, 4.6, 4.4, 5.3),
+}
+
+
+def normalize_roster_tier(value: str | None) -> str | None:
+    raw = str(value or "").strip().upper().replace(" ", "")
+    if not raw:
+        return None
+    replacements = {
+        "DIAMOND": "D", "다이아몬드": "D", "EMERALD": "E", "에메랄드": "E",
+        "PLATINUM": "P", "플래티넘": "P", "GOLD": "G", "골드": "G",
+        "SILVER": "S", "실버": "S", "BRONZE": "B", "브론즈": "B",
+        "IRON": "I", "아이언": "I",
+    }
+    for name, prefix in replacements.items():
+        if raw.startswith(name):
+            division = raw[len(name):].replace("IV", "4").replace("III", "3").replace("II", "2").replace("I", "1")
+            return f"{prefix}{division}" if division else None
+    if raw in ROSTER_TIER_SCORES:
+        return raw
+    if raw.startswith(("GRANDMASTER", "그랜드마스터", "GM")):
+        numbers = [int(part) for part in re.findall(r"\d+", raw)]
+        lp = min(numbers) if len(numbers) > 1 else (numbers[0] if numbers else 0)
+        return "GM1300" if lp >= 1200 else "GM1200" if lp >= 1100 else "GM1100" if lp >= 1000 else "GM1000" if lp >= 900 else "GM900"
+    if raw.startswith(("MASTER", "마스터", "M")):
+        numbers = [int(part) for part in re.findall(r"\d+", raw)]
+        lp = min(numbers) if len(numbers) > 1 else (numbers[0] if numbers else 0)
+        return "M799" if lp >= 700 else "M699" if lp >= 600 else "M599" if lp >= 500 else "M499" if lp >= 400 else "M399" if lp >= 300 else "M299" if lp >= 200 else "M199" if lp >= 100 else "M99"
+    return None
+
+
+def roster_positions(value: str | None) -> list[str]:
+    tokens = re.split(r"[,/·>\s]+", str(value or "").strip())
+    positions = []
+    for token in tokens:
+        position = ROSTER_POSITION_ALIASES.get(token.casefold())
+        if position and position not in positions:
+            positions.append(position)
+    return positions
+
+
+def roster_adjustment(value: str | None) -> float:
+    match = re.search(r"[-+]?\d+(?:\.\d+)?", str(value or "").replace(",", ""))
+    return float(match.group()) if match else 0.0
+
+
+def calculate_roster_scores(fields: dict) -> dict[str, str | None]:
+    tier_key = normalize_roster_tier(fields.get("tier"))
+    tier_scores = ROSTER_TIER_SCORES.get(tier_key or "")
+    selected = set(roster_positions(fields.get("preferred_lines")))
+    adjustment = roster_adjustment(fields.get("top_adjustment")) + roster_adjustment(
+        fields.get("game_count_adjustment")
+    )
+    calculated = {field: None for field in ROSTER_POSITION_FIELDS.values()}
+    if not tier_scores:
+        return calculated
+    for index, position in enumerate(ROSTER_POSITION_FIELDS):
+        if position in selected:
+            calculated[ROSTER_POSITION_FIELDS[position]] = f"{tier_scores[index] + adjustment:.1f}"
+    return calculated
+
 
 def normalize_roster_row(row: dict) -> dict:
     normalized = dict(row)
@@ -873,6 +1003,8 @@ def upsert_roster_entry(connection, *, source_row: int, **fields) -> dict:
     if not normalized.get("name"):
         raise ValueError("명단 이름은 필수입니다.")
     existing = get_roster_entry_by_source_row(connection, source_row)
+    score_source = {**(existing or {}), **normalized}
+    normalized.update(calculate_roster_scores(score_source))
     if existing is None:
         columns = ["source_row", *normalized.keys()]
         values = [source_row, *normalized.values()]
@@ -1032,6 +1164,10 @@ def update_roster_entry(connection, roster_id: int, fields: dict) -> dict:
         return get_roster_entry(connection, roster_id)
     if "name" in allowed and not allowed["name"]:
         raise ValueError("명단 이름은 필수입니다.")
+    score_drivers = {"tier", "preferred_lines", "top_adjustment", "game_count_adjustment"}
+    if score_drivers.intersection(allowed):
+        existing = get_roster_entry(connection, roster_id)
+        allowed.update(calculate_roster_scores({**existing, **allowed}))
     assignments = ", ".join(f"{field} = ?" for field in allowed)
     connection.execute(
         f"""
