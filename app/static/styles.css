@@ -81,9 +81,12 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 36px 60px; }
 .players-panel { grid-column: 1 / -1; }
 .competition-manager { grid-column: 1 / -1; }
 .tournament-score-settings { grid-column: 1 / -1; }
-.score-limit-form { display: grid; grid-template-columns: minmax(220px,360px) auto; gap: 9px; align-items: end; }
-.score-limit-form input { width: 100%; height: 40px; margin: 0; padding: 8px 55px 8px 11px; border: 1px solid var(--line); border-radius: 9px; color: var(--gold-light); background: #080e15; outline: 0; font-weight: 900; }
-.score-limit-form button { width: fit-content; min-width: 104px; height: 40px; padding: 8px 13px; font-size: 10px; }
+.score-limit-form { display: grid; grid-template-columns: 1.4fr 2fr .7fr .9fr; gap: 12px; align-items: end; }
+.score-setting-field { display: grid; gap: 7px; color: var(--muted); font-size: 11px; font-weight: 800; }
+.score-limit-form input,
+.score-limit-form select { width: 100%; height: 52px; margin: 0; padding: 10px 13px; border: 1px solid rgba(153,176,204,.25); border-radius: 11px; color: #fff; background: #080e15; outline: 0; font-size: 14px; font-weight: 900; }
+.score-limit-form select { color: var(--gold-light); }
+.score-limit-form button { grid-column: 1 / -1; width: 100%; min-height: 48px; font-size: 12px; }
 .security-guide { margin: 9px 0 0; color: var(--muted); font-size: 9px; }
 .competition-create-form { display: grid; grid-template-columns: 1fr 180px auto; gap: 8px; }
 .competition-create-form input, .competition-create-form select { padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; color: #fff; background: #080e15; outline: 0; }
@@ -554,6 +557,9 @@ aside { display: grid; gap: 18px; }
 .participation-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
 .participation-lists h3 { margin: 0 0 10px; font-size: 14px; }
 .participation-lists h3 span { color: var(--gold-light); }
+.participation-host-nav { display: flex; gap: 8px; margin: 4px 0 18px; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: rgba(3,8,14,.55); }
+.participation-host-nav button { flex: 1; min-height: 44px; border-radius: 8px; color: var(--muted); background: transparent; font-weight: 900; }
+.participation-host-nav button.active { color: #0b1119; background: linear-gradient(135deg,var(--gold-light),var(--gold)); }
 .participation-user-list { display: grid; gap: 8px; }
 .participation-user {
   display: flex;
@@ -669,7 +675,7 @@ aside { display: grid; gap: 18px; }
 .scrim-shell.admin-only .admin-panel { width: 100%; }
 .dashboard-main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .scrim-shell .dashboard-main { grid-template-columns: 1fr; }
-.scrim-shell .dashboard-main > .panel:nth-child(-n+2) { display: none; }
+.scrim-shell .legacy-team-tool { display: none; }
 .result-form { display: grid; grid-template-columns: 1.1fr .8fr 1.2fr; gap: 10px; align-items: end; margin-bottom: 14px; }
 .result-form .inline-fields { grid-template-columns: 1fr 1fr; }
 .result-form label { color: var(--muted); font-size: 12px; font-weight: 700; }
@@ -677,6 +683,8 @@ aside { display: grid; gap: 18px; }
 .result-actions { display: flex; gap: 8px; align-items: center; }
 .result-actions button { min-height: 40px; padding: 8px 12px; font-size: 11px; }
 .scrim-result-item .team-head button { padding: 6px 9px; font-size: 10px; }
+.competition-room-format { max-width: 620px; padding: 11px 14px; border: 1px solid rgba(39,211,211,.24); border-radius: 10px; color: #75eeee; background: rgba(39,211,211,.07); font-size: 13px; font-weight: 900; text-align: center; }
+#competition-progress-panel #start-tournament-button { width: 100%; min-height: 50px; margin-top: 14px; font-size: 14px; font-weight: 900; }
 .panel-title.row { justify-content: space-between; align-items: flex-start; }
 .scrim-form { display: grid; gap: 14px; }
 .scrim-form label { color: var(--muted); font-size: 12px; font-weight: 600; }

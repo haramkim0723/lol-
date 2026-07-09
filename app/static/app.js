@@ -50,6 +50,7 @@ let riotPreviewData = null;
 let rosterPage = 1;
 let selectedScrimTeamId = null;
 let pendingApiCount = 0;
+let participationHostView = "settings";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -741,7 +742,9 @@ function renderSetup() {
 function renderTournament() {
   const tournament = state.tournament;
   const isHost = state.viewer.role === "host";
+  const isTournamentCompetition = activeCompetition()?.mode === "tournament";
   const registrationOpen = tournament.status === "registration";
+  $("#competition-progress-panel").classList.toggle("hidden", !isTournamentCompetition);
   $("#tournament-status").textContent =
     tournament.status === "registration" ? "TEAM REGISTRATION"
       : tournament.status === "group" ? "GROUP STAGE"
@@ -751,20 +754,25 @@ function renderTournament() {
   $("#tournament-registration-area").classList.toggle("hidden", !registrationOpen);
   $("#team-registration-closed-tournament").classList.toggle("hidden", registrationOpen);
   $("#tournament-bracket-section").classList.toggle(
-    "hidden", !["running", "finished"].includes(tournament.status)
+    "hidden", !isTournamentCompetition || !["running", "finished"].includes(tournament.status)
   );
-  $("#tournament-group-section").classList.toggle("hidden", tournament.status !== "group");
-  $("#tournament-host-controls").classList.toggle("hidden", !isHost);
-  $("#tournament-score-limit-input").value = tournament.score_limit;
+  $("#tournament-group-section").classList.toggle(
+    "hidden", !isTournamentCompetition || tournament.status !== "group"
+  );
+  $("#teacher-score-limit-input").value = tournament.score_limit;
   $("#tournament-format-input").value = tournament.format || "single_elimination";
   $("#tournament-group-count-input").value = tournament.group_count || 2;
   $("#tournament-qualifiers-input").value = tournament.qualifiers_per_group || 2;
   const settingsLocked = ["running", "finished"].includes(tournament.status);
-  ["#tournament-score-limit-input", "#tournament-format-input", "#tournament-group-count-input", "#tournament-qualifiers-input", "#save-tournament-settings"]
+  ["#teacher-score-limit-input", "#tournament-format-input", "#tournament-group-count-input", "#tournament-qualifiers-input", "#save-tournament-settings"]
     .forEach((selector) => { $(selector).disabled = settingsLocked; });
-  $("#start-tournament-button").classList.toggle("hidden", !registrationOpen);
+  $("#start-tournament-button").classList.toggle("hidden", !registrationOpen || !isHost);
   $("#start-tournament-button").textContent =
     tournament.format === "group_then_knockout" ? "조 추첨하기" : "본선 대진표 생성";
+  $("#competition-room-format").textContent =
+    tournament.format === "group_then_knockout"
+      ? `조별 추첨 → 본선 · ${tournament.group_count}개 조 · 조당 ${tournament.qualifiers_per_group}팀 진출`
+      : "싱글 엘리미네이션";
   $("#team-score-limit").textContent = tournament.score_limit;
   $("#simulator-score-limit").textContent = tournament.score_limit;
   $("#open-team-register").classList.toggle("hidden", !registrationOpen);
@@ -862,7 +870,17 @@ function renderParticipation() {
     form.elements.enabled.checked = Boolean(participation.enabled);
     form.elements.terms.value = participation.terms || "";
     loadParticipationApplications();
+    setParticipationHostView(participationHostView);
   }
+}
+
+function setParticipationHostView(view) {
+  participationHostView = view;
+  $("#participation-settings-view").classList.toggle("hidden", view !== "settings");
+  $("#participation-approvals-view").classList.toggle("hidden", view !== "approvals");
+  $$("[data-participation-host-view]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.participationHostView === view);
+  });
 }
 
 function renderParticipationUsers(target, users) {
@@ -877,7 +895,7 @@ function renderParticipationUsers(target, users) {
         <small>${participationStatusLabel(user.participation_status)}${user.applied_at ? ` · ${formatDateTime(user.applied_at)}` : ""}</small>
         ${user.applied_at ? `<div class="participation-actions">
           <button class="ghost" type="button" data-participation-status="${user.id}" data-status="APPROVED">승인</button>
-          <button class="ghost" type="button" data-participation-status="${user.id}" data-status="CANCELLED">취소</button>
+          <button class="remove" type="button" data-participation-status="${user.id}" data-status="CANCELLED">거절</button>
         </div>` : ""}
       </article>
     `).join("")
@@ -1593,11 +1611,11 @@ $("#teacher-score-limit-form").addEventListener("submit", async (event) => {
       method: "PUT",
       body: JSON.stringify(tournamentSettingsPayload(scoreLimit)),
     });
-    toast(`점수제 팀 총점을 ${scoreLimit}점으로 설정했습니다.`);
+    toast("점수제 대회 설정을 저장했습니다.");
   } catch (error) { toast(error.message, true); }
 });
 
-function tournamentSettingsPayload(scoreLimit = Number($("#tournament-score-limit-input").value)) {
+function tournamentSettingsPayload(scoreLimit = Number($("#teacher-score-limit-input").value)) {
   return {
     score_limit: scoreLimit,
     format: $("#tournament-format-input").value || state.tournament.format || "single_elimination",
@@ -1733,20 +1751,18 @@ $("#team-simulator-form").addEventListener("submit", (event) => {
     renderSimulatorRecommendations(result.recommendations);
   }).catch((error) => toast(error.message, true));
 });
-$("#save-tournament-settings").addEventListener("click", async () => {
-  try {
-    await api("/api/tournament/settings", {
-      method: "PUT",
-      body: JSON.stringify(tournamentSettingsPayload()),
-    });
-    toast("대회 진행 설정을 저장했습니다.");
-  } catch (error) { toast(error.message, true); }
-});
 $("#start-tournament-button").addEventListener("click", async () => {
   try {
     await api("/api/tournament/start", { method: "POST" });
     toast(state.tournament.format === "group_then_knockout" ? "조 추첨을 완료했습니다." : "대진표를 생성했습니다.");
   } catch (error) { toast(error.message, true); }
+});
+
+$$("[data-participation-host-view]").forEach((button) => {
+  button.addEventListener("click", () => {
+    setParticipationHostView(button.dataset.participationHostView);
+    if (participationHostView === "approvals") loadParticipationApplications();
+  });
 });
 
 $("#tournament-groups").addEventListener("change", async (event) => {
@@ -1805,7 +1821,7 @@ document.addEventListener("click", async (event) => {
     });
     await loadParticipationApplications();
     if (currentView === "members") await loadMembers();
-    toast(button.dataset.status === "APPROVED" ? "참가를 승인했습니다." : "참가를 취소했습니다.");
+    toast(button.dataset.status === "APPROVED" ? "참가를 승인했습니다." : "참가 신청을 거절했습니다.");
   } catch (error) {
     toast(error.message, true);
   }

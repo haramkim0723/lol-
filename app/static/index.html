@@ -95,18 +95,30 @@
           <p class="danger-guide">대회를 삭제하면 해당 참가자, 팀, 경매 기록과 대진표가 모두 삭제됩니다.</p>
         </article>
         <article class="panel tournament-score-settings">
-          <div class="panel-title"><span>SCORE</span><h2>점수제 팀 총점 설정</h2></div>
+          <div class="panel-title"><span>SCORE</span><h2>점수제 대회 설정</h2></div>
           <form id="teacher-score-limit-form" class="score-limit-form">
-            <div>
+            <div class="score-setting-field">
               <span class="field-caption">현재 대회의 팀 총점 제한</span>
               <div class="input-with-unit">
                 <input id="teacher-score-limit-input" name="score_limit" type="number" min="0" max="5000" required />
                 <span>POINT</span>
               </div>
             </div>
-            <button class="primary" type="submit">총점 제한 저장</button>
+            <label class="score-setting-field">진행 방식
+              <select id="tournament-format-input">
+                <option value="single_elimination">바로 싱글 엘리미네이션</option>
+                <option value="group_then_knockout">조별 추첨 후 본선</option>
+              </select>
+            </label>
+            <label class="score-setting-field">조 수
+              <input id="tournament-group-count-input" type="number" min="2" max="16" />
+            </label>
+            <label class="score-setting-field">조당 진출팀
+              <input id="tournament-qualifiers-input" type="number" min="1" max="8" />
+            </label>
+            <button id="save-tournament-settings" class="primary" type="submit">대회 설정 저장</button>
           </form>
-          <p class="security-guide">선수 5명의 점수제 점수 합계가 이 값을 넘으면 팀을 등록할 수 없습니다.</p>
+          <p class="security-guide">본선 시작 전까지 설정을 변경할 수 있습니다. 조 추첨과 본선 생성은 대회 진행방에서 합니다.</p>
         </article>
         <article class="panel settings-panel">
           <div class="panel-title"><span>01</span><h2>경매 설정</h2></div>
@@ -235,25 +247,33 @@
 
         <article id="participation-host-panel" class="panel participation-host-panel hidden">
           <div class="panel-title"><span>HOST</span><h2>참가 신청 관리</h2></div>
-          <form id="participation-settings-form" class="participation-settings-form">
-            <label class="toggle-row">
-              <input name="enabled" type="checkbox" />
-              <span>현재 대회 참가 신청 열기</span>
-            </label>
-            <label>참가 약관
-              <textarea name="terms" maxlength="2000" required></textarea>
-            </label>
-            <button class="primary" type="submit">설정 저장</button>
-          </form>
-          <div class="participation-lists">
-            <section>
-              <h3>참가 신청한 인원 <span id="applied-count">0</span></h3>
-              <div id="applied-users" class="participation-user-list"></div>
-            </section>
-            <section>
-              <h3>아직 신청하지 않은 인원 <span id="not-applied-count">0</span></h3>
-              <div id="not-applied-users" class="participation-user-list"></div>
-            </section>
+          <nav class="participation-host-nav">
+            <button class="active" type="button" data-participation-host-view="settings">참가 신청 관리</button>
+            <button type="button" data-participation-host-view="approvals">참가 신청 승인</button>
+          </nav>
+          <div id="participation-settings-view">
+            <form id="participation-settings-form" class="participation-settings-form">
+              <label class="toggle-row">
+                <input name="enabled" type="checkbox" />
+                <span>현재 대회 참가 신청 열기</span>
+              </label>
+              <label>참가 약관
+                <textarea name="terms" maxlength="2000" required></textarea>
+              </label>
+              <button class="primary" type="submit">설정 저장</button>
+            </form>
+          </div>
+          <div id="participation-approvals-view" class="hidden">
+            <div class="participation-lists">
+              <section>
+                <h3>승인 대기 및 처리 명단 <span id="applied-count">0</span></h3>
+                <div id="applied-users" class="participation-user-list"></div>
+              </section>
+              <section>
+                <h3>아직 신청하지 않은 회원 <span id="not-applied-count">0</span></h3>
+                <div id="not-applied-users" class="participation-user-list"></div>
+              </section>
+            </div>
           </div>
         </article>
       </section>
@@ -441,37 +461,6 @@
         <div class="panel tournament-team-panel">
           <div class="panel-title"><span>TEAMS</span><h2>등록 팀</h2></div>
           <div id="tournament-team-list" class="tournament-team-list"></div>
-          <div id="tournament-host-controls" class="tournament-host-controls hidden">
-            <label>팀 총점 제한<input id="tournament-score-limit-input" type="number" min="0" /></label>
-            <label>진행 방식
-              <select id="tournament-format-input">
-                <option value="single_elimination">바로 싱글 엘리미네이션</option>
-                <option value="group_then_knockout">조별 추첨 후 본선</option>
-              </select>
-            </label>
-            <label>조 수<input id="tournament-group-count-input" type="number" min="2" max="16" /></label>
-            <label>조당 진출팀<input id="tournament-qualifiers-input" type="number" min="1" max="8" /></label>
-            <button id="save-tournament-settings" class="ghost" type="button">대회 설정 저장</button>
-            <button id="start-tournament-button" class="accent" type="button">진행 시작</button>
-          </div>
-        </div>
-
-        <div id="tournament-group-section" class="panel hidden">
-          <div class="panel-title"><span>GROUPS</span><h2>조 편성 및 진출팀</h2></div>
-          <p class="guide">강사님이 각 조의 본선 진출팀을 선택해 주세요.</p>
-          <div id="tournament-groups" class="tournament-team-list"></div>
-          <button id="start-group-knockout-button" class="accent hidden" type="button">진출팀으로 본선 대진표 생성</button>
-        </div>
-
-        <div id="tournament-bracket-section" class="tournament-bracket-section hidden">
-          <div class="bracket-header">
-            <div>
-              <p class="eyebrow">TOURNAMENT BRACKET</p>
-              <h2>대진표</h2>
-            </div>
-            <div id="tournament-champion" class="tournament-champion"></div>
-          </div>
-          <div id="tournament-bracket" class="tournament-bracket"></div>
         </div>
       </section>
 
@@ -520,7 +509,27 @@
 
       <section id="scrim-panel" class="scrim-shell hidden">
         <section class="dashboard-main">
-          <article class="panel">
+          <article id="competition-progress-panel" class="panel wide">
+            <div class="panel-title row">
+              <div><span>TOURNAMENT</span><h2>대회 진행</h2></div>
+              <div id="competition-room-format" class="competition-room-format"></div>
+            </div>
+            <button id="start-tournament-button" class="accent hidden" type="button">진행 시작</button>
+          </article>
+          <article id="tournament-group-section" class="panel wide hidden">
+            <div class="panel-title"><span>GROUPS</span><h2>조 편성 및 진출팀</h2></div>
+            <p class="guide">강사님이 각 조의 본선 진출팀을 선택해 주세요.</p>
+            <div id="tournament-groups" class="tournament-team-list"></div>
+            <button id="start-group-knockout-button" class="accent hidden" type="button">진출팀으로 본선 대진표 생성</button>
+          </article>
+          <article id="tournament-bracket-section" class="panel wide tournament-bracket-section hidden">
+            <div class="bracket-header">
+              <div><p class="eyebrow">TOURNAMENT BRACKET</p><h2>본선 대진표</h2></div>
+              <div id="tournament-champion" class="tournament-champion"></div>
+            </div>
+            <div id="tournament-bracket" class="tournament-bracket"></div>
+          </article>
+          <article class="panel legacy-team-tool">
             <div class="panel-title">
               <span>MY TEAM</span>
               <h2>팀 생성</h2>
@@ -541,7 +550,7 @@
             </form>
           </article>
 
-          <article class="panel">
+          <article class="panel legacy-team-tool">
             <div class="panel-title">
               <span>JOIN</span>
               <h2>팀 코드 가입</h2>
