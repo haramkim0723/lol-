@@ -33,6 +33,7 @@ def new_state() -> dict[str, Any]:
             "groups": [],
             "qualified_team_ids": [],
             "rounds": [],
+            "round_labels": [],
             "champion_id": None,
         },
         "participation": {
@@ -518,6 +519,7 @@ def _create_knockout(tournament: dict[str, Any], approved: list[str]) -> None:
         match["team1_id"] = seeds[index * 2]
         match["team2_id"] = seeds[index * 2 + 1]
     tournament["rounds"] = rounds
+    tournament["round_labels"] = []
     tournament["status"] = "running"
     tournament["champion_id"] = None
     _advance_byes(tournament)
@@ -538,6 +540,16 @@ def select_match_winner(
     if not match["team1_id"] or not match["team2_id"]:
         raise ValueError("부전승 경기는 자동으로 처리됩니다.")
     match["winner_id"] = team_id
+    loser_id = (
+        match["team2_id"] if team_id == match["team1_id"] else match["team1_id"]
+    )
+    if "winner_to" in match or "loser_to" in match:
+        _route_custom_result(tournament, match.get("winner_to"), team_id)
+        _route_custom_result(tournament, match.get("loser_to"), loser_id)
+        if not match.get("winner_to"):
+            tournament["champion_id"] = team_id
+            tournament["status"] = "finished"
+        return
     if round_index == len(tournament["rounds"]) - 1:
         tournament["champion_id"] = team_id
         tournament["status"] = "finished"
@@ -547,6 +559,62 @@ def select_match_winner(
     next_match[slot] = team_id
     next_match["winner_id"] = None
     _advance_byes(tournament)
+
+
+def set_custom_bracket(
+    state: dict[str, Any], round_definitions: list[dict[str, Any]]
+) -> None:
+    tournament = state["tournament"]
+    allowed_team_ids = {
+        team["id"] for team in tournament["teams"] if team["status"] == "approved"
+    }
+    if tournament.get("groups"):
+        allowed_team_ids &= set(tournament["qualified_team_ids"])
+    rounds: list[list[dict[str, Any]]] = []
+    labels: list[str] = []
+    for round_definition in round_definitions:
+        labels.append(round_definition["label"].strip())
+        matches = []
+        for definition in round_definition["matches"]:
+            team_ids = [definition.get("team1_id"), definition.get("team2_id")]
+            if any(team_id and team_id not in allowed_team_ids for team_id in team_ids):
+                raise ValueError("본선 참가 대상이 아닌 팀이 포함되어 있습니다.")
+            matches.append(
+                {
+                    "id": uuid.uuid4().hex,
+                    "team1_id": definition.get("team1_id"),
+                    "team2_id": definition.get("team2_id"),
+                    "winner_id": None,
+                    "winner_to": definition.get("winner_to"),
+                    "loser_to": definition.get("loser_to"),
+                }
+            )
+        rounds.append(matches)
+    for round_index, matches in enumerate(rounds):
+        for match in matches:
+            for route in (match.get("winner_to"), match.get("loser_to")):
+                if route is None:
+                    continue
+                target_round = route["round_index"]
+                target_match = route["match_index"]
+                if target_round <= round_index:
+                    raise ValueError("승자·패자는 이후 라운드 경기로만 이동할 수 있습니다.")
+                if target_round >= len(rounds) or target_match >= len(rounds[target_round]):
+                    raise ValueError("이동 대상 경기를 찾을 수 없습니다.")
+    tournament["rounds"] = rounds
+    tournament["round_labels"] = labels
+    tournament["champion_id"] = None
+    tournament["status"] = "running"
+
+
+def _route_custom_result(
+    tournament: dict[str, Any], route: dict[str, Any] | None, team_id: str
+) -> None:
+    if route is None:
+        return
+    target = tournament["rounds"][route["round_index"]][route["match_index"]]
+    target[route["slot"]] = team_id
+    target["winner_id"] = None
 
 
 def _advance_byes(tournament: dict[str, Any]) -> None:

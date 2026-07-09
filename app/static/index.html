@@ -80,10 +80,10 @@
               <option value="tournament">점수제 대회</option>
             </select>
             <div id="competition-tournament-options" class="hidden">
-              <label>진행 방식
+              <label>예선 조 편성
                 <select name="tournament_format">
-                  <option value="single_elimination">바로 싱글 엘리미네이션</option>
-                  <option value="group_then_knockout">조별 추첨 후 본선</option>
+                  <option value="single_elimination">사용 안함 · 바로 본선 편집</option>
+                  <option value="group_then_knockout">사용 · 조 편성 후 본선 편집</option>
                 </select>
               </label>
               <label>조 수<input name="group_count" type="number" min="2" max="16" value="2" /></label>
@@ -104,10 +104,10 @@
                 <span>POINT</span>
               </div>
             </div>
-            <label class="score-setting-field">진행 방식
+            <label class="score-setting-field">예선 조 편성
               <select id="tournament-format-input">
-                <option value="single_elimination">바로 싱글 엘리미네이션</option>
-                <option value="group_then_knockout">조별 추첨 후 본선</option>
+                <option value="single_elimination">사용 안함 · 바로 본선 편집</option>
+                <option value="group_then_knockout">사용 · 조 편성 후 본선 편집</option>
               </select>
             </label>
             <label class="score-setting-field">조 수
@@ -515,12 +515,25 @@
               <div id="competition-room-format" class="competition-room-format"></div>
             </div>
             <button id="start-tournament-button" class="accent hidden" type="button">진행 시작</button>
+            <button id="open-bracket-editor-button" class="ghost hidden" type="button">본선 대진 직접 편집</button>
+          </article>
+          <article id="bracket-editor-panel" class="panel wide hidden">
+            <div class="panel-title row">
+              <div><span>BRACKET EDITOR</span><h2>본선 대진 편집</h2></div>
+              <button id="add-bracket-round-button" class="ghost" type="button">라운드 추가</button>
+            </div>
+            <p class="guide">경기별 팀을 배치하고 승자·패자의 다음 이동 경기를 지정하세요. 더블 엘리미네이션도 자유롭게 구성할 수 있습니다.</p>
+            <div id="bracket-editor-rounds" class="bracket-editor-rounds"></div>
+            <div class="bracket-editor-actions">
+              <button id="cancel-bracket-editor-button" class="ghost" type="button">취소</button>
+              <button id="save-bracket-editor-button" class="primary" type="button">대진표 저장 및 진행</button>
+            </div>
           </article>
           <article id="tournament-group-section" class="panel wide hidden">
             <div class="panel-title"><span>GROUPS</span><h2>조 편성 및 진출팀</h2></div>
             <p class="guide">강사님이 각 조의 본선 진출팀을 선택해 주세요.</p>
             <div id="tournament-groups" class="tournament-team-list"></div>
-            <button id="start-group-knockout-button" class="accent hidden" type="button">진출팀으로 본선 대진표 생성</button>
+            <button id="start-group-knockout-button" class="accent hidden" type="button">진출팀으로 본선 편집 시작</button>
           </article>
           <article id="tournament-bracket-section" class="panel wide tournament-bracket-section hidden">
             <div class="bracket-header">

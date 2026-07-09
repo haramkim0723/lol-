@@ -290,6 +290,28 @@ class GroupQualifiersInput(BaseModel):
     team_ids: list[str] = Field(max_length=8)
 
 
+class BracketRouteInput(BaseModel):
+    round_index: int = Field(ge=0)
+    match_index: int = Field(ge=0)
+    slot: Literal["team1_id", "team2_id"]
+
+
+class CustomBracketMatchInput(BaseModel):
+    team1_id: str | None = None
+    team2_id: str | None = None
+    winner_to: BracketRouteInput | None = None
+    loser_to: BracketRouteInput | None = None
+
+
+class CustomBracketRoundInput(BaseModel):
+    label: str = Field(min_length=1, max_length=40)
+    matches: list[CustomBracketMatchInput] = Field(min_length=1, max_length=64)
+
+
+class CustomBracketInput(BaseModel):
+    rounds: list[CustomBracketRoundInput] = Field(min_length=1, max_length=32)
+
+
 class ScrimResultInput(BaseModel):
     team_id: str
     match_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
@@ -1220,6 +1242,16 @@ async def update_group_qualifiers(data: GroupQualifiersInput, request: Request):
 async def start_group_knockout(request: Request):
     require_host(request)
     return await mutate(lambda: engine.start_group_knockout(store.state))
+
+
+@app.put("/api/tournament/bracket")
+async def save_custom_bracket(data: CustomBracketInput, request: Request):
+    require_host(request)
+    return await mutate(
+        lambda: engine.set_custom_bracket(
+            store.state, [round_.model_dump() for round_ in data.rounds]
+        )
+    )
 
 
 @app.post("/api/tournament/winner")

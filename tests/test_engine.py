@@ -233,6 +233,49 @@ class TournamentEngineTest(unittest.TestCase):
         self.assertEqual(tournament["status"], "running")
         self.assertEqual(len(tournament["rounds"][0]), 1)
 
+    def test_custom_bracket_routes_winner_and_loser(self):
+        first = engine.register_tournament_team(
+            self.state, "A팀", self.members, "1234"
+        )
+        engine.approve_tournament_team(self.state, first["id"], True)
+        other_members = {}
+        for position in engine.POSITIONS:
+            player = engine.add_player(
+                self.state, f"B-{position}", "", "GOLD", position, score=1
+            )
+            other_members[position] = player["id"]
+        second = engine.register_tournament_team(
+            self.state, "B팀", other_members, "5678"
+        )
+        engine.approve_tournament_team(self.state, second["id"], True)
+        engine.set_custom_bracket(
+            self.state,
+            [
+                {
+                    "label": "승자조",
+                    "matches": [{
+                        "team1_id": first["id"],
+                        "team2_id": second["id"],
+                        "winner_to": {"round_index": 1, "match_index": 0, "slot": "team1_id"},
+                        "loser_to": {"round_index": 1, "match_index": 0, "slot": "team2_id"},
+                    }],
+                },
+                {
+                    "label": "최종전",
+                    "matches": [{
+                        "team1_id": None,
+                        "team2_id": None,
+                        "winner_to": None,
+                        "loser_to": None,
+                    }],
+                },
+            ],
+        )
+        engine.select_match_winner(self.state, 0, 0, first["id"])
+        final = self.state["tournament"]["rounds"][1][0]
+        self.assertEqual(final["team1_id"], first["id"])
+        self.assertEqual(final["team2_id"], second["id"])
+
 
 if __name__ == "__main__":
     unittest.main()

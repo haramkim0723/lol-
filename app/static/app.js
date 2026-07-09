@@ -51,6 +51,7 @@ let rosterPage = 1;
 let selectedScrimTeamId = null;
 let pendingApiCount = 0;
 let participationHostView = "settings";
+let bracketDraft = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -766,13 +767,20 @@ function renderTournament() {
   const settingsLocked = ["running", "finished"].includes(tournament.status);
   ["#teacher-score-limit-input", "#tournament-format-input", "#tournament-group-count-input", "#tournament-qualifiers-input", "#save-tournament-settings"]
     .forEach((selector) => { $(selector).disabled = settingsLocked; });
-  $("#start-tournament-button").classList.toggle("hidden", !registrationOpen || !isHost);
-  $("#start-tournament-button").textContent =
-    tournament.format === "group_then_knockout" ? "조 추첨하기" : "본선 대진표 생성";
+  $("#start-tournament-button").classList.toggle(
+    "hidden", !registrationOpen || !isHost || tournament.format !== "group_then_knockout"
+  );
+  $("#open-bracket-editor-button").classList.toggle(
+    "hidden",
+    !isTournamentCompetition
+      || !isHost
+      || tournament.teams.filter((team) => team.status === "approved").length < 2
+  );
+  $("#start-tournament-button").textContent = "조 자동 추첨";
   $("#competition-room-format").textContent =
     tournament.format === "group_then_knockout"
-      ? `조별 추첨 → 본선 · ${tournament.group_count}개 조 · 조당 ${tournament.qualifiers_per_group}팀 진출`
-      : "싱글 엘리미네이션";
+      ? `조 편성 사용 · ${tournament.group_count}개 조 · 조당 ${tournament.qualifiers_per_group}팀 진출 · 본선 자유 편집`
+      : "조 편성 없음 · 본선 대진 자유 편집";
   $("#team-score-limit").textContent = tournament.score_limit;
   $("#simulator-score-limit").textContent = tournament.score_limit;
   $("#open-team-register").classList.toggle("hidden", !registrationOpen);
@@ -817,27 +825,46 @@ function renderTournamentGroups() {
   const tournament = state.tournament;
   const isHost = state.viewer.role === "host";
   const teamById = (id) => tournament.teams.find((team) => team.id === id);
+  const groupColors = ["blue", "cyan", "green", "slate", "lime", "red", "purple", "indigo"];
   $("#start-group-knockout-button").classList.toggle(
     "hidden", tournament.status !== "group" || !isHost
   );
-  $("#tournament-groups").innerHTML = (tournament.groups || []).map((group, groupIndex) => `
-    <article class="registered-team">
-      <div class="registered-team-head">
-        <strong>${escapeHtml(group.name)}</strong>
-        <span>${(group.qualified_team_ids || []).length} / ${tournament.qualifiers_per_group}팀 선택</span>
+  const groups = tournament.groups || [];
+  const totalTeams = groups.reduce((sum, group) => sum + group.team_ids.length, 0);
+  $("#tournament-groups").innerHTML = `
+    <div class="group-draft-layout">
+      <aside class="group-draft-summary">
+        <span>GROUP CONFIGURATION</span>
+        <dl>
+          <div><dt>전체 팀</dt><dd>${totalTeams}</dd></div>
+          <div><dt>조 수</dt><dd>${groups.length}</dd></div>
+          <div><dt>조당 진출</dt><dd>${tournament.qualifiers_per_group}</dd></div>
+        </dl>
+        <p>체크한 팀이 본선 진출팀이 됩니다.</p>
+      </aside>
+      <div class="group-draft-board">
+        ${groups.map((group, groupIndex) => `
+          <article class="group-draft-card ${groupColors[groupIndex % groupColors.length]}">
+            <header>
+              <strong>${escapeHtml(group.name)}</strong>
+              <span>${(group.qualified_team_ids || []).length}/${tournament.qualifiers_per_group}</span>
+            </header>
+            <div>
+              ${group.team_ids.map((teamId, teamIndex) => {
+                const checked = (group.qualified_team_ids || []).includes(teamId);
+                return `<label class="group-team-row${checked ? " qualified" : ""}">
+                  <span class="group-team-seed">${teamIndex + 1}</span>
+                  <strong>${escapeHtml(teamById(teamId)?.name || "-")}</strong>
+                  <input type="checkbox" data-group-qualifier="${groupIndex}" value="${teamId}"
+                    aria-label="${escapeHtml(teamById(teamId)?.name || "-")} 본선 진출"
+                    ${checked ? "checked" : ""} ${isHost ? "" : "disabled"} />
+                </label>`;
+              }).join("")}
+            </div>
+          </article>
+        `).join("")}
       </div>
-      <div class="registered-team-members">
-        ${group.team_ids.map((teamId) => {
-          const checked = (group.qualified_team_ids || []).includes(teamId);
-          return `<label class="registered-team-member">
-            <input type="checkbox" data-group-qualifier="${groupIndex}" value="${teamId}"
-              ${checked ? "checked" : ""} ${isHost ? "" : "disabled"} />
-            <strong>${escapeHtml(teamById(teamId)?.name || "-")}</strong>
-          </label>`;
-        }).join("")}
-      </div>
-    </article>
-  `).join("");
+    </div>`;
 }
 
 function renderParticipation() {
@@ -1237,11 +1264,19 @@ function renderTournamentBracket() {
   $("#tournament-champion").textContent = tournament.champion_id
     ? `🏆 ${teamById(tournament.champion_id)?.name || ""} 우승`
     : "";
+  const roundLabel = (roundIndex) => {
+    const remaining = tournament.rounds.length - roundIndex;
+    if (remaining === 1) return "FINAL";
+    if (remaining === 2) return "SEMI-FINALS";
+    if (remaining === 3) return "QUARTER-FINALS";
+    return `ROUND OF ${2 ** remaining}`;
+  };
   $("#tournament-bracket").innerHTML = tournament.rounds.map((round, roundIndex) => `
     <section class="bracket-round">
-      <div class="bracket-round-title">${roundIndex === tournament.rounds.length - 1 ? "FINAL" : `ROUND ${roundIndex + 1}`}</div>
+      <div class="bracket-round-title">${escapeHtml(tournament.round_labels?.[roundIndex] || roundLabel(roundIndex))}</div>
       ${round.map((match, matchIndex) => `
         <div class="bracket-match">
+          <div class="bracket-match-label">MATCH ${matchIndex + 1}${match.winner_id ? " · FINISHED" : ""}</div>
           ${["team1_id", "team2_id"].map((slot) => {
             const team = teamById(match[slot]);
             const canSelect = isHost && team && match.team1_id && match.team2_id && !match.winner_id;
@@ -1624,6 +1659,93 @@ function tournamentSettingsPayload(scoreLimit = Number($("#teacher-score-limit-i
   };
 }
 
+function defaultBracketDraft() {
+  const qualified = new Set(state.tournament.qualified_team_ids || []);
+  const approved = state.tournament.teams.filter(
+    (team) => team.status === "approved"
+      && (!state.tournament.groups?.length || qualified.has(team.id))
+  );
+  const firstMatches = [];
+  for (let index = 0; index < approved.length; index += 2) {
+    firstMatches.push({
+      team1_id: approved[index]?.id || null,
+      team2_id: approved[index + 1]?.id || null,
+      winner_to: null,
+      loser_to: null,
+    });
+  }
+  return [
+    { label: "1라운드", matches: firstMatches.length ? firstMatches : [{ team1_id: null, team2_id: null, winner_to: null, loser_to: null }] },
+    { label: "결승", matches: [{ team1_id: null, team2_id: null, winner_to: null, loser_to: null }] },
+  ];
+}
+
+function openBracketEditor() {
+  const tournament = state.tournament;
+  bracketDraft = tournament.rounds.length
+    ? tournament.rounds.map((round, roundIndex) => ({
+        label: tournament.round_labels?.[roundIndex] || `라운드 ${roundIndex + 1}`,
+        matches: round.map((match) => ({
+          team1_id: match.team1_id,
+          team2_id: match.team2_id,
+          winner_to: match.winner_to || null,
+          loser_to: match.loser_to || null,
+        })),
+      }))
+    : defaultBracketDraft();
+  $("#bracket-editor-panel").classList.remove("hidden");
+  renderBracketEditor();
+}
+
+function bracketRouteValue(route) {
+  return route ? `${route.round_index}:${route.match_index}:${route.slot}` : "";
+}
+
+function renderBracketEditor() {
+  if (!bracketDraft) return;
+  const qualified = new Set(state.tournament.qualified_team_ids || []);
+  const teams = state.tournament.teams.filter(
+    (team) => team.status === "approved"
+      && (!state.tournament.groups?.length || qualified.has(team.id))
+  );
+  const teamOptions = (selected) => [
+    '<option value="">미정</option>',
+    ...teams.map((team) => `<option value="${team.id}" ${team.id === selected ? "selected" : ""}>${escapeHtml(team.name)}</option>`),
+  ].join("");
+  const routeOptions = (roundIndex, selected) => {
+    const options = ['<option value="">이동 없음</option>'];
+    bracketDraft.forEach((round, targetRound) => {
+      if (targetRound <= roundIndex) return;
+      round.matches.forEach((_, targetMatch) => {
+        ["team1_id", "team2_id"].forEach((slot, slotIndex) => {
+          const value = `${targetRound}:${targetMatch}:${slot}`;
+          options.push(`<option value="${value}" ${value === selected ? "selected" : ""}>${escapeHtml(round.label)} · 경기 ${targetMatch + 1} · ${slotIndex + 1}번 칸</option>`);
+        });
+      });
+    });
+    return options.join("");
+  };
+  $("#bracket-editor-rounds").innerHTML = bracketDraft.map((round, roundIndex) => `
+    <section class="bracket-editor-round">
+      <div class="bracket-editor-round-head">
+        <input value="${escapeHtml(round.label)}" data-bracket-round-label="${roundIndex}" aria-label="라운드 이름" />
+        <button class="ghost" type="button" data-add-bracket-match="${roundIndex}">경기 추가</button>
+        <button class="remove" type="button" data-remove-bracket-round="${roundIndex}">라운드 삭제</button>
+      </div>
+      ${round.matches.map((match, matchIndex) => `
+        <article class="bracket-editor-match">
+          <strong>경기 ${matchIndex + 1}</strong>
+          <label>1번 팀<select data-bracket-team="${roundIndex}:${matchIndex}:team1_id">${teamOptions(match.team1_id)}</select></label>
+          <label>2번 팀<select data-bracket-team="${roundIndex}:${matchIndex}:team2_id">${teamOptions(match.team2_id)}</select></label>
+          <label>승자 이동<select data-bracket-route="${roundIndex}:${matchIndex}:winner_to">${routeOptions(roundIndex, bracketRouteValue(match.winner_to))}</select></label>
+          <label>패자 이동<select data-bracket-route="${roundIndex}:${matchIndex}:loser_to">${routeOptions(roundIndex, bracketRouteValue(match.loser_to))}</select></label>
+          <button class="remove" type="button" data-remove-bracket-match="${roundIndex}:${matchIndex}">삭제</button>
+        </article>
+      `).join("")}
+    </section>
+  `).join("");
+}
+
 $("#active-competition-select").addEventListener("change", async (event) => {
   if (state.viewer.role !== "host") {
     event.target.value = state.competition_registry.active_competition_id;
@@ -1782,9 +1904,77 @@ $("#tournament-groups").addEventListener("change", async (event) => {
 });
 
 $("#start-group-knockout-button").addEventListener("click", async () => {
+  openBracketEditor();
+});
+
+$("#open-bracket-editor-button").addEventListener("click", openBracketEditor);
+$("#cancel-bracket-editor-button").addEventListener("click", () => {
+  bracketDraft = null;
+  $("#bracket-editor-panel").classList.add("hidden");
+});
+$("#add-bracket-round-button").addEventListener("click", () => {
+  bracketDraft.push({
+    label: `라운드 ${bracketDraft.length + 1}`,
+    matches: [{ team1_id: null, team2_id: null, winner_to: null, loser_to: null }],
+  });
+  renderBracketEditor();
+});
+$("#bracket-editor-rounds").addEventListener("input", (event) => {
+  const roundIndex = event.target.dataset.bracketRoundLabel;
+  if (roundIndex !== undefined) bracketDraft[Number(roundIndex)].label = event.target.value;
+});
+$("#bracket-editor-rounds").addEventListener("change", (event) => {
+  if (event.target.dataset.bracketTeam) {
+    const [roundIndex, matchIndex, slot] = event.target.dataset.bracketTeam.split(":");
+    bracketDraft[Number(roundIndex)].matches[Number(matchIndex)][slot] = event.target.value || null;
+  }
+  if (event.target.dataset.bracketRoute) {
+    const [roundIndex, matchIndex, field] = event.target.dataset.bracketRoute.split(":");
+    const value = event.target.value;
+    bracketDraft[Number(roundIndex)].matches[Number(matchIndex)][field] = value
+      ? (() => {
+          const [targetRound, targetMatch, slot] = value.split(":");
+          return { round_index: Number(targetRound), match_index: Number(targetMatch), slot };
+        })()
+      : null;
+  }
+});
+$("#bracket-editor-rounds").addEventListener("click", (event) => {
+  const addRound = event.target.closest("[data-add-bracket-match]")?.dataset.addBracketMatch;
+  if (addRound !== undefined) {
+    bracketDraft[Number(addRound)].matches.push({
+      team1_id: null, team2_id: null, winner_to: null, loser_to: null,
+    });
+    renderBracketEditor();
+    return;
+  }
+  const removeMatch = event.target.closest("[data-remove-bracket-match]")?.dataset.removeBracketMatch;
+  if (removeMatch) {
+    const [roundIndex, matchIndex] = removeMatch.split(":").map(Number);
+    if (bracketDraft[roundIndex].matches.length > 1) {
+      bracketDraft[roundIndex].matches.splice(matchIndex, 1);
+      renderBracketEditor();
+    }
+    return;
+  }
+  const removeRound = event.target.closest("[data-remove-bracket-round]")?.dataset.removeBracketRound;
+  if (removeRound !== undefined && bracketDraft.length > 1) {
+    bracketDraft.splice(Number(removeRound), 1);
+    renderBracketEditor();
+  }
+});
+$("#save-bracket-editor-button").addEventListener("click", async () => {
   try {
-    await api("/api/tournament/groups/start-knockout", { method: "POST" });
-    toast("진출팀으로 본선 대진표를 생성했습니다.");
+    await api("/api/tournament/bracket", {
+      method: "PUT",
+      body: JSON.stringify({ rounds: bracketDraft }),
+    });
+    state = await api("/api/state");
+    stateSignature = meaningfulStateSignature(state);
+    bracketDraft = null;
+    $("#bracket-editor-panel").classList.add("hidden");
+    render();
+    toast("강사님이 구성한 본선 대진표를 저장했습니다.");
   } catch (error) { toast(error.message, true); }
 });
 
