@@ -57,6 +57,7 @@ let participationApplicationsPromise = null;
 let participationApplicationsSignature = "";
 let bracketDraft = null;
 let memberRosterCache = null;
+let rosterCreateOpen = false;
 const dirtyRosterIds = new Set();
 const ROSTER_EDIT_FIELDS = [
   "name", "riot_id", "secondary_riot_id", "preferred_lines", "tier",
@@ -1033,6 +1034,35 @@ function rosterPaymentCell(entry) {
   </div>`;
 }
 
+function renderRosterCreateRow() {
+  if (!rosterCreateOpen) return "";
+  const draft = {};
+  return `
+    <form class="roster-admin-row roster-create-row" data-roster-create>
+      <div class="roster-sheet-index"><button class="roster-create-cancel" type="button" data-roster-create-cancel>×</button></div>
+      ${rosterCell(draft, "name", "이름")}
+      ${rosterCell(draft, "riot_id", "Riot ID#KR1")}
+      ${rosterCell(draft, "secondary_riot_id", "선택 입력")}
+      ${rosterCell(draft, "preferred_lines", "정글,미드,원딜")}
+      ${rosterTierCell(draft)}
+      ${rosterPaymentCell(draft)}
+      ${rosterCell(draft, "participation_status_text")}
+      ${rosterCell(draft, "absence_reason")}
+      ${rosterCell(draft, "top_adjustment")}
+      ${rosterCell(draft, "game_count_adjustment")}
+      ${rosterCell(draft, "notes")}
+      ${rosterCell(draft, "score_top")}
+      ${rosterCell(draft, "score_jungle")}
+      ${rosterCell(draft, "score_mid")}
+      ${rosterCell(draft, "score_adc")}
+      ${rosterCell(draft, "score_support")}
+      <div class="roster-sheet-status"><span class="user-approval pending">미발급</span></div>
+      <div class="roster-sheet-status"><span class="user-approval pending">대회 미참가</span></div>
+      <div class="roster-sheet-save"><button class="primary" type="submit">추가</button></div>
+    </form>
+  `;
+}
+
 function participationStatusLabel(status) {
   if (status === "APPROVED") return "승인";
   if (status === "CANCELLED") return "취소";
@@ -1058,7 +1088,7 @@ function renderParticipationPopover(entry) {
 
 function renderMemberRows(entries) {
   const list = $("#member-list");
-  if (!entries.length) {
+  if (!entries.length && !rosterCreateOpen) {
     list.innerHTML = '<div class="empty-state">조건에 맞는 명단이 없습니다.</div>';
     return;
   }
@@ -1066,6 +1096,7 @@ function renderMemberRows(entries) {
   list.innerHTML = `
     <div class="roster-sheet">
       <div class="roster-sheet-header">${headers.map((header) => `<div>${header}</div>`).join("")}</div>
+      ${renderRosterCreateRow()}
       ${entries.map((entry) => `
         <form class="roster-admin-row${dirtyRosterIds.has(entry.id) ? " dirty" : ""}" data-roster-entry="${entry.id}">
           <div class="roster-sheet-index">${entry.source_row}</div>
@@ -1170,13 +1201,15 @@ async function reloadMembers() {
 
 function updateRosterFormCache(form, values) {
   const id = Number(form.dataset.rosterEntry);
-  const cached = memberRosterCache?.entries.find((entry) => entry.id === id);
+  const cached = Number.isFinite(id)
+    ? memberRosterCache?.entries.find((entry) => entry.id === id)
+    : null;
   Object.entries(values).forEach(([field, value]) => {
     if (form.elements[field]) form.elements[field].value = value ?? "";
     if (cached) cached[field] = value ?? "";
   });
   form.classList.add("dirty");
-  dirtyRosterIds.add(id);
+  if (Number.isFinite(id)) dirtyRosterIds.add(id);
 }
 
 async function autofillRosterFromRiot(form, button) {
@@ -2789,32 +2822,11 @@ $("#member-search-form").addEventListener("submit", async (event) => {
 
 $("#add-roster-member-button")?.addEventListener("click", async (event) => {
   const button = event.currentTarget;
-  const name = window.prompt("추가할 멤버 이름을 입력하세요.");
-  if (!name || !name.trim()) return;
-  const riotId = window.prompt("Riot ID를 입력하세요. 없으면 비워두세요.", "");
-  const payload = {
-    name: name.trim(),
-    riot_id: riotId && riotId.trim() ? riotId.trim() : null,
-  };
-  button.disabled = true;
-  button.textContent = "추가 중...";
-  try {
-    await api("/api/roster", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    rosterFilter = "all";
-    document.querySelectorAll("[data-roster-filter]").forEach((item) => {
-      item.classList.toggle("active", item.dataset.rosterFilter === "all");
-    });
-    rosterPage = 1;
-    await reloadMembers();
-    toast("멤버를 추가했습니다. 필요한 라인과 티어를 이어서 입력해 주세요.");
-  } catch (error) {
-    toast(error.message, true);
-  } finally {
-    button.disabled = false;
-    button.textContent = "멤버 추가";
+  rosterCreateOpen = !rosterCreateOpen;
+  button.classList.toggle("active", rosterCreateOpen);
+  await loadMembers();
+  if (rosterCreateOpen) {
+    $("#member-list [data-roster-create] input[name='name']")?.focus();
   }
 });
 
@@ -2860,6 +2872,35 @@ $("#member-list").addEventListener("input", (event) => {
 });
 
 $("#member-list").addEventListener("submit", async (event) => {
+  const createForm = event.target.closest("[data-roster-create]");
+  if (createForm) {
+    event.preventDefault();
+    const payload = Object.fromEntries(new FormData(createForm));
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] === "") payload[key] = null;
+    });
+    if (!payload.name || !String(payload.name).trim()) {
+      toast("이름을 입력해 주세요.", true);
+      createForm.elements.name?.focus();
+      return;
+    }
+    try {
+      await api("/api/roster", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      rosterCreateOpen = false;
+      $("#add-roster-member-button")?.classList.remove("active");
+      rosterFilter = "all";
+      document.querySelectorAll("[data-roster-filter]").forEach((item) => {
+        item.classList.toggle("active", item.dataset.rosterFilter === "all");
+      });
+      rosterPage = 1;
+      await reloadMembers();
+      toast("멤버를 추가했습니다.");
+    } catch (error) { toast(error.message, true); }
+    return;
+  }
   const rosterForm = event.target.closest("[data-roster-entry]");
   if (rosterForm) {
     event.preventDefault();
@@ -2890,9 +2931,15 @@ $("#member-list").addEventListener("submit", async (event) => {
 });
 
 $("#member-list").addEventListener("click", async (event) => {
+  if (event.target.closest("[data-roster-create-cancel]")) {
+    rosterCreateOpen = false;
+    $("#add-roster-member-button")?.classList.remove("active");
+    await loadMembers();
+    return;
+  }
   const riotFillButton = event.target.closest("[data-roster-riot-fill]");
   if (riotFillButton) {
-    const form = riotFillButton.closest("[data-roster-entry]");
+    const form = riotFillButton.closest("[data-roster-entry], [data-roster-create]");
     if (!form) return;
     try {
       await autofillRosterFromRiot(form, riotFillButton);
