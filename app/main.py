@@ -1432,15 +1432,6 @@ async def bulk_build_competition_teams(
                             status="APPROVED",
                             changed_at=changed_at,
                         )
-                        scrim_db.sync_roster_member_from_approval(connection, user["id"])
-                        entry = scrim_db.get_roster_entry_by_user_identity(
-                            connection,
-                            user["id"],
-                            user.get("riot_id"),
-                        )
-                        if entry:
-                            sync_score_player_from_roster(entry)
-            sync_score_players_from_approved_participation()
             teams = build_bulk_tournament_teams(
                 store.state,
                 approve_teams=data.approve_teams,
