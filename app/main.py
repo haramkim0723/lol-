@@ -1377,6 +1377,21 @@ async def bulk_build_competition_teams(
                 for application in applications
             }
             with scrim_db.connect() as connection:
+                roster_entries = scrim_db.list_roster_entries(
+                    connection,
+                    has_riot_id=True,
+                    limit=1_000_000,
+                )
+                for roster_entry in roster_entries:
+                    if not str(roster_entry.get("riot_id") or "").strip():
+                        continue
+                    if not roster_entry.get("user_id"):
+                        roster_entry = scrim_db.issue_roster_account(
+                            connection,
+                            roster_entry["id"],
+                        )
+                    if data.approve_participants and roster_entry:
+                        sync_score_player_from_roster(roster_entry)
                 users = [
                     user
                     for user in scrim_db.search_users(connection, "")

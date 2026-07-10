@@ -797,6 +797,11 @@ function renderTournament() {
   $("#team-score-limit").textContent = tournament.score_limit;
   $("#simulator-score-limit").textContent = tournament.score_limit;
   $("#open-team-register").classList.toggle("hidden", !registrationOpen);
+  const showBulkBuild = isHost
+    && registrationOpen
+    && activeCompetition()?.id === "test2-score-open"
+    && tournament.teams.length === 0;
+  $("#build-test-teams-button")?.classList.toggle("hidden", !showBulkBuild);
   renderTournamentGroups();
 
   renderTeamSelectors(
@@ -2070,6 +2075,27 @@ $("#start-tournament-button").addEventListener("click", async () => {
     await api("/api/tournament/start", { method: "POST" });
     toast(state.tournament.format === "group_then_knockout" ? "조 추첨을 완료했습니다." : "대진표를 생성했습니다.");
   } catch (error) { toast(error.message, true); }
+});
+
+$("#build-test-teams-button")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  button.textContent = "생성 중...";
+  try {
+    const result = await api("/api/admin/competitions/test2-score-open/bulk-build-teams", {
+      method: "POST",
+      body: JSON.stringify({ max_teams: 6 }),
+    });
+    state = await api("/api/state");
+    stateSignature = meaningfulStateSignature(state);
+    render();
+    button.classList.add("hidden");
+    toast(`test 팀 ${result.created_teams || 0}개를 생성했습니다.`);
+  } catch (error) {
+    toast(error.message, true);
+    button.disabled = false;
+    button.textContent = "test 팀 생성";
+  }
 });
 
 $$("[data-participation-host-view]").forEach((button) => {
