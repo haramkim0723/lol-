@@ -1046,8 +1046,8 @@ aside { display: grid; gap: 18px; }
 .roster-sheet-header,
 .roster-admin-row {
   display: grid;
-  grid-template-columns: 48px 110px 145px 135px 92px 76px 78px 90px 120px 78px 78px 120px repeat(5, 58px) 76px 108px 68px;
-  min-width: 1812px;
+  grid-template-columns: 48px 110px 145px 135px 150px 76px 78px 90px 120px 78px 78px 80px repeat(5, 58px) 76px 108px 68px;
+  min-width: 1830px;
 }
 .roster-sheet-header {
   position: sticky;
@@ -1115,6 +1115,7 @@ aside { display: grid; gap: 18px; }
   background: #07101a;
   box-shadow: inset 0 0 0 1px rgba(217,169,79,.2);
 }
+.roster-field-preferred_lines input { text-align: left; }
 .roster-tier-cell {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 34px;

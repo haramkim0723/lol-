@@ -50,6 +50,10 @@ class ScrimDatabaseTest(unittest.TestCase):
                 scrim_db.roster_positions(entry["preferred_lines"]),
                 ["JUG", "MID", "ADC"],
             )
+            self.assertEqual(
+                scrim_db.roster_positions("정글,미드,원딜,서폿"),
+                ["JUG", "MID", "ADC", "SUP"],
+            )
 
             updated = scrim_db.update_roster_entry(
                 connection,

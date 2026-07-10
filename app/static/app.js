@@ -997,7 +997,8 @@ function rosterStatusClass(status) {
 }
 
 function rosterCell(entry, name, placeholder = "") {
-  return `<div class="roster-sheet-cell"><input name="${name}" value="${escapeHtml(entry[name] || "")}" placeholder="${escapeHtml(placeholder)}" aria-label="${name}" /></div>`;
+  const value = entry[name] || "";
+  return `<div class="roster-sheet-cell roster-field-${name}"><input name="${name}" value="${escapeHtml(value)}" title="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" aria-label="${name}" /></div>`;
 }
 
 function rosterTierCell(entry) {
