@@ -2287,18 +2287,36 @@ document.addEventListener("click", async (event) => {
   const approveTeamId = event.target.closest("[data-team-approve]")?.dataset.teamApprove;
   const rejectTeamId = event.target.closest("[data-team-reject]")?.dataset.teamReject;
   const deleteTeamId = event.target.closest("[data-team-delete]")?.dataset.teamDelete;
+  const teamActionButton = event.target.closest("[data-team-approve], [data-team-reject], [data-team-delete]");
   const winnerButton = event.target.closest("[data-match-winner]");
+  const setTeamActionBusy = (busy) => {
+    if (!teamActionButton) return;
+    const card = teamActionButton.closest(".registered-team");
+    card?.querySelectorAll("[data-team-approve], [data-team-reject], [data-team-delete]")
+      .forEach((button) => { button.disabled = busy; });
+    if (busy) {
+      teamActionButton.dataset.originalText = teamActionButton.textContent;
+      teamActionButton.textContent = "처리 중";
+    } else if (teamActionButton.dataset.originalText) {
+      teamActionButton.textContent = teamActionButton.dataset.originalText;
+      delete teamActionButton.dataset.originalText;
+    }
+  };
   try {
     if (approveTeamId || rejectTeamId) {
       const teamId = approveTeamId || rejectTeamId;
+      setTeamActionBusy(true);
       await api(`/api/tournament/teams/${teamId}/approval`, {
         method: "POST",
         body: JSON.stringify({ approved: Boolean(approveTeamId) }),
       });
+      toast(approveTeamId ? "팀 신청을 승인했습니다." : "팀 신청을 반려했습니다.");
       return;
     }
     if (deleteTeamId) {
+      setTeamActionBusy(true);
       await api(`/api/tournament/teams/${deleteTeamId}`, { method: "DELETE" });
+      toast("팀 신청을 삭제했습니다.");
       return;
     }
     if (winnerButton) {
@@ -2313,6 +2331,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
   } catch (error) {
+    setTeamActionBusy(false);
     toast(error.message, true);
     return;
   }
