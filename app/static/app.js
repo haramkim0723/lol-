@@ -50,6 +50,7 @@ let riotPreviewData = null;
 let rosterPage = 1;
 let selectedScrimTeamId = null;
 let pendingApiCount = 0;
+let pollStateInFlight = false;
 let participationHostView = "settings";
 let participationApprovalView = "requests";
 let participationApprovalStatus = "pending";
@@ -1685,6 +1686,8 @@ function meaningfulStateSignature(value) {
 }
 
 async function pollState() {
+  if (pollStateInFlight || pendingApiCount > 0) return;
+  pollStateInFlight = true;
   try {
     const data = await api("/api/state");
     const signature = meaningfulStateSignature(data);
@@ -1699,6 +1702,8 @@ async function pollState() {
   } catch {
     $("#socket-dot").classList.remove("online");
     $("#socket-text").textContent = "재연결 중";
+  } finally {
+    pollStateInFlight = false;
   }
 }
 
