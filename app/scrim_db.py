@@ -1081,6 +1081,17 @@ def upsert_roster_entry(connection, *, source_row: int, **fields) -> dict:
     return entry
 
 
+def create_roster_entry(connection, **fields) -> dict:
+    row = connection.execute(
+        "SELECT COALESCE(MAX(source_row), 0) + 1 AS next_row FROM roster_entries"
+    ).fetchone()
+    return upsert_roster_entry(
+        connection,
+        source_row=int(row["next_row"]),
+        **fields,
+    )
+
+
 def issue_roster_account(connection, roster_id: int, password: str = "1234") -> dict:
     entry = get_roster_entry(connection, roster_id)
     riot_id = clean_optional_text(entry.get("riot_id"))

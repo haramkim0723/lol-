@@ -149,6 +149,21 @@ class ApiFlowTest(unittest.TestCase):
                 any(item["id"] == entry["id"] for item in roster.json()["entries"])
             )
 
+            created = client.post(
+                "/api/roster",
+                json={
+                    "name": "Manual Roster",
+                    "riot_id": "ManualRoster#KR1",
+                    "tier": "E4",
+                    "preferred_lines": "탑,미드",
+                },
+            )
+            self.assertEqual(created.status_code, 200)
+            created_payload = created.json()
+            self.assertEqual(created_payload["name"], "Manual Roster")
+            self.assertEqual(created_payload["account_status"], "ISSUED")
+            self.assertEqual(created_payload["tournament_status"], "not_applied")
+
             updated = client.patch(
                 f"/api/roster/{entry['id']}",
                 json={

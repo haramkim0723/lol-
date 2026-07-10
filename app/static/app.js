@@ -2782,6 +2782,37 @@ $("#member-search-form").addEventListener("submit", async (event) => {
   await loadMembers();
 });
 
+$("#add-roster-member-button")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const name = window.prompt("추가할 멤버 이름을 입력하세요.");
+  if (!name || !name.trim()) return;
+  const riotId = window.prompt("Riot ID를 입력하세요. 없으면 비워두세요.", "");
+  const payload = {
+    name: name.trim(),
+    riot_id: riotId && riotId.trim() ? riotId.trim() : null,
+  };
+  button.disabled = true;
+  button.textContent = "추가 중...";
+  try {
+    await api("/api/roster", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    rosterFilter = "all";
+    document.querySelectorAll("[data-roster-filter]").forEach((item) => {
+      item.classList.toggle("active", item.dataset.rosterFilter === "all");
+    });
+    rosterPage = 1;
+    await reloadMembers();
+    toast("멤버를 추가했습니다. 필요한 라인과 티어를 이어서 입력해 주세요.");
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = "멤버 추가";
+  }
+});
+
 $("#save-all-roster-button").addEventListener("click", async () => {
   if (!dirtyRosterIds.size) {
     toast("변경된 명단이 없습니다.");

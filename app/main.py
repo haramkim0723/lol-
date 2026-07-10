@@ -366,6 +366,10 @@ class RosterEntryInput(BaseModel):
     notes: str | None = Field(default=None, max_length=300)
 
 
+class RosterCreateInput(RosterEntryInput):
+    name: str = Field(min_length=1, max_length=80)
+
+
 class RosterImportRow(RosterEntryInput):
     source_row: int = Field(ge=1)
     name: str = Field(min_length=1, max_length=80)
@@ -1090,6 +1094,33 @@ async def import_roster(data: RosterImportInput, request: Request):
             if entry.get("account_status") == "ISSUED":
                 summary["accounts_issued"] += 1
     return summary
+
+
+@app.post("/api/roster")
+async def create_roster_entry(data: RosterCreateInput, request: Request):
+    require_host(request)
+    payload = data.model_dump(exclude_unset=True)
+    try:
+        with scrim_db.connect() as connection:
+            entry = scrim_db.create_roster_entry(connection, **payload)
+            participation = store.state.setdefault(
+                "participation",
+                {"enabled": False, "terms": "", "applications": []},
+            )
+            applications, applications_by_riot_id = participation_application_maps(
+                connection, participation
+            )
+            participation_rows = scrim_db.list_competition_participations(
+                connection,
+                {entry["user_id"]} if entry.get("user_id") else set(),
+            )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    participation_history: dict[int, list[dict]] = {}
+    for row in participation_rows:
+        participation_history.setdefault(row["user_id"], []).append(row)
+    await broadcast()
+    return roster_payload(entry, applications, applications_by_riot_id, participation_history)
 
 
 @app.post("/api/admin/setup-test-competitions")
