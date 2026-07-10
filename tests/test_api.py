@@ -908,6 +908,8 @@ class ApiFlowTest(unittest.TestCase):
             ]
             self.assertEqual(len(matching_roster), 1)
             self.assertEqual(matching_roster[0]["tournament_status"], "applied")
+            store.state["players"] = []
+            store.save()
             state_after_approval = host_client.get("/api/state").json()
             matching_players = [
                 player

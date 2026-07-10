@@ -508,11 +508,46 @@ def sync_score_player_from_roster(entry: dict) -> dict | None:
         "secondary_score": int(round(secondary_score)) if secondary_score is not None else None,
     }
     if existing:
+        desired = dict(payload)
+        if desired.get("secondary_score") is None:
+            desired["secondary_score"] = desired["score"]
+        if all(existing.get(key) == value for key, value in desired.items()):
+            return None
         existing.update(payload)
         if existing.get("secondary_score") is None:
             existing["secondary_score"] = existing["score"]
         return existing
     return engine.add_player(store.state, **payload)
+
+
+def sync_score_players_from_approved_participation() -> int:
+    participation = store.state.setdefault(
+        "participation",
+        {"enabled": False, "terms": "", "applications": []},
+    )
+    approved_user_ids = [
+        application.get("user_id")
+        for application in participation.get("applications", [])
+        if application.get("status") == "APPROVED"
+    ]
+    if not approved_user_ids:
+        return 0
+
+    changed = 0
+    with scrim_db.connect() as connection:
+        for user_id in approved_user_ids:
+            if user_id is None:
+                continue
+            try:
+                user = scrim_db.get_user(connection, int(user_id))
+            except (TypeError, ValueError):
+                continue
+            entry = scrim_db.get_roster_entry_by_user_identity(
+                connection, int(user_id), user.get("riot_id")
+            )
+            if entry and sync_score_player_from_roster(entry):
+                changed += 1
+    return changed
 
 
 class TeamRecommendationInput(BaseModel):
@@ -591,6 +626,7 @@ async def competition_room_page():
 async def get_state(scrim_auth: str | None = Cookie(default=None)):
     async with state_lock:
         apply_scrim_image_retention()
+        sync_score_players_from_approved_participation()
         store.save()
     result = engine.public_state(store.state, compute_viewer(scrim_auth))
     result["competition_registry"] = store.competition_summary()
