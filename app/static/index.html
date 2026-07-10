@@ -530,8 +530,16 @@
       </section>
 
       <section id="scrim-panel" class="scrim-shell hidden">
+        <nav class="scrim-room-nav" aria-label="대회 진행방 메뉴">
+          <button class="active" type="button" data-scrim-tab="progress">대회 진행</button>
+          <button type="button" data-scrim-tab="groups">조 편성 및 진출팀</button>
+          <button type="button" data-scrim-tab="bracket">본선 대진</button>
+          <button type="button" data-scrim-tab="teams">팀 목록</button>
+          <button type="button" data-scrim-tab="stats">스크림 승률</button>
+          <button type="button" data-scrim-tab="results">결과 입력</button>
+        </nav>
         <section class="dashboard-main">
-          <article id="competition-progress-panel" class="panel wide">
+          <article id="competition-progress-panel" class="panel wide scrim-tab-panel" data-scrim-tab-panel="progress">
             <div class="panel-title row">
               <div><span>TOURNAMENT</span><h2>대회 진행</h2></div>
               <div id="competition-room-format" class="competition-room-format"></div>
@@ -539,7 +547,7 @@
             <button id="start-tournament-button" class="accent hidden" type="button">진행 시작</button>
             <button id="open-bracket-editor-button" class="ghost hidden" type="button">본선 대진 직접 편집</button>
           </article>
-          <article id="bracket-editor-panel" class="panel wide hidden">
+          <article id="bracket-editor-panel" class="panel wide hidden scrim-tab-panel" data-scrim-tab-panel="bracket">
             <div class="panel-title row">
               <div><span>BRACKET EDITOR</span><h2>본선 대진 편집</h2></div>
               <button id="add-bracket-round-button" class="ghost" type="button">라운드 추가</button>
@@ -551,13 +559,13 @@
               <button id="save-bracket-editor-button" class="primary" type="button">대진표 저장 및 진행</button>
             </div>
           </article>
-          <article id="tournament-group-section" class="panel wide hidden">
+          <article id="tournament-group-section" class="panel wide hidden scrim-tab-panel roulette-stage" data-scrim-tab-panel="groups">
             <div class="panel-title"><span>GROUPS</span><h2>조 편성 및 진출팀</h2></div>
             <p class="guide">강사님이 각 조의 본선 진출팀을 선택해 주세요.</p>
             <div id="tournament-groups" class="tournament-team-list"></div>
             <button id="start-group-knockout-button" class="accent hidden" type="button">진출팀으로 본선 편집 시작</button>
           </article>
-          <article id="tournament-bracket-section" class="panel wide tournament-bracket-section hidden">
+          <article id="tournament-bracket-section" class="panel wide tournament-bracket-section hidden scrim-tab-panel" data-scrim-tab-panel="bracket">
             <div class="bracket-header">
               <div><p class="eyebrow">TOURNAMENT BRACKET</p><h2>본선 대진표</h2></div>
               <div id="tournament-champion" class="tournament-champion"></div>
@@ -598,7 +606,7 @@
             </form>
           </article>
 
-          <article class="panel wide">
+          <article class="panel wide scrim-tab-panel" data-scrim-tab-panel="teams">
             <div class="panel-title row">
               <div>
                 <span>TEAMS</span>
@@ -611,12 +619,12 @@
 
         </section>
 
-        <aside id="scrim-stats-panel" class="panel scrim-stats-panel">
+        <aside id="scrim-stats-panel" class="panel scrim-stats-panel scrim-tab-panel" data-scrim-tab-panel="stats results">
           <div class="panel-title row">
             <div><span>SCRIM STATS</span><h2>스크림 승률</h2></div>
           </div>
           <div id="scrim-winrate-list" class="scrim-winrate-list"></div>
-          <details id="scrim-result-entry" class="scrim-result-entry">
+          <details id="scrim-result-entry" class="scrim-result-entry scrim-tab-panel" data-scrim-tab-panel="results">
             <summary>스크림 결과 입력</summary>
             <form id="scrim-result-form" class="scrim-form result-form">
               <input name="result_id" type="hidden" />

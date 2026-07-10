@@ -46,6 +46,7 @@ let scoreIntroIndex = 0;
 let scoreIntroPlayerId = null;
 let toastTimer = null;
 let stateSignature = "";
+let scrimRoomTab = "progress";
 let riotPreviewData = null;
 let rosterPage = 1;
 let selectedScrimTeamId = null;
@@ -344,6 +345,17 @@ function setView(view) {
     loadMembers();
     if (state.viewer.role === "host") searchScrimUsers("");
   }
+}
+
+function renderScrimRoomTabs() {
+  $$("[data-scrim-tab]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.scrimTab === scrimRoomTab);
+  });
+  $$("[data-scrim-tab-panel]").forEach((panel) => {
+    const tabs = String(panel.dataset.scrimTabPanel || "").split(/\s+/);
+    panel.classList.toggle("scrim-tab-collapsed", !tabs.includes(scrimRoomTab));
+  });
+  $("#scrim-stats-panel")?.classList.toggle("results-mode", scrimRoomTab === "results");
 }
 
 function movePlayerRegistrationToMembers() {
@@ -1741,6 +1753,13 @@ $$("[data-view]").forEach((button) => {
   });
 });
 
+$$("[data-scrim-tab]").forEach((button) => {
+  button.addEventListener("click", () => {
+    scrimRoomTab = button.dataset.scrimTab || "progress";
+    renderScrimRoomTabs();
+  });
+});
+
 window.addEventListener("popstate", () => {
   currentView = location.pathname === "/score-players"
     ? "score-intro"
@@ -2663,6 +2682,7 @@ async function loadScrimTeams() {
   renderScrimResultForm();
   renderScrimWinrates();
   renderScrimResults();
+  renderScrimRoomTabs();
 }
 
 async function searchScrimUsers(query) {
