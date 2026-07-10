@@ -1046,8 +1046,8 @@ aside { display: grid; gap: 18px; }
 .roster-sheet-header,
 .roster-admin-row {
   display: grid;
-  grid-template-columns: 48px 110px 145px 135px 150px 76px 78px 90px 120px 78px 78px 80px repeat(5, 58px) 76px 108px 68px;
-  min-width: 1830px;
+  grid-template-columns: 48px 110px 145px 135px 150px 100px 78px 90px 120px 78px 78px 80px repeat(5, 58px) 76px 108px 68px;
+  min-width: 1854px;
 }
 .roster-sheet-header {
   position: sticky;

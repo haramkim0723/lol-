@@ -901,6 +901,30 @@ def get_roster_entry_by_user_id(connection, user_id: int) -> dict | None:
     return normalize_roster_row(dict(row)) if row is not None else None
 
 
+def get_roster_entry_by_user_identity(
+    connection, user_id: int, riot_id: str | None
+) -> dict | None:
+    row = connection.execute(
+        """
+        SELECT *
+        FROM roster_entries
+        WHERE user_id = ?
+           OR LOWER(COALESCE(riot_id, '')) = LOWER(?)
+        ORDER BY
+          CASE
+            WHEN user_id = ? AND COALESCE(tier, '') <> '' AND COALESCE(preferred_lines, '') <> '' THEN 0
+            WHEN LOWER(COALESCE(riot_id, '')) = LOWER(?) AND COALESCE(tier, '') <> '' AND COALESCE(preferred_lines, '') <> '' THEN 1
+            WHEN user_id = ? THEN 2
+            ELSE 3
+          END,
+          source_row ASC
+        LIMIT 1
+        """,
+        (user_id, riot_id or "", user_id, riot_id or "", user_id),
+    ).fetchone()
+    return normalize_roster_row(dict(row)) if row is not None else None
+
+
 def list_roster_entries(
     connection,
     *,
@@ -1118,11 +1142,19 @@ def _sync_roster_member(connection, member: dict) -> dict:
         """
         SELECT id, user_id
         FROM roster_entries
-        WHERE user_id = ? OR riot_id = ?
-        ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END, source_row ASC
+        WHERE user_id = ?
+           OR LOWER(COALESCE(riot_id, '')) = LOWER(?)
+        ORDER BY
+          CASE
+            WHEN user_id = ? AND COALESCE(tier, '') <> '' AND COALESCE(preferred_lines, '') <> '' THEN 0
+            WHEN LOWER(COALESCE(riot_id, '')) = LOWER(?) AND COALESCE(tier, '') <> '' AND COALESCE(preferred_lines, '') <> '' THEN 1
+            WHEN user_id = ? THEN 2
+            ELSE 3
+          END,
+          source_row ASC
         LIMIT 1
         """,
-        (member["id"], member["riot_id"], member["id"]),
+        (member["id"], member["riot_id"], member["id"], member["riot_id"], member["id"]),
     ).fetchone()
     if existing is not None:
         existing = dict(existing)

@@ -70,7 +70,9 @@ def compute_viewer(token: str | None) -> dict:
     if user is None:
         return {"role": "spectator", "captain_id": None, "authenticated": False}
     with scrim_db.connect() as connection:
-        roster = scrim_db.get_roster_entry_by_user_id(connection, user["id"])
+        roster = scrim_db.get_roster_entry_by_user_identity(
+            connection, user["id"], user.get("riot_id")
+        )
     score_fields = {
         "TOP": ("탑", "score_top"),
         "JUG": ("정글", "score_jungle"),
@@ -457,6 +459,62 @@ def roster_payload(
     return payload
 
 
+def _roster_score_value(entry: dict, position: str) -> float | None:
+    field = scrim_db.ROSTER_POSITION_FIELDS[position]
+    value = entry.get(field)
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def sync_score_player_from_roster(entry: dict) -> dict | None:
+    positions = scrim_db.roster_positions(entry.get("preferred_lines"))
+    if not positions:
+        return None
+    position_scores = {
+        position: score
+        for position in engine.POSITIONS
+        if (score := _roster_score_value(entry, position)) is not None
+    }
+    primary_position = positions[0]
+    primary_score = position_scores.get(primary_position, 0)
+    secondary_position = positions[1] if len(positions) > 1 else None
+    secondary_score = (
+        position_scores.get(secondary_position)
+        if secondary_position
+        else None
+    )
+    existing = next(
+        (
+            player
+            for player in store.state["players"]
+            if str(player.get("riot_id") or "").casefold()
+            == str(entry.get("riot_id") or "").casefold()
+        ),
+        None,
+    )
+    payload = {
+        "name": entry.get("name") or "",
+        "riot_id": entry.get("riot_id") or "",
+        "tier": entry.get("tier") or "UNRANKED",
+        "primary_position": primary_position,
+        "secondary_position": secondary_position,
+        "extra_positions": positions[2:4],
+        "position_scores": position_scores,
+        "score": int(round(primary_score)),
+        "secondary_score": int(round(secondary_score)) if secondary_score is not None else None,
+    }
+    if existing:
+        existing.update(payload)
+        if existing.get("secondary_score") is None:
+            existing["secondary_score"] = existing["score"]
+        return existing
+    return engine.add_player(store.state, **payload)
+
+
 class TeamRecommendationInput(BaseModel):
     locked: dict[
         Literal["TOP", "JUG", "MID", "ADC", "SUP"], str | None
@@ -759,6 +817,12 @@ async def update_participation_application(
             try:
                 if data.status == "APPROVED":
                     scrim_db.sync_roster_member_from_approval(connection, user_id)
+                    user = scrim_db.get_user(connection, user_id)
+                    entry = scrim_db.get_roster_entry_by_user_identity(
+                        connection, user_id, user.get("riot_id")
+                    )
+                    if entry:
+                        sync_score_player_from_roster(entry)
             except ValueError as exc:
                 raise HTTPException(404, str(exc)) from exc
         store.save()

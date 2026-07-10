@@ -64,6 +64,31 @@ class ScrimDatabaseTest(unittest.TestCase):
             self.assertEqual(updated["score_support"], "16.1")
             self.assertIsNone(updated["score_jungle"])
 
+    def test_roster_identity_prefers_scored_case_insensitive_riot_row(self):
+        with scrim_db.connect(self.db_file) as connection:
+            user = scrim_db.create_user(
+                connection,
+                name="Case Match",
+                riot_id="case-match#kr1",
+                password="1234",
+                approved=True,
+            )
+            scrim_db.upsert_roster_entry(
+                connection,
+                source_row=2,
+                name="Case Match",
+                riot_id="case-match#KR1",
+                tier="D3",
+                preferred_lines="정글,미드",
+            )
+            sync = scrim_db.sync_roster_member_from_approval(connection, user["id"])
+            self.assertEqual(sync["linked"], 1)
+            entry = scrim_db.get_roster_entry_by_user_identity(
+                connection, user["id"], user["riot_id"]
+            )
+            self.assertEqual(entry["tier"], "D3")
+            self.assertEqual(entry["score_jungle"], "34.9")
+
     def test_team_creator_becomes_leader(self):
         with scrim_db.connect(self.db_file) as connection:
             user = scrim_db.create_user(

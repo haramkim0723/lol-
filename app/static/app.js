@@ -53,6 +53,8 @@ let pendingApiCount = 0;
 let participationHostView = "settings";
 let participationApprovalView = "requests";
 let participationApprovalStatus = "pending";
+let participationApplicationsPromise = null;
+let participationApplicationsSignature = "";
 let bracketDraft = null;
 let memberRosterCache = null;
 const dirtyRosterIds = new Set();
@@ -906,8 +908,11 @@ function renderParticipation() {
     const form = $("#participation-settings-form");
     form.elements.enabled.checked = Boolean(participation.enabled);
     form.elements.terms.value = participation.terms || "";
-    loadParticipationApplications();
     setParticipationHostView(participationHostView);
+    const signature = `${participation.enabled ? 1 : 0}:${participation.application_count || 0}`;
+    if (participationHostView === "approvals" && signature !== participationApplicationsSignature) {
+      loadParticipationApplications({ force: true, signature });
+    }
   }
 }
 
@@ -957,8 +962,14 @@ function renderParticipationUsers(target, users) {
     : '<div class="empty-state">해당 인원이 없습니다.</div>';
 }
 
-async function loadParticipationApplications() {
+async function loadParticipationApplications({ force = false, signature = "" } = {}) {
   if (state.viewer.role !== "host" || currentView !== "participation") return;
+  if (participationApplicationsPromise && !force) {
+    return participationApplicationsPromise;
+  }
+  if (force) participationApplicationsPromise = null;
+  participationApplicationsSignature = signature || participationApplicationsSignature;
+  participationApplicationsPromise = (async () => {
   try {
     const data = await api("/api/participation/applications");
     const pendingUsers = data.applied.filter((user) => user.participation_status !== "APPROVED");
@@ -979,7 +990,11 @@ async function loadParticipationApplications() {
     setParticipationApprovalStatus(participationApprovalStatus);
   } catch (error) {
     toast(error.message, true);
+  } finally {
+    participationApplicationsPromise = null;
   }
+  })();
+  return participationApplicationsPromise;
 }
 
 function participationClass(status) {
@@ -2161,7 +2176,11 @@ document.addEventListener("click", async (event) => {
       method: "PATCH",
       body: JSON.stringify({ status: button.dataset.status }),
     });
-    await loadParticipationApplications();
+    memberRosterCache = null;
+    state = await api("/api/state");
+    stateSignature = meaningfulStateSignature(state);
+    render();
+    await loadParticipationApplications({ force: true });
     if (currentView === "members") await reloadMembers();
     toast(button.dataset.status === "APPROVED" ? "참가를 승인했습니다." : "참가 신청을 거절했습니다.");
   } catch (error) {

@@ -60,12 +60,13 @@ STATE_DATABASE_URL=
 STATE_DATABASE_KEY=lol-auction:state
 SCRIM_ADMIN_PASSWORD=1234
 SCRIM_SESSION_SECRET=충분히-긴-임의-문자열
+SCRIM_SESSION_TTL_SECONDS=18000
 UPSTASH_REDIS_REST_URL=
 UPSTASH_REDIS_REST_TOKEN=
 STATE_REDIS_KEY=lol-auction:state
 ```
 
-로그인은 본 Riot ID + 비밀번호 계정 하나로 통합돼 있어. 공개 회원가입은 기본 차단되고, 강사님이 `/members`에서 회원을 생성해. 새 회원의 기본 비밀번호는 `1234`이고, 본 아이디와 부 아이디를 따로 관리할 수 있어. 운영 환경에서는 반드시 `SCRIM_ADMIN_PASSWORD`와 `SCRIM_SESSION_SECRET`을 변경해.
+로그인은 본 Riot ID + 비밀번호 계정 하나로 통합돼 있어. 공개 회원가입은 기본 차단되고, 강사님이 `/members`에서 회원을 생성해. 새 회원의 기본 비밀번호는 `1234`이고, 본 아이디와 부 아이디를 따로 관리할 수 있어. 운영 환경에서는 반드시 `SCRIM_ADMIN_PASSWORD`와 `SCRIM_SESSION_SECRET`을 변경해. `SCRIM_SESSION_TTL_SECONDS`는 로그인 유지 시간이며 기본값은 5시간(`18000`)이야.
 
 `SCRIM_DATABASE_URL`은 기존 환경변수 이름을 호환용으로 유지하며 회원·팀 데이터 저장에 사용해. 대회 상태는 `KV_REST_API_URL`/`KV_REST_API_TOKEN` 또는 `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`으로 별도 저장소를 쓰고, 정말 Postgres에 넣고 싶을 때만 `STATE_DATABASE_URL`을 따로 설정해.
 

@@ -846,6 +846,19 @@ class ApiFlowTest(unittest.TestCase):
 
             setup = host_client.post("/api/admin/setup-test-competitions")
             self.assertEqual(setup.status_code, 200)
+            with scrim_db.connect() as connection:
+                roster_entry = scrim_db.get_roster_entry_by_user_id(
+                    connection, member.json()["id"]
+                )
+                self.assertIsNotNone(roster_entry)
+                scrim_db.update_roster_entry(
+                    connection,
+                    roster_entry["id"],
+                    {
+                        "tier": "D3",
+                        "preferred_lines": "정글,미드,원딜",
+                    },
+                )
             select = host_client.post("/api/competitions/test2-score-open/select")
             self.assertEqual(select.status_code, 200)
             state = host_client.get("/api/state").json()
@@ -895,6 +908,17 @@ class ApiFlowTest(unittest.TestCase):
             ]
             self.assertEqual(len(matching_roster), 1)
             self.assertEqual(matching_roster[0]["tournament_status"], "applied")
+            state_after_approval = host_client.get("/api/state").json()
+            matching_players = [
+                player
+                for player in state_after_approval["players"]
+                if player["riot_id"] == "roster-applicant#KR1"
+            ]
+            self.assertEqual(len(matching_players), 1)
+            self.assertEqual(matching_players[0]["primary_position"], "JUG")
+            self.assertEqual(matching_players[0]["secondary_position"], "MID")
+            self.assertEqual(matching_players[0]["extra_positions"], ["ADC"])
+            self.assertEqual(matching_players[0]["position_scores"]["JUG"], 34.9)
 
     def test_test3_full_flow_from_new_competition_to_results(self):
         positions = ("TOP", "JUG", "MID", "ADC", "SUP")

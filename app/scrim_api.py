@@ -17,7 +17,9 @@ from . import scrim_db
 
 router = APIRouter(prefix="/api/scrim", tags=["scrim-management"])
 SCRIM_AUTH_COOKIE = "scrim_auth"
-SESSION_TTL_SECONDS = 60 * 60
+SESSION_TTL_SECONDS = int(
+    os.getenv("SCRIM_SESSION_TTL_SECONDS", str(60 * 60 * 5))
+)
 
 
 class UserCreateInput(BaseModel):
