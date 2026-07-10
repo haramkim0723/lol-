@@ -791,11 +791,13 @@ async def competition_room_page():
 
 @app.get("/api/state")
 async def get_state(scrim_auth: str | None = Cookie(default=None)):
+    viewer = compute_viewer(scrim_auth)
     async with state_lock:
         apply_scrim_image_retention()
-        sync_score_players_from_approved_participation()
+        if viewer.get("role") == "host":
+            sync_score_players_from_approved_participation()
         store.save()
-    result = engine.public_state(store.state, compute_viewer(scrim_auth))
+    result = engine.public_state(store.state, viewer)
     result["competition_registry"] = store.competition_summary()
     result["captain_presence"] = captain_presence()
     result["deployment"] = {
