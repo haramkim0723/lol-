@@ -863,6 +863,14 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(select.status_code, 200)
             state = host_client.get("/api/state").json()
             self.assertTrue(state["participation"]["enabled"])
+            current_roster_before_apply = host_client.get("/api/roster?filter=all").json()
+            current_entry_before_apply = next(
+                entry
+                for entry in current_roster_before_apply["entries"]
+                if entry["riot_id"] == "roster-applicant#KR1"
+            )
+            self.assertEqual(current_entry_before_apply["tournament_status"], "not_applied")
+            self.assertEqual(current_entry_before_apply["participation_count"], 1)
 
             with TestClient(app) as member_client:
                 login = member_client.post(
@@ -888,6 +896,11 @@ class ApiFlowTest(unittest.TestCase):
             )
             self.assertEqual(approved.status_code, 200)
             self.assertEqual(approved.json()["status"], "APPROVED")
+            with scrim_db.connect() as connection:
+                connection.execute(
+                    "UPDATE roster_entries SET user_id = NULL WHERE riot_id = ?",
+                    ("roster-applicant#KR1",),
+                )
 
             members = host_client.get("/api/members").json()
             matching_members = [

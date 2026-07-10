@@ -423,6 +423,28 @@ def member_participation_payload(user: dict, applications: dict[int, dict]) -> d
     return payload
 
 
+def participation_application_maps(
+    connection,
+    participation: dict,
+) -> tuple[dict[int, dict], dict[str, dict]]:
+    by_user_id: dict[int, dict] = {}
+    by_riot_id: dict[str, dict] = {}
+    for application in participation.get("applications", []):
+        try:
+            user_id = int(application["user_id"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        by_user_id[user_id] = application
+        try:
+            user = scrim_db.get_user(connection, user_id)
+        except ValueError:
+            continue
+        riot_id = str(user.get("riot_id") or "").strip().casefold()
+        if riot_id:
+            by_riot_id[riot_id] = application
+    return by_user_id, by_riot_id
+
+
 def roster_entry_is_applied(entry: dict) -> bool:
     status_text = (entry.get("participation_status_text") or "").strip()
     return (
@@ -440,12 +462,20 @@ def roster_tier_from_riot_tier(tier: str | None) -> str | None:
 def roster_payload(
     entry: dict,
     applications: dict[int, dict],
+    applications_by_riot_id: dict[str, dict] | None = None,
     participation_history: dict[int, list[dict]] | None = None,
 ) -> dict:
     payload = dict(entry)
     roster_applied = roster_entry_is_applied(entry)
     user_id = entry.get("user_id")
-    application = applications.get(user_id) if user_id else None
+    try:
+        user_id_key = int(user_id) if user_id is not None else None
+    except (TypeError, ValueError):
+        user_id_key = None
+    application = applications.get(user_id_key) if user_id_key else None
+    if application is None and applications_by_riot_id:
+        riot_id_key = str(entry.get("riot_id") or "").strip().casefold()
+        application = applications_by_riot_id.get(riot_id_key) if riot_id_key else None
     is_approved = bool(application and application.get("status") == "APPROVED")
     is_applied = roster_applied or is_approved
     payload["tournament_status"] = "applied" if is_applied else "not_applied"
@@ -914,12 +944,11 @@ async def list_roster(
         "participation",
         {"enabled": False, "terms": "", "applications": []},
     )
-    applications = {
-        application["user_id"]: application
-        for application in participation.get("applications", [])
-    }
     roster_view_filters = {"applied", "not_applied", "applied_unpaid"}
     with scrim_db.connect() as connection:
+        applications, applications_by_riot_id = participation_application_maps(
+            connection, participation
+        )
         counts = scrim_db.roster_counts(connection)
         has_riot_id = None
         user_ids = None
@@ -978,15 +1007,15 @@ async def list_roster(
     for row in participation_rows:
         participation_history.setdefault(row["user_id"], []).append(row)
     payload_entries = [
-        roster_payload(entry, applications, participation_history)
+        roster_payload(entry, applications, applications_by_riot_id, participation_history)
         for entry in entries
     ]
     unpaid_payload_entries = [
-        roster_payload(entry, applications, participation_history)
+        roster_payload(entry, applications, applications_by_riot_id, participation_history)
         for entry in unpaid_entries_for_stats
     ]
     all_payload_entries = [
-        roster_payload(entry, applications, participation_history)
+        roster_payload(entry, applications, applications_by_riot_id, participation_history)
         for entry in all_entries_for_stats
     ]
     applied_roster_count = sum(
@@ -1189,15 +1218,14 @@ async def update_roster_entry(roster_id: int, data: RosterEntryInput, request: R
             entry = scrim_db.update_roster_entry(connection, roster_id, payload)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    participation = store.state.setdefault(
-        "participation",
-        {"enabled": False, "terms": "", "applications": []},
-    )
-    applications = {
-        application["user_id"]: application
-        for application in participation.get("applications", [])
-    }
     with scrim_db.connect() as connection:
+        participation = store.state.setdefault(
+            "participation",
+            {"enabled": False, "terms": "", "applications": []},
+        )
+        applications, applications_by_riot_id = participation_application_maps(
+            connection, participation
+        )
         participation_rows = scrim_db.list_competition_participations(
             connection,
             {entry["user_id"]} if entry.get("user_id") else set(),
@@ -1205,7 +1233,7 @@ async def update_roster_entry(roster_id: int, data: RosterEntryInput, request: R
     participation_history: dict[int, list[dict]] = {}
     for row in participation_rows:
         participation_history.setdefault(row["user_id"], []).append(row)
-    return roster_payload(entry, applications, participation_history)
+    return roster_payload(entry, applications, applications_by_riot_id, participation_history)
 
 
 @app.patch("/api/roster")
