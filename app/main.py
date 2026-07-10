@@ -210,7 +210,11 @@ app.include_router(scrim_router)
 
 @app.middleware("http")
 async def serverless_state_sync(request: Request, call_next):
-    if os.getenv("VERCEL") and request.url.path.startswith("/api/"):
+    if (
+        os.getenv("VERCEL")
+        and request.url.path.startswith("/api/")
+        and request.url.path != "/api/state"
+    ):
         async with state_lock:
             store.refresh()
             if engine.finalize_if_due(store.state):
@@ -792,11 +796,6 @@ async def competition_room_page():
 @app.get("/api/state")
 async def get_state(scrim_auth: str | None = Cookie(default=None)):
     viewer = compute_viewer(scrim_auth)
-    async with state_lock:
-        apply_scrim_image_retention()
-        if viewer.get("role") == "host":
-            sync_score_players_from_approved_participation()
-        store.save()
     result = engine.public_state(store.state, viewer)
     result["competition_registry"] = store.competition_summary()
     result["captain_presence"] = captain_presence()
