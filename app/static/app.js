@@ -1185,6 +1185,10 @@ async function autofillRosterFromRiot(form, button) {
     toast("Riot ID를 먼저 입력해 주세요.", true);
     return;
   }
+  if (!riotId.includes("#")) {
+    toast("Riot ID는 이름#태그 형식으로 입력해 주세요.", true);
+    return;
+  }
   const payload = {
     riot_id: riotId,
     preferred_lines: form.elements.preferred_lines?.value || null,
@@ -2598,6 +2602,7 @@ async function loadScrimTeams() {
 }
 
 async function searchScrimUsers(query) {
+  if (state.viewer.role !== "host") return;
   const data = await api(`/api/scrim/admin/users?query=${encodeURIComponent(query)}`);
   renderScrimAdminUsers(data.users);
 }
