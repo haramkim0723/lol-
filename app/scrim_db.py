@@ -1109,6 +1109,77 @@ def issue_roster_account(connection, roster_id: int, password: str = "1234") -> 
     return get_roster_entry(connection, roster_id)
 
 
+def _sync_roster_member(connection, member: dict) -> dict:
+    next_row_record = connection.execute(
+        "SELECT COALESCE(MAX(source_row), 0) + 1 AS next_row FROM roster_entries"
+    ).fetchone()
+    next_row = int(dict(next_row_record)["next_row"])
+    existing = connection.execute(
+        """
+        SELECT id, user_id
+        FROM roster_entries
+        WHERE user_id = ? OR riot_id = ?
+        ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END, source_row ASC
+        LIMIT 1
+        """,
+        (member["id"], member["riot_id"], member["id"]),
+    ).fetchone()
+    if existing is not None:
+        existing = dict(existing)
+        connection.execute(
+            """
+            UPDATE roster_entries
+            SET user_id = ?,
+                account_status = 'ISSUED',
+                name = ?,
+                riot_id = ?,
+                secondary_riot_id = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                member["id"],
+                member["name"],
+                member["riot_id"],
+                member.get("secondary_riot_id"),
+                existing["id"],
+            ),
+        )
+        return {"added": 0, "linked": 1 if existing.get("user_id") != member["id"] else 0}
+    connection.execute(
+        """
+        INSERT INTO roster_entries (
+            source_row, name, riot_id, secondary_riot_id,
+            user_id, account_status
+        )
+        VALUES (?, ?, ?, ?, ?, 'ISSUED')
+        """,
+        (
+            next_row,
+            member["name"],
+            member["riot_id"],
+            member.get("secondary_riot_id"),
+            member["id"],
+        ),
+    )
+    return {"added": 1, "linked": 0}
+
+
+def sync_roster_member_from_approval(connection, user_id: int) -> dict:
+    row = connection.execute(
+        """
+        SELECT id, name, riot_id, secondary_riot_id
+        FROM users
+        WHERE id = ? AND role = 'USER' AND approved = 1 AND is_active = 1
+        """,
+        (user_id,),
+    ).fetchone()
+    if row is None:
+        return {"member_total": 0, "added": 0, "linked": 0}
+    result = _sync_roster_member(connection, dict(row))
+    return {"member_total": 1, **result}
+
+
 def sync_roster_from_approved_members(connection) -> dict:
     members = connection.execute(
         """
@@ -1118,66 +1189,12 @@ def sync_roster_from_approved_members(connection) -> dict:
         ORDER BY name ASC, riot_id ASC
         """
     ).fetchall()
-    next_row_record = connection.execute(
-        "SELECT COALESCE(MAX(source_row), 0) + 1 AS next_row FROM roster_entries"
-    ).fetchone()
-    next_row = int(dict(next_row_record)["next_row"])
     added = 0
     linked = 0
     for member_row in members:
-        member = dict(member_row)
-        existing = connection.execute(
-            """
-            SELECT id, user_id
-            FROM roster_entries
-            WHERE user_id = ? OR riot_id = ?
-            ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END, source_row ASC
-            LIMIT 1
-            """,
-            (member["id"], member["riot_id"], member["id"]),
-        ).fetchone()
-        if existing is not None:
-            existing = dict(existing)
-            connection.execute(
-                """
-                UPDATE roster_entries
-                SET user_id = ?,
-                    account_status = 'ISSUED',
-                    name = ?,
-                    riot_id = ?,
-                    secondary_riot_id = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """,
-                (
-                    member["id"],
-                    member["name"],
-                    member["riot_id"],
-                    member.get("secondary_riot_id"),
-                    existing["id"],
-                ),
-            )
-            if existing.get("user_id") != member["id"]:
-                linked += 1
-            continue
-        connection.execute(
-            """
-            INSERT INTO roster_entries (
-                source_row, name, riot_id, secondary_riot_id,
-                user_id, account_status
-            )
-            VALUES (?, ?, ?, ?, ?, 'ISSUED')
-            """,
-            (
-                next_row,
-                member["name"],
-                member["riot_id"],
-                member.get("secondary_riot_id"),
-                member["id"],
-            ),
-        )
-        next_row += 1
-        added += 1
+        result = _sync_roster_member(connection, dict(member_row))
+        added += result["added"]
+        linked += result["linked"]
     return {"member_total": len(members), "added": added, "linked": linked}
 
 
@@ -1225,8 +1242,10 @@ def record_competition_participation(
             """
             UPDATE member_competition_participations
             SET competition_name = ?,
-                status = CASE WHEN status = 'CANCELLED' THEN 'APPLIED' ELSE status END,
+                status = CASE WHEN status = 'APPROVED' THEN 'APPROVED' ELSE 'APPLIED' END,
                 applied_at = ?,
+                approved_at = CASE WHEN status = 'APPROVED' THEN approved_at ELSE NULL END,
+                cancelled_at = CASE WHEN status = 'APPROVED' THEN cancelled_at ELSE NULL END,
                 updated_at = CURRENT_TIMESTAMP
             WHERE user_id = ? AND competition_id = ?
             """,

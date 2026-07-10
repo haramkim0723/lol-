@@ -407,8 +407,11 @@ def member_participation_payload(user: dict, applications: dict[int, dict]) -> d
         payload["applied_at"] = None
         return payload
     application = applications.get(user["id"])
-    payload["participation_status"] = "applied" if application else "not_applied"
-    payload["participation_label"] = "대회 참가" if application else "대회 미참가"
+    is_active_application = bool(
+        application and application.get("status", "APPLIED") in {"APPLIED", "APPROVED"}
+    )
+    payload["participation_status"] = "applied" if is_active_application else "not_applied"
+    payload["participation_label"] = "대회 참가" if is_active_application else "대회 미참가"
     return payload
 
 
@@ -621,7 +624,9 @@ async def apply_participation(
         if existing:
             existing["applied_at"] = applied_at
             existing["terms_agreed"] = True
-            existing.setdefault("status", "APPLIED")
+            existing["status"] = "APPLIED"
+            existing.pop("cancelled_at", None)
+            existing.pop("approved_at", None)
         else:
             applications.append(
                 {
@@ -678,7 +683,11 @@ async def participation_applications(request: Request):
             "applied_at": applications.get(user["id"], {}).get("applied_at"),
             "participation_status": applications.get(user["id"], {}).get("status", "APPLIED"),
         }
-        if user["id"] in applications:
+        application = applications.get(user["id"])
+        is_active_application = bool(
+            application and application.get("status", "APPLIED") in {"APPLIED", "APPROVED"}
+        )
+        if is_active_application:
             applied.append(payload)
         else:
             not_applied.append(payload)
@@ -726,8 +735,24 @@ async def update_participation_application(
                     status=data.status,
                     changed_at=changed_at,
                 )
+            except ValueError:
+                scrim_db.record_competition_participation(
+                    connection,
+                    user_id=user_id,
+                    competition_id=competition_id,
+                    competition_name=competition_name,
+                    applied_at=application.get("applied_at") or changed_at,
+                )
+                record = scrim_db.set_competition_participation_status(
+                    connection,
+                    user_id=user_id,
+                    competition_id=competition_id,
+                    status=data.status,
+                    changed_at=changed_at,
+                )
+            try:
                 if data.status == "APPROVED":
-                    scrim_db.sync_roster_from_approved_members(connection)
+                    scrim_db.sync_roster_member_from_approval(connection, user_id)
             except ValueError as exc:
                 raise HTTPException(404, str(exc)) from exc
         store.save()

@@ -51,6 +51,8 @@ let rosterPage = 1;
 let selectedScrimTeamId = null;
 let pendingApiCount = 0;
 let participationHostView = "settings";
+let participationApprovalView = "requests";
+let participationApprovalStatus = "pending";
 let bracketDraft = null;
 let memberRosterCache = null;
 const dirtyRosterIds = new Set();
@@ -918,6 +920,24 @@ function setParticipationHostView(view) {
   });
 }
 
+function setParticipationApprovalView(view) {
+  participationApprovalView = view;
+  $("#participation-requests-view").classList.toggle("hidden", view !== "requests");
+  $("#participation-not-applied-view").classList.toggle("hidden", view !== "not-applied");
+  $$("[data-participation-approval-view]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.participationApprovalView === view);
+  });
+}
+
+function setParticipationApprovalStatus(status) {
+  participationApprovalStatus = status;
+  $("#pending-users").classList.toggle("hidden", status !== "pending");
+  $("#approved-users").classList.toggle("hidden", status !== "approved");
+  $$("[data-participation-approval-status]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.participationApprovalStatus === status);
+  });
+}
+
 function renderParticipationUsers(target, users) {
   const node = $(target);
   node.innerHTML = users.length
@@ -941,10 +961,22 @@ async function loadParticipationApplications() {
   if (state.viewer.role !== "host" || currentView !== "participation") return;
   try {
     const data = await api("/api/participation/applications");
-    $("#applied-count").textContent = data.applied.length;
+    const pendingUsers = data.applied.filter((user) => user.participation_status !== "APPROVED");
+    const approvedUsers = data.applied.filter((user) => user.participation_status === "APPROVED");
+    $("#pending-count").textContent = pendingUsers.length;
+    $("#approved-count").textContent = approvedUsers.length;
     $("#not-applied-count").textContent = data.not_applied.length;
-    renderParticipationUsers("#applied-users", data.applied);
-    renderParticipationUsers("#not-applied-users", data.not_applied);
+    renderParticipationUsers("#pending-users", pendingUsers);
+    renderParticipationUsers(
+      "#approved-users",
+      approvedUsers.map((user) => ({ ...user, applied_at: null }))
+    );
+    renderParticipationUsers(
+      "#not-applied-users",
+      data.not_applied.map((user) => ({ ...user, applied_at: null }))
+    );
+    setParticipationApprovalView(participationApprovalView);
+    setParticipationApprovalStatus(participationApprovalStatus);
   } catch (error) {
     toast(error.message, true);
   }
@@ -1988,6 +2020,18 @@ $$("[data-participation-host-view]").forEach((button) => {
   button.addEventListener("click", () => {
     setParticipationHostView(button.dataset.participationHostView);
     if (participationHostView === "approvals") loadParticipationApplications();
+  });
+});
+
+$$("[data-participation-approval-view]").forEach((button) => {
+  button.addEventListener("click", () => {
+    setParticipationApprovalView(button.dataset.participationApprovalView);
+  });
+});
+
+$$("[data-participation-approval-status]").forEach((button) => {
+  button.addEventListener("click", () => {
+    setParticipationApprovalStatus(button.dataset.participationApprovalStatus);
   });
 });
 

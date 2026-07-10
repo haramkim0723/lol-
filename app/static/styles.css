@@ -560,6 +560,34 @@ aside { display: grid; gap: 18px; }
 .participation-host-nav { display: flex; gap: 8px; margin: 4px 0 18px; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: rgba(3,8,14,.55); }
 .participation-host-nav button { flex: 1; min-height: 44px; border-radius: 8px; color: var(--muted); background: transparent; font-weight: 900; }
 .participation-host-nav button.active { color: #0b1119; background: linear-gradient(135deg,var(--gold-light),var(--gold)); }
+.participation-section-nav,
+.participation-sub-nav {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 14px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(3,8,14,.55);
+}
+.participation-sub-nav { margin-top: 0; background: rgba(255,255,255,.025); }
+.participation-section-nav button,
+.participation-sub-nav button {
+  flex: 1;
+  min-height: 40px;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  font-weight: 900;
+}
+.participation-section-nav button.active,
+.participation-sub-nav button.active {
+  color: #071315;
+  background: var(--cyan);
+}
+.participation-sub-nav button span,
+.participation-list-title span { color: var(--gold-light); }
+.participation-list-title { margin: 0 0 10px; font-size: 14px; }
 .participation-user-list { display: grid; gap: 8px; }
 .participation-user {
   display: flex;

@@ -102,11 +102,16 @@ def public_state(
         },
     )
     applications = participation.pop("applications", [])
+    active_applications = [
+        application
+        for application in applications
+        if application.get("status", "APPLIED") in {"APPLIED", "APPROVED"}
+    ]
     viewer_user_id = (viewer or {}).get("user_id")
-    participation["application_count"] = len(applications)
+    participation["application_count"] = len(active_applications)
     participation["viewer_has_applied"] = any(
         application.get("user_id") == viewer_user_id
-        for application in applications
+        for application in active_applications
     )
     now = time.time()
     deadline = result["auction"].get("deadline")

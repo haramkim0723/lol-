@@ -571,6 +571,72 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(roster["stats"]["total"], 1)
             self.assertEqual(roster["entries"][0]["user_id"], member.json()["id"])
 
+    def test_rejected_participation_can_be_reapplied(self):
+        with TestClient(app) as host_client:
+            login_as_host(host_client)
+            with TestClient(app) as member_client:
+                member = member_client.post(
+                    "/api/scrim/users",
+                    json={
+                        "name": "Reject Reapply",
+                        "riot_id": "reject-reapply#KR1",
+                        "password": "1234",
+                    },
+                )
+                self.assertEqual(member.status_code, 200)
+                approval = host_client.patch(
+                    f'/api/scrim/admin/users/{member.json()["id"]}/approval',
+                    json={"approved": True},
+                )
+                self.assertEqual(approval.status_code, 200)
+                settings = host_client.put(
+                    "/api/participation/settings",
+                    json={"enabled": True, "terms": "terms"},
+                )
+                self.assertEqual(settings.status_code, 200)
+
+                login = member_client.post(
+                    "/api/scrim/auth/login",
+                    json={"riot_id": "reject-reapply#KR1", "password": "1234"},
+                )
+                self.assertEqual(login.status_code, 200)
+                first_apply = member_client.post(
+                    "/api/participation/apply",
+                    json={"terms_agreed": True},
+                )
+                self.assertEqual(first_apply.status_code, 200)
+                self.assertTrue(
+                    member_client.get("/api/state").json()["participation"]["viewer_has_applied"]
+                )
+
+                rejected = host_client.patch(
+                    f'/api/participation/applications/{member.json()["id"]}',
+                    json={"status": "CANCELLED"},
+                )
+                self.assertEqual(rejected.status_code, 200)
+                self.assertEqual(rejected.json()["status"], "CANCELLED")
+
+                rejected_state = member_client.get("/api/state").json()
+                self.assertFalse(rejected_state["participation"]["viewer_has_applied"])
+                self.assertEqual(rejected_state["participation"]["application_count"], 0)
+                applications = host_client.get("/api/participation/applications").json()
+                self.assertEqual(applications["applied"], [])
+                not_applied_user = next(
+                    user
+                    for user in applications["not_applied"]
+                    if user["riot_id"] == "reject-reapply#KR1"
+                )
+                self.assertEqual(not_applied_user["participation_status"], "CANCELLED")
+
+                second_apply = member_client.post(
+                    "/api/participation/apply",
+                    json={"terms_agreed": True},
+                )
+                self.assertEqual(second_apply.status_code, 200)
+                reapplied_state = member_client.get("/api/state").json()
+                self.assertTrue(reapplied_state["participation"]["viewer_has_applied"])
+                self.assertEqual(reapplied_state["participation"]["application_count"], 1)
+
     def test_participant_registers_team_and_host_sets_score_limit(self):
         with TestClient(app) as client:
             login_as_host(client)

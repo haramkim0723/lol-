@@ -264,15 +264,21 @@
             </form>
           </div>
           <div id="participation-approvals-view" class="hidden">
-            <div class="participation-lists">
-              <section>
-                <h3>승인 대기 및 처리 명단 <span id="applied-count">0</span></h3>
-                <div id="applied-users" class="participation-user-list"></div>
-              </section>
-              <section>
-                <h3>아직 신청하지 않은 회원 <span id="not-applied-count">0</span></h3>
-                <div id="not-applied-users" class="participation-user-list"></div>
-              </section>
+            <nav class="participation-section-nav">
+              <button class="active" type="button" data-participation-approval-view="requests">참가 신청 승인</button>
+              <button type="button" data-participation-approval-view="not-applied">신청하지 않은 인원</button>
+            </nav>
+            <div id="participation-requests-view">
+              <nav class="participation-sub-nav">
+                <button class="active" type="button" data-participation-approval-status="pending">승인 대기 명단 <span id="pending-count">0</span></button>
+                <button type="button" data-participation-approval-status="approved">승인된 명단 <span id="approved-count">0</span></button>
+              </nav>
+              <div id="pending-users" class="participation-user-list"></div>
+              <div id="approved-users" class="participation-user-list hidden"></div>
+            </div>
+            <div id="participation-not-applied-view" class="hidden">
+              <h3 class="participation-list-title">신청하지 않은 인원 <span id="not-applied-count">0</span></h3>
+              <div id="not-applied-users" class="participation-user-list"></div>
             </div>
           </div>
         </article>
