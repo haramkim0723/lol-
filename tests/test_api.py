@@ -586,6 +586,71 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(roster["stats"]["total"], 1)
             self.assertEqual(roster["entries"][0]["user_id"], member.json()["id"])
 
+    def test_hidden_bulk_builds_test2_applications_and_teams(self):
+        positions = [
+            ("Top Bulk", "top-bulk#KR1", "탑"),
+            ("Jungle Bulk", "jungle-bulk#KR1", "정글"),
+            ("Mid Bulk", "mid-bulk#KR1", "미드"),
+            ("Adc Bulk", "adc-bulk#KR1", "원딜"),
+            ("Support Bulk", "support-bulk#KR1", "서폿"),
+        ]
+        with TestClient(app) as host_client:
+            login_as_host(host_client)
+            for index, (name, riot_id, line) in enumerate(positions, start=1):
+                with TestClient(app) as member_client:
+                    member = member_client.post(
+                        "/api/scrim/users",
+                        json={
+                            "name": name,
+                            "riot_id": riot_id,
+                            "password": "1234",
+                        },
+                    )
+                self.assertEqual(member.status_code, 200)
+                approval = host_client.patch(
+                    f'/api/scrim/admin/users/{member.json()["id"]}/approval',
+                    json={"approved": True},
+                )
+                self.assertEqual(approval.status_code, 200)
+                with scrim_db.connect() as connection:
+                    scrim_db.upsert_roster_entry(
+                        connection,
+                        source_row=300 + index,
+                        name=name,
+                        riot_id=riot_id,
+                        tier="E4",
+                        preferred_lines=line,
+                    )
+
+            setup = host_client.post("/api/admin/setup-test-competitions")
+            self.assertEqual(setup.status_code, 200)
+            settings = host_client.put(
+                "/api/tournament/settings",
+                json={
+                    "score_limit": 1000,
+                    "format": "single_elimination",
+                    "group_count": 2,
+                    "qualifiers_per_group": 2,
+                },
+            )
+            self.assertEqual(settings.status_code, 200)
+            bulk = host_client.post(
+                "/api/admin/competitions/test2-score-open/bulk-build-teams",
+                json={},
+            )
+            self.assertEqual(bulk.status_code, 200)
+            payload = bulk.json()
+            self.assertEqual(payload["participants"], 5)
+            self.assertEqual(payload["applications"], 5)
+            self.assertEqual(payload["score_players"], 5)
+            self.assertEqual(payload["created_teams"], 1)
+            self.assertEqual(payload["approved_teams"], 1)
+
+            state = host_client.get("/api/state").json()
+            self.assertEqual(state["participation"]["application_count"], 5)
+            self.assertEqual(len(state["tournament"]["teams"]), 1)
+            self.assertEqual(state["tournament"]["teams"][0]["status"], "approved")
+
     def test_rejected_participation_can_be_reapplied(self):
         with TestClient(app) as host_client:
             login_as_host(host_client)

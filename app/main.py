@@ -291,6 +291,12 @@ class TeamApprovalInput(BaseModel):
     approved: bool
 
 
+class BulkTeamBuildInput(BaseModel):
+    approve_participants: bool = True
+    approve_teams: bool = True
+    max_teams: int = Field(default=6, ge=1, le=32)
+
+
 class MatchWinnerInput(BaseModel):
     round_index: int = Field(ge=0)
     match_index: int = Field(ge=0)
@@ -582,6 +588,133 @@ def sync_score_players_from_approved_participation() -> int:
             if entry and sync_score_player_from_roster(entry):
                 changed += 1
     return changed
+
+
+def _score_player_positions(player: dict) -> list[str]:
+    return [
+        position
+        for position in engine.POSITIONS
+        if position in [
+            player.get("primary_position"),
+            player.get("secondary_position"),
+            *(player.get("extra_positions") or []),
+        ]
+    ]
+
+
+def _score_player_can_play(player: dict, position: str) -> bool:
+    return position in _score_player_positions(player)
+
+
+def _score_player_score_for_position(player: dict, position: str) -> float:
+    position_scores = player.get("position_scores") or {}
+    value = position_scores.get(position)
+    if value is None and player.get("primary_position") == position:
+        value = player.get("score")
+    if value is None and player.get("secondary_position") == position:
+        value = player.get("secondary_score", player.get("score"))
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _find_bulk_team(players: list[dict], score_limit: float) -> dict[str, dict] | None:
+    chosen: dict[str, dict] = {}
+    used: set[str] = set()
+    ordered_positions = sorted(
+        engine.POSITIONS,
+        key=lambda position: sum(
+            1 for player in players if _score_player_can_play(player, position)
+        ),
+    )
+
+    def backtrack(index: int) -> dict[str, dict] | None:
+        if index == len(ordered_positions):
+            lineup = {position: chosen[position] for position in engine.POSITIONS}
+            total = sum(
+                _score_player_score_for_position(lineup[position], position)
+                for position in engine.POSITIONS
+            )
+            return lineup if total <= score_limit else None
+        position = ordered_positions[index]
+        candidates = [
+            player
+            for player in players
+            if player["id"] not in used and _score_player_can_play(player, position)
+        ]
+        candidates.sort(
+            key=lambda player: (
+                player.get("primary_position") != position,
+                len(_score_player_positions(player)),
+                _score_player_score_for_position(player, position),
+                str(player.get("name") or ""),
+            )
+        )
+        for player in candidates:
+            chosen[position] = player
+            used.add(player["id"])
+            result = backtrack(index + 1)
+            if result:
+                return result
+            used.remove(player["id"])
+            chosen.pop(position, None)
+        return None
+
+    return backtrack(0)
+
+
+def _next_bulk_team_name(state: dict, base_name: str, start_index: int) -> tuple[str, int]:
+    existing_names = {
+        str(team.get("name") or "").casefold()
+        for team in state["tournament"]["teams"]
+    }
+    index = start_index
+    while True:
+        name = f"{base_name} Team {index}"
+        if name.casefold() not in existing_names:
+            return name, index
+        index += 1
+
+
+def build_bulk_tournament_teams(
+    state: dict, *, approve_teams: bool = True, max_teams: int = 6
+) -> list[dict]:
+    assigned_ids = {
+        player_id
+        for team in state["tournament"]["teams"]
+        if team.get("status") != "rejected"
+        for player_id in (team.get("members") or {}).values()
+    }
+    remaining = [
+        player
+        for player in state.get("players", [])
+        if player.get("id") not in assigned_ids
+    ]
+    created: list[dict] = []
+    team_index = len(state["tournament"]["teams"]) + 1
+    score_limit = float(state["tournament"].get("score_limit") or 0)
+    base_name = state["settings"].get("room_name") or "대회"
+    while len(created) < max_teams:
+        lineup = _find_bulk_team(remaining, score_limit)
+        if lineup is None:
+            break
+        team_name, team_index = _next_bulk_team_name(state, base_name, team_index)
+        members = {position: lineup[position]["id"] for position in engine.POSITIONS}
+        team = engine.register_tournament_team(
+            state,
+            team_name,
+            members,
+            f"90{team_index:04d}",
+            None,
+        )
+        if approve_teams:
+            engine.approve_tournament_team(state, team["id"], True)
+        created.append(team)
+        used_ids = set(members.values())
+        remaining = [player for player in remaining if player["id"] not in used_ids]
+        team_index += 1
+    return created
 
 
 class TeamRecommendationInput(BaseModel):
@@ -1214,6 +1347,102 @@ async def setup_test_competitions(request: Request):
         "test2_applications": 0,
         "roster_added": roster_sync["added"],
         "roster_linked": roster_sync["linked"],
+    }
+
+
+@app.post("/api/admin/competitions/{competition_id}/bulk-build-teams")
+async def bulk_build_competition_teams(
+    competition_id: str,
+    data: BulkTeamBuildInput,
+    request: Request,
+):
+    require_host(request)
+    changed_at = time.time()
+    try:
+        async with state_lock:
+            store.select_competition(competition_id)
+            competition = store.active_competition
+            if competition is None:
+                raise ValueError("대회를 찾을 수 없습니다.")
+            if competition.get("mode") != "tournament":
+                raise ValueError("점수제 대회에서만 사용할 수 있습니다.")
+            participation = store.state.setdefault(
+                "participation",
+                {"enabled": False, "terms": "", "applications": []},
+            )
+            participation["enabled"] = True
+            applications = participation.setdefault("applications", [])
+            application_by_user_id = {
+                application.get("user_id"): application
+                for application in applications
+            }
+            with scrim_db.connect() as connection:
+                users = [
+                    user
+                    for user in scrim_db.search_users(connection, "")
+                    if user["role"] != "ADMIN"
+                    and user.get("approved")
+                    and str(user.get("riot_id") or "").strip()
+                ]
+                for user in users:
+                    application = application_by_user_id.get(user["id"])
+                    if application is None:
+                        application = {
+                            "user_id": user["id"],
+                            "name": user.get("name") or "",
+                            "riot_id": user.get("riot_id") or "",
+                            "terms_agreed": True,
+                            "applied_at": changed_at,
+                            "status": "APPLIED",
+                        }
+                        applications.append(application)
+                        application_by_user_id[user["id"]] = application
+                    if data.approve_participants:
+                        application["status"] = "APPROVED"
+                        application["approved_at"] = changed_at
+                    scrim_db.record_competition_participation(
+                        connection,
+                        user_id=user["id"],
+                        competition_id=competition["id"],
+                        competition_name=competition["name"],
+                        applied_at=application.get("applied_at") or changed_at,
+                    )
+                    if data.approve_participants:
+                        scrim_db.set_competition_participation_status(
+                            connection,
+                            user_id=user["id"],
+                            competition_id=competition["id"],
+                            status="APPROVED",
+                            changed_at=changed_at,
+                        )
+                        scrim_db.sync_roster_member_from_approval(connection, user["id"])
+                        entry = scrim_db.get_roster_entry_by_user_identity(
+                            connection,
+                            user["id"],
+                            user.get("riot_id"),
+                        )
+                        if entry:
+                            sync_score_player_from_roster(entry)
+            sync_score_players_from_approved_participation()
+            teams = build_bulk_tournament_teams(
+                store.state,
+                approve_teams=data.approve_teams,
+                max_teams=data.max_teams,
+            )
+            store.save()
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    await broadcast()
+    return {
+        "ok": True,
+        "competition_id": competition_id,
+        "participants": len(users),
+        "applications": len(applications),
+        "score_players": len(store.state.get("players", [])),
+        "created_teams": len(teams),
+        "approved_teams": sum(
+            1 for team in store.state["tournament"]["teams"] if team["status"] == "approved"
+        ),
     }
 
 
