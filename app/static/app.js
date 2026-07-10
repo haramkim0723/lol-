@@ -1775,14 +1775,17 @@ $("#competition-form").elements.mode.addEventListener("change", (event) => {
 
 $("#teacher-score-limit-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  const button = $("#save-tournament-settings");
   const scoreLimit = Number(
     new FormData(event.target).get("score_limit")
   );
   try {
-    await api("/api/tournament/settings", {
-      method: "PUT",
-      body: JSON.stringify(tournamentSettingsPayload(scoreLimit)),
-    });
+    await withButtonLoading(button, "저장 중", () =>
+      api("/api/tournament/settings", {
+        method: "PUT",
+        body: JSON.stringify(tournamentSettingsPayload(scoreLimit)),
+      })
+    );
     toast("점수제 대회 설정을 저장했습니다.");
   } catch (error) { toast(error.message, true); }
 });

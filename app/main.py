@@ -153,7 +153,8 @@ def require_participant(request: Request) -> dict:
 
 async def broadcast() -> None:
     dead: list[WebSocket] = []
-    for connection in list(connections):
+
+    async def send_state(connection: WebSocket) -> None:
         try:
             viewer = connection_viewers.get(connection)
             payload = {
@@ -164,9 +165,14 @@ async def broadcast() -> None:
                 store.competition_summary()
             )
             payload["data"]["captain_presence"] = captain_presence()
-            await connection.send_json(payload)
+            await asyncio.wait_for(connection.send_json(payload), timeout=1.5)
         except Exception:
             dead.append(connection)
+
+    await asyncio.gather(
+        *(send_state(connection) for connection in list(connections)),
+        return_exceptions=True,
+    )
     for connection in dead:
         connections.discard(connection)
         connection_viewers.pop(connection, None)
