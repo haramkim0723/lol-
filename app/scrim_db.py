@@ -319,8 +319,14 @@ def connect(path: str | Path | None = None) -> Iterator:
 
 def init_db(path: str | Path | None = None) -> None:
     with connect(path) as connection:
+        schema_lock_acquired = False
         if db_dialect(connection) == "postgres":
-            connection.execute("SELECT pg_advisory_lock(hashtext('lol_scrim_schema'))")
+            lock_row = connection.execute(
+                "SELECT pg_try_advisory_lock(hashtext('lol_scrim_schema')) AS locked"
+            ).fetchone()
+            schema_lock_acquired = bool(lock_row["locked"])
+            if not schema_lock_acquired:
+                return
         try:
             connection.executescript(schema_sql(connection))
             if db_dialect(connection) == "sqlite":
@@ -329,7 +335,7 @@ def init_db(path: str | Path | None = None) -> None:
                 migrate_postgres_db(connection)
             seed_admins(connection)
         finally:
-            if db_dialect(connection) == "postgres":
+            if db_dialect(connection) == "postgres" and schema_lock_acquired:
                 connection.execute("SELECT pg_advisory_unlock(hashtext('lol_scrim_schema'))")
 
 
