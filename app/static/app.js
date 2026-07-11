@@ -2197,6 +2197,9 @@ $("#competition-form").addEventListener("submit", async (event) => {
       body: JSON.stringify(data),
     });
     form.reset();
+    state = await api("/api/state");
+    stateSignature = meaningfulStateSignature(state);
+    render();
     toast("새 대회를 만들고 현재 대회로 선택했습니다.");
   } catch (error) { toast(error.message, true); }
 });
