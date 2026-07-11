@@ -3332,15 +3332,10 @@ $("#mypage-form").addEventListener("submit", async (event) => {
 
 setInterval(updateTimer, 100);
 async function initializeApp() {
-  try {
-    await api("/api/scrim/auth/logout", { method: "POST" });
-  } catch (_) {
-    // 로그인 화면은 서버 연결이 복구되면 다시 시도할 수 있도록 그대로 표시한다.
-  }
   const data = await api("/api/state");
   state = data;
   stateSignature = meaningfulStateSignature(data);
-  authPromptOpen = true;
+  authPromptOpen = !Boolean(data.viewer?.authenticated);
   setAuthMode("login");
   render();
   connectSocket();
