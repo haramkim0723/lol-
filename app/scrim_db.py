@@ -1043,16 +1043,61 @@ def count_roster_entries(
     participation_status: str | None = None,
     payment_status: str | None = None,
 ) -> int:
-    return len(
-        list_roster_entries(
-            connection,
-            query=query,
-            has_riot_id=has_riot_id,
-            participation_status=participation_status,
-            payment_status=payment_status,
-            limit=1_000_000,
+    clauses = []
+    params: list = []
+    normalized_query = clean_optional_text(query)
+    if normalized_query:
+        pattern = f"%{normalized_query}%"
+        operator = "ILIKE" if db_dialect(connection) == "postgres" else "LIKE"
+        clauses.append(
+            f"(name {operator} ? OR riot_id {operator} ? OR secondary_riot_id {operator} ? OR preferred_lines {operator} ?)"
         )
-    )
+        params.extend([pattern, pattern, pattern, pattern])
+    if has_riot_id is True:
+        clauses.append("riot_id IS NOT NULL AND riot_id <> ''")
+    elif has_riot_id is False:
+        clauses.append("(riot_id IS NULL OR riot_id = '')")
+    if participation_status == "applied":
+        clauses.append(
+            "participation_status_text LIKE ? "
+            "AND participation_status_text NOT LIKE ? "
+            "AND participation_status_text NOT LIKE ?"
+        )
+        params.extend(["%李멸?%", "%遺덉갭%", "%誘몄갭媛%"])
+    elif participation_status == "not_applied":
+        clauses.append(
+            "("
+            "participation_status_text IS NULL "
+            "OR participation_status_text = '' "
+            "OR participation_status_text NOT LIKE ? "
+            "OR participation_status_text LIKE ? "
+            "OR participation_status_text LIKE ?"
+            ")"
+        )
+        params.extend(["%李멸?%", "%遺덉갭%", "%誘몄갭媛%"])
+    if payment_status == "paid":
+        clauses.append("UPPER(TRIM(COALESCE(payment_status, ''))) = ?")
+        params.append("O")
+    elif payment_status == "unpaid":
+        clauses.append("UPPER(TRIM(COALESCE(payment_status, ''))) <> ?")
+        params.append("O")
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    row = connection.execute(
+        f"SELECT COUNT(*) AS count FROM roster_entries {where}",
+        tuple(params),
+    ).fetchone()
+    return int(row["count"] or 0)
+
+
+def approved_user_count(connection) -> int:
+    row = connection.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM users
+        WHERE role = 'USER' AND approved = 1 AND is_active = 1
+        """
+    ).fetchone()
+    return int(row["count"] or 0)
 
 
 def roster_counts(connection) -> dict:

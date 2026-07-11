@@ -1135,6 +1135,10 @@ async def list_roster(
             connection, participation
         )
         counts = scrim_db.roster_counts(connection)
+        approved_member_count = scrim_db.approved_user_count(connection)
+        if counts["total"] < approved_member_count:
+            scrim_db.sync_roster_from_approved_members(connection)
+            counts = scrim_db.roster_counts(connection)
         has_riot_id = None
         user_ids = None
         participation_status = None
@@ -1330,7 +1334,35 @@ async def setup_test_competitions(request: Request):
             WHERE role = 'USER' AND approved = 1 AND is_active = 1
             """
         ).fetchone()
+        test1_users = users[:5]
+        for user in test1_users:
+            scrim_db.record_competition_participation(
+                connection,
+                user_id=user["user_id"],
+                competition_id=TEST_COMPETITION_ID,
+                competition_name="test1",
+                applied_at=now,
+            )
+            scrim_db.set_competition_participation_status(
+                connection,
+                user_id=user["user_id"],
+                competition_id=TEST_COMPETITION_ID,
+                status="APPROVED",
+                changed_at=now,
+            )
     async with state_lock:
+        test1_applications = [
+            {
+                "user_id": user["user_id"],
+                "name": user.get("name") or "",
+                "riot_id": user.get("riot_id") or "",
+                "terms_agreed": True,
+                "applied_at": now,
+                "approved_at": now,
+                "status": "APPROVED",
+            }
+            for user in test1_users
+        ]
         store.document = {
             "version": 2,
             "active_competition_id": TEST2_COMPETITION_ID,
@@ -1343,7 +1375,7 @@ async def setup_test_competitions(request: Request):
                     "state": score_competition_state(
                         "test1",
                         participation_enabled=False,
-                        applications=[],
+                        applications=test1_applications,
                     ),
                 },
                 {
@@ -1357,15 +1389,26 @@ async def setup_test_competitions(request: Request):
                         applications=[],
                     ),
                 },
-            ],
-        }
+                ],
+            }
+        store.select_competition(TEST_COMPETITION_ID)
+        with scrim_db.connect() as connection:
+            for user in test1_users:
+                entry = scrim_db.get_roster_entry_by_user_identity(
+                    connection,
+                    user["user_id"],
+                    user.get("riot_id"),
+                )
+                if entry:
+                    sync_score_player_from_roster(entry)
+        store.select_competition(TEST2_COMPETITION_ID)
         store.save()
     await broadcast()
     return {
         "ok": True,
         "roster_total": dict(total_row)["count"],
         "account_issued": len(users),
-        "test_approved": 0,
+        "test_approved": len(test1_users),
         "test2_applications": 0,
         "roster_added": roster_sync["added"],
         "roster_linked": roster_sync["linked"],

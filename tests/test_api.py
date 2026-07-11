@@ -612,10 +612,42 @@ class ApiFlowTest(unittest.TestCase):
                 "/api/competitions/test-score-approved/select"
             )
             test1 = host_client.get("/api/state").json()
-            self.assertEqual(test1["participation"]["application_count"], 0)
+            self.assertEqual(test1["participation"]["application_count"], 1)
             roster = host_client.get("/api/roster?filter=all").json()
             self.assertEqual(roster["stats"]["total"], 1)
             self.assertEqual(roster["entries"][0]["user_id"], member.json()["id"])
+
+    def test_roster_view_syncs_global_members_independent_of_competition(self):
+        with TestClient(app) as host_client:
+            login_as_host(host_client)
+            with TestClient(app) as member_client:
+                member = member_client.post(
+                    "/api/scrim/users",
+                    json={
+                        "name": "Global Member",
+                        "riot_id": "global-member#KR1",
+                        "password": "1234",
+                    },
+                )
+                self.assertEqual(member.status_code, 200)
+            approval = host_client.patch(
+                f'/api/scrim/admin/users/{member.json()["id"]}/approval',
+                json={"approved": True},
+            )
+            self.assertEqual(approval.status_code, 200)
+            created = host_client.post(
+                "/api/competitions",
+                json={"name": "test-global", "mode": "tournament"},
+            )
+            self.assertEqual(created.status_code, 200)
+            with scrim_db.connect() as connection:
+                connection.execute("DELETE FROM roster_entries")
+
+            roster = host_client.get("/api/roster?filter=all&page_size=20").json()
+
+            self.assertEqual(roster["stats"]["total"], 1)
+            self.assertEqual(roster["entries"][0]["riot_id"], "global-member#KR1")
+            self.assertEqual(roster["entries"][0]["tournament_status"], "not_applied")
 
     def test_hidden_bulk_builds_test2_applications_and_teams(self):
         positions = [
@@ -655,6 +687,12 @@ class ApiFlowTest(unittest.TestCase):
 
             setup = host_client.post("/api/admin/setup-test-competitions")
             self.assertEqual(setup.status_code, 200)
+            host_client.post("/api/competitions/test-score-approved/select")
+            test1_state = host_client.get("/api/state").json()
+            self.assertEqual(test1_state["participation"]["application_count"], 5)
+            self.assertEqual(len(test1_state["players"]), 5)
+            self.assertEqual(test1_state["tournament"]["teams"], [])
+            host_client.post("/api/competitions/test2-score-open/select")
             settings = host_client.put(
                 "/api/tournament/settings",
                 json={
