@@ -501,9 +501,33 @@ aside { display: grid; gap: 18px; }
 .intro-positions { display: flex; gap: 6px; }
 .intro-empty { border: 1px dashed var(--line); border-radius: 18px; padding: 100px 20px; text-align: center; color: var(--muted); }
 .intro-footer { display: flex; align-items: center; justify-content: space-between; max-width: 760px; margin: 16px auto 0; color: var(--muted); font-size: 10px; }
-.intro-progress { display: flex; gap: 5px; }
-.intro-progress button { width: 20px; height: 3px; padding: 0; border-radius: 2px; background: #26313f; transition: .18s; }
-.intro-progress button.active { width: 38px; background: var(--gold); }
+.intro-progress {
+  display: grid;
+  grid-template-columns: minmax(120px, 260px) auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.intro-progress-track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #26313f;
+}
+.intro-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--gold), var(--cyan));
+  transition: width .2s ease;
+}
+.intro-progress strong {
+  color: var(--gold-light);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  white-space: nowrap;
+}
 
 .balance-panel { padding: 20px 0 50px; }
 .balance-heading { margin-bottom: 20px; }
@@ -1713,7 +1737,7 @@ aside { display: grid; gap: 18px; }
   .intro-player h3 { font-size: clamp(34px, 11vw, 50px); }
   .intro-index, .intro-positions { justify-content: center; }
   .intro-footer { display: block; text-align: center; }
-  .intro-progress { justify-content: center; margin-bottom: 9px; }
+  .intro-progress { grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 9px; }
   .balance-locks { grid-template-columns: 1fr; }
   .balance-target { display: grid; grid-template-columns: 1fr; }
   .balance-target input { width: 100%; }

@@ -576,9 +576,7 @@ function renderScoreIntro() {
     const count = players.filter((item) => item.primary_position === position).length;
     return `<button class="intro-position-button${player.primary_position === position ? " active" : ""}" type="button" data-score-intro-position="${position}" ${count ? "" : "disabled"}>${POSITION_NAMES[position]} <span>${count}</span></button>`;
   }).join("");
-  $("#score-intro-progress").innerHTML = players.map((item, index) =>
-    `<button type="button" class="${index === scoreIntroIndex ? "active" : ""}" data-score-intro-index="${index}" aria-label="${escapeHtml(item.name)}"></button>`
-  ).join("");
+  $("#score-intro-progress").innerHTML = introProgressMarkup(scoreIntroIndex, players.length);
   $("#score-intro-prev").disabled = scoreIntroIndex === 0;
   $("#score-intro-next").disabled = scoreIntroIndex === players.length - 1;
 }
@@ -639,11 +637,19 @@ function renderIntro() {
       ${POSITION_NAMES[position]} <span>${count}</span>
     </button>`;
   }).join("");
-  $("#intro-progress").innerHTML = players.map((item, index) =>
-    `<button type="button" class="${index === introIndex ? "active" : ""}" data-intro-index="${index}" aria-label="${escapeHtml(item.name)}"></button>`
-  ).join("");
+  $("#intro-progress").innerHTML = introProgressMarkup(introIndex, players.length);
   $("#intro-prev").disabled = introIndex === 0;
   $("#intro-next").disabled = introIndex === players.length - 1;
+}
+
+function introProgressMarkup(index, total) {
+  const progress = total > 1 ? index / (total - 1) * 100 : 100;
+  return `
+    <div class="intro-progress-track" aria-hidden="true">
+      <span style="width:${Math.max(0, Math.min(100, progress))}%"></span>
+    </div>
+    <strong>${String(index + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}</strong>
+  `;
 }
 
 function sortedIntroPlayers() {
