@@ -612,7 +612,7 @@ class ApiFlowTest(unittest.TestCase):
                 "/api/competitions/test-score-approved/select"
             )
             test1 = host_client.get("/api/state").json()
-            self.assertEqual(test1["participation"]["application_count"], 1)
+            self.assertEqual(test1["participation"]["application_count"], 0)
             roster = host_client.get("/api/roster?filter=all").json()
             self.assertEqual(roster["stats"]["total"], 1)
             self.assertEqual(roster["entries"][0]["user_id"], member.json()["id"])
@@ -981,7 +981,7 @@ class ApiFlowTest(unittest.TestCase):
                 if entry["riot_id"] == "roster-applicant#KR1"
             )
             self.assertEqual(current_entry_before_apply["tournament_status"], "not_applied")
-            self.assertEqual(current_entry_before_apply["participation_count"], 1)
+            self.assertEqual(current_entry_before_apply["participation_count"], 0)
 
             with TestClient(app) as member_client:
                 login = member_client.post(
@@ -1032,8 +1032,6 @@ class ApiFlowTest(unittest.TestCase):
             ]
             self.assertEqual(len(matching_roster), 1)
             self.assertEqual(matching_roster[0]["tournament_status"], "applied")
-            store.state["players"] = []
-            store.save()
             state_after_approval = host_client.get("/api/state").json()
             matching_players = [
                 player

@@ -785,6 +785,11 @@ async def score_players_page():
     return FileResponse(ROOT / "static" / "index.html")
 
 
+@app.get("/players")
+async def players_page():
+    return FileResponse(ROOT / "static" / "index.html")
+
+
 @app.get("/team-register")
 async def legacy_team_register_page():
     return FileResponse(ROOT / "static" / "index.html")
@@ -1318,21 +1323,6 @@ async def setup_test_competitions(request: Request):
         ).fetchall()
         users = [dict(row) for row in rows]
         connection.execute("DELETE FROM member_competition_participations")
-        for user in users:
-            scrim_db.record_competition_participation(
-                connection,
-                user_id=user["user_id"],
-                competition_id=TEST_COMPETITION_ID,
-                competition_name="test1",
-                applied_at=now,
-            )
-            scrim_db.set_competition_participation_status(
-                connection,
-                user_id=user["user_id"],
-                competition_id=TEST_COMPETITION_ID,
-                status="APPROVED",
-                changed_at=now,
-            )
         total_row = connection.execute(
             """
             SELECT COUNT(*) AS count
@@ -1340,18 +1330,6 @@ async def setup_test_competitions(request: Request):
             WHERE role = 'USER' AND approved = 1 AND is_active = 1
             """
         ).fetchone()
-    applications = [
-        {
-            "user_id": user["user_id"],
-            "name": user.get("name") or "",
-            "riot_id": user.get("riot_id") or "",
-            "terms_agreed": True,
-            "applied_at": now,
-            "approved_at": now,
-            "status": "APPROVED",
-        }
-        for user in users
-    ]
     async with state_lock:
         store.document = {
             "version": 2,
@@ -1365,7 +1343,7 @@ async def setup_test_competitions(request: Request):
                     "state": score_competition_state(
                         "test1",
                         participation_enabled=False,
-                        applications=applications,
+                        applications=[],
                     ),
                 },
                 {
@@ -1387,7 +1365,7 @@ async def setup_test_competitions(request: Request):
         "ok": True,
         "roster_total": dict(total_row)["count"],
         "account_issued": len(users),
-        "test_approved": len(users),
+        "test_approved": 0,
         "test2_applications": 0,
         "roster_added": roster_sync["added"],
         "roster_linked": roster_sync["linked"],

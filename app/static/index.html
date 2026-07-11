@@ -19,6 +19,7 @@
           <select id="active-competition-select"></select>
         </div>
         <nav id="main-nav" class="main-nav hidden">
+          <button type="button" data-view="poster">메인</button>
           <button type="button" data-view="intro">선수 소개</button>
           <button id="setup-nav" type="button" data-view="setup">강사님 설정</button>
           <button type="button" data-view="score-intro">점수제 참가자</button>
@@ -43,6 +44,12 @@
       <div id="deployment-warning" class="deployment-warning hidden">
         현재 Vercel 임시 저장 모드입니다. 외부 Redis를 연결하기 전에는 데이터가 재시작 시 초기화될 수 있습니다.
       </div>
+      <section id="poster-panel" class="poster-panel hidden">
+        <figure class="poster-main-image">
+          <img class="main-poster-image" src="/static/season-26-2-poster.png" alt="대회 안내 포스터" />
+        </figure>
+      </section>
+
       <section id="intro-panel" class="intro-panel hidden">
         <figure class="main-poster">
           <img class="main-poster-image" src="/static/season-26-2-poster.png" alt="수강대난투 시즌 26-2 대회 안내 포스터" />

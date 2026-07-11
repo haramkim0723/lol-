@@ -457,6 +457,26 @@ aside { display: grid; gap: 18px; }
   font-weight: 900;
 }
 
+.poster-panel {
+  display: grid;
+  place-items: center;
+  min-height: calc(100vh - 180px);
+  padding: 18px 0 44px;
+}
+.poster-main-image {
+  width: min(940px, 100%);
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid rgba(178,93,255,.42);
+  border-radius: 20px;
+  background: #05070d;
+  box-shadow: 0 30px 90px rgba(0,0,0,.5), 0 0 58px rgba(151,65,255,.18);
+}
+.poster-main-image img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
 .intro-panel { padding: 20px 0 40px; }
 .main-poster {
   width: min(1040px, 100%);

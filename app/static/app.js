@@ -22,7 +22,9 @@ const TIER_STYLES = {
 };
 
 let state = null;
-let currentView = location.pathname === "/score-players"
+let currentView = location.pathname === "/players"
+  ? "intro"
+  : location.pathname === "/score-players"
   ? "score-intro"
   : location.pathname === "/team-simulator"
   ? "team-simulator"
@@ -40,7 +42,7 @@ let currentView = location.pathname === "/score-players"
     ? "mypage"
   : ["/competition-room", "/scrim"].includes(location.pathname)
     ? "scrim"
-    : "intro";
+    : "poster";
 let authPromptOpen = false;
 let authMode = "login";
 let introIndex = 0;
@@ -59,7 +61,7 @@ let rosterPage = 1;
 let selectedScrimTeamId = null;
 let pendingApiCount = 0;
 let pollStateInFlight = false;
-const STATE_POLL_INTERVAL_MS = 5000;
+const STATE_POLL_INTERVAL_MS = 15000;
 let simulatorExcludedSignature = "";
 let participationHostView = "settings";
 let participationApprovalView = "requests";
@@ -131,12 +133,15 @@ async function withButtonLoading(button, label, task) {
 }
 
 async function api(path, options = {}) {
-  pendingApiCount += 1;
-  setGlobalLoading(true);
+  const { silent = false, ...fetchOptions } = options;
+  if (!silent) {
+    pendingApiCount += 1;
+    setGlobalLoading(true);
+  }
   try {
     const response = await fetch(path, {
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-      ...options,
+      headers: { "Content-Type": "application/json", ...(fetchOptions.headers || {}) },
+      ...fetchOptions,
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -154,8 +159,10 @@ async function api(path, options = {}) {
   } catch (error) {
     throw new Error(requestFailureMessage(error));
   } finally {
-    pendingApiCount = Math.max(0, pendingApiCount - 1);
-    if (pendingApiCount === 0) setGlobalLoading(false);
+    if (!silent) {
+      pendingApiCount = Math.max(0, pendingApiCount - 1);
+      if (pendingApiCount === 0) setGlobalLoading(false);
+    }
   }
 }
 
@@ -345,13 +352,14 @@ function resetPositionSlots(form) {
 
 function setView(view) {
   if (view === "setup" && state.viewer.role !== "host") {
-    view = "intro";
+    view = "poster";
   }
   if (view === "auction" && state.auction.status === "setup") {
     toast("강사님이 아직 이 대회의 경매를 열지 않았습니다.");
-    view = "intro";
+    view = "poster";
   }
   currentView = view;
+  $("#poster-panel").classList.toggle("hidden", view !== "poster");
   $("#intro-panel").classList.toggle("hidden", view !== "intro");
   $("#setup-panel").classList.toggle("hidden", view !== "setup");
   $("#score-intro-panel").classList.toggle("hidden", view !== "score-intro");
@@ -375,7 +383,9 @@ function setView(view) {
     : view === "notices" ? "/notices"
     : view === "members" ? "/members"
     : view === "mypage" ? "/mypage"
-    : view === "scrim" ? "/competition-room" : "/";
+    : view === "scrim" ? "/competition-room"
+    : view === "intro" ? "/players"
+    : "/";
   if (location.pathname !== path) {
     history.pushState({ view }, "", path);
   }
@@ -527,9 +537,7 @@ function activeCompetition() {
 }
 
 function mainViewForCompetition() {
-  return (activeCompetition()?.mode || "auction") === "auction"
-    ? "intro"
-    : "score-intro";
+  return "poster";
 }
 
 function renderMainPoster() {
@@ -548,6 +556,9 @@ function renderMainPoster() {
 
 function applyCompetitionMode() {
   const isAuction = (activeCompetition()?.mode || "auction") === "auction";
+  $$('[data-view="poster"]').forEach((button) => {
+    button.classList.remove("hidden");
+  });
   $$('[data-view="intro"], [data-view="auction"]').forEach((button) => {
     button.classList.toggle("hidden", !isAuction);
   });
@@ -573,6 +584,7 @@ function applyCompetitionMode() {
   const allowedViews = isAuction
     ? [
       "intro",
+      "poster",
       "setup",
       "auction",
       "notices",
@@ -582,6 +594,7 @@ function applyCompetitionMode() {
     ]
     : [
       "setup",
+      "poster",
       "score-intro",
       "team-simulator",
       "team-register",
@@ -1253,6 +1266,13 @@ async function loadParticipationApplications({ force = false, signature = "" } =
     const data = await api("/api/participation/applications");
     const pendingUsers = data.applied.filter((user) => user.participation_status !== "APPROVED");
     const approvedUsers = data.applied.filter((user) => user.participation_status === "APPROVED");
+    if (state?.participation) {
+      state.participation.application_count = data.applied.length;
+      state.participation.enabled = Boolean(data.enabled);
+    }
+    $("#participation-status").textContent = data.enabled
+      ? `신청 접수 중 · ${data.applied.length}명`
+      : "신청 대기";
     $("#pending-count").textContent = pendingUsers.length;
     $("#approved-count").textContent = approvedUsers.length;
     $("#not-applied-count").textContent = data.not_applied.length;
@@ -1962,7 +1982,7 @@ function render() {
     && state.auction.status === "setup"
     && ["setup", "auction"].includes(currentView)
   ) {
-    currentView = "intro";
+    currentView = "poster";
   }
   setView(currentView);
 }
@@ -2010,7 +2030,7 @@ async function pollState() {
   if (pollStateInFlight || pendingApiCount > 0) return;
   pollStateInFlight = true;
   try {
-    const data = await api("/api/state");
+    const data = await api("/api/state", { silent: true });
     const signature = meaningfulStateSignature(data);
     if (signature !== stateSignature) {
       state = data;
@@ -2086,7 +2106,8 @@ window.addEventListener("popstate", () => {
     : location.pathname === "/participation" ? "participation"
     : location.pathname === "/members" ? "members"
     : location.pathname === "/mypage" ? "mypage"
-    : ["/competition-room", "/scrim"].includes(location.pathname) ? "scrim" : "intro";
+    : location.pathname === "/players" ? "intro"
+    : ["/competition-room", "/scrim"].includes(location.pathname) ? "scrim" : "poster";
   if (state) setView(currentView);
 });
 
@@ -2697,20 +2718,28 @@ $("#participation-apply-button").addEventListener("click", async () => {
 document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-participation-status]");
   if (!button) return;
+  const originalText = button.textContent;
+  const row = button.closest(".participation-user");
+  row?.querySelectorAll("[data-participation-status]").forEach((action) => {
+    action.disabled = true;
+  });
+  button.textContent = "처리 중";
   try {
     await api(`/api/participation/applications/${button.dataset.participationStatus}`, {
       method: "PATCH",
       body: JSON.stringify({ status: button.dataset.status }),
     });
     memberRosterCache = null;
-    state = await api("/api/state");
-    stateSignature = meaningfulStateSignature(state);
-    render();
-    await loadParticipationApplications({ force: true });
+    participationApplicationsSignature = "";
+    await loadParticipationApplications({ force: true, signature: `manual:${Date.now()}` });
     if (currentView === "members") await reloadMembers();
     toast(button.dataset.status === "APPROVED" ? "참가를 승인했습니다." : "참가 신청을 거절했습니다.");
   } catch (error) {
     toast(error.message, true);
+    row?.querySelectorAll("[data-participation-status]").forEach((action) => {
+      action.disabled = false;
+    });
+    button.textContent = originalText;
   }
 });
 
