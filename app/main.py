@@ -490,8 +490,10 @@ def roster_payload(
     if application is None and applications_by_riot_id:
         riot_id_key = str(entry.get("riot_id") or "").strip().casefold()
         application = applications_by_riot_id.get(riot_id_key) if riot_id_key else None
-    is_approved = bool(application and application.get("status") == "APPROVED")
-    is_applied = roster_applied or is_approved
+    active_application = bool(
+        application and application.get("status") in {"APPLIED", "APPROVED"}
+    )
+    is_applied = roster_applied or active_application
     payload["tournament_status"] = "applied" if is_applied else "not_applied"
     payload["tournament_label"] = "\ub300\ud68c \ucc38\uac00" if is_applied else "\ub300\ud68c \ubbf8\ucc38\uac00"
     payload["applied_at"] = application.get("applied_at") if application else None

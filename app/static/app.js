@@ -1243,6 +1243,14 @@ function rosterPaymentCell(entry) {
   </div>`;
 }
 
+function rosterParticipationCell(entry) {
+  const applied = entry.tournament_status === "applied";
+  return `<div class="roster-sheet-status roster-participation-field">
+    <input name="participation_status_text" type="hidden" value="${applied ? "대회 참가" : "대회 미참가"}" />
+    <span class="user-approval ${participationClass(entry.tournament_status)}">${applied ? "참가" : "불참"}</span>
+  </div>`;
+}
+
 function renderRosterCreateRow() {
   if (!rosterCreateOpen) return "";
   const draft = {};
@@ -1255,7 +1263,7 @@ function renderRosterCreateRow() {
       ${rosterCell(draft, "preferred_lines", "정글,미드,원딜")}
       ${rosterTierCell(draft)}
       ${rosterPaymentCell(draft)}
-      ${rosterCell(draft, "participation_status_text")}
+      ${rosterParticipationCell({ tournament_status: "not_applied" })}
       ${rosterCell(draft, "absence_reason")}
       ${rosterCell(draft, "top_adjustment")}
       ${rosterCell(draft, "game_count_adjustment")}
@@ -1315,7 +1323,7 @@ function renderMemberRows(entries) {
           ${rosterCell(entry, "preferred_lines", "순서대로 주, 부 라인")}
           ${rosterTierCell(entry)}
           ${rosterPaymentCell(entry)}
-          ${rosterCell(entry, "participation_status_text")}
+          ${rosterParticipationCell(entry)}
           ${rosterCell(entry, "absence_reason")}
           ${rosterCell(entry, "top_adjustment")}
           ${rosterCell(entry, "game_count_adjustment")}
