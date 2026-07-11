@@ -450,6 +450,17 @@ class ApiFlowTest(unittest.TestCase):
                     },
                 ).json()
                 ids[position] = player["id"]
+            alternate_jug = client.post(
+                "/api/players",
+                json={
+                    "name": "ALT_JUG",
+                    "riot_id": "",
+                    "tier": "GOLD",
+                    "score": 4,
+                    "primary_position": "JUG",
+                    "secondary_position": None,
+                },
+            ).json()
             client.post("/api/scrim/auth/logout")
             response = client.post(
                 "/api/tournament/recommend",
@@ -468,6 +479,23 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(
                 response.json()["recommendations"][0]["total_score"], 40
             )
+            excluded_response = client.post(
+                "/api/tournament/recommend",
+                json={
+                    "locked": {
+                        "TOP": ids["TOP"],
+                        "JUG": None,
+                        "MID": ids["MID"],
+                        "ADC": None,
+                        "SUP": None,
+                    },
+                    "limit": 5,
+                    "excluded_player_ids": [ids["JUG"]],
+                },
+            )
+            self.assertEqual(excluded_response.status_code, 200)
+            excluded_lineup = excluded_response.json()["recommendations"][0]["lineup"]
+            self.assertEqual(excluded_lineup["JUG"]["id"], alternate_jug["id"])
 
     def test_team_pages_are_separated(self):
         with TestClient(app) as client:

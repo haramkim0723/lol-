@@ -726,6 +726,7 @@ class TeamRecommendationInput(BaseModel):
         Literal["TOP", "JUG", "MID", "ADC", "SUP"], str | None
     ]
     limit: int = Field(default=12, ge=1, le=30)
+    excluded_player_ids: list[str] = Field(default_factory=list, max_length=1000)
 
 
 class CompetitionInput(BaseModel):
@@ -1706,6 +1707,7 @@ async def recommend_tournament_team(data: TeamRecommendationInput):
                 data.locked,
                 store.state["tournament"]["score_limit"],
                 data.limit,
+                set(data.excluded_player_ids),
             )
         }
     except ValueError as exc:

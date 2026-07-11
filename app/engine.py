@@ -244,9 +244,11 @@ def recommend_team_combinations(
     locked: dict[str, str | None],
     target_score: int,
     limit: int = 12,
+    excluded_player_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     players = state["players"]
     by_id = {player["id"]: player for player in players}
+    excluded_player_ids = excluded_player_ids or set()
     selected_ids = [player_id for player_id in locked.values() if player_id]
     if len(selected_ids) != len(set(selected_ids)):
         raise ValueError("한 참가자를 여러 포지션에 중복 배치할 수 없습니다.")
@@ -258,6 +260,8 @@ def recommend_team_combinations(
         player = by_id.get(player_id)
         if player is None:
             raise ValueError("선택한 참가자를 찾을 수 없습니다.")
+        if player_id in excluded_player_ids:
+            raise ValueError("이미 팀에 등록된 참가자는 조합 시뮬레이션에 사용할 수 없습니다.")
         if position not in (
             player["primary_position"],
             player.get("secondary_position"),
@@ -275,6 +279,8 @@ def recommend_team_combinations(
         candidates = []
         for player in players:
             if player["id"] in selected_ids:
+                continue
+            if player["id"] in excluded_player_ids:
                 continue
             if player["primary_position"] == position:
                 candidates.append((player, 0))

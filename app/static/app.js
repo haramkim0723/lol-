@@ -57,6 +57,7 @@ let selectedScrimTeamId = null;
 let pendingApiCount = 0;
 let pollStateInFlight = false;
 const STATE_POLL_INTERVAL_MS = 5000;
+let simulatorExcludedSignature = "";
 let participationHostView = "settings";
 let participationApprovalView = "requests";
 let participationApprovalStatus = "pending";
@@ -172,6 +173,18 @@ function escapeHtml(value = "") {
 
 function playerById(id) {
   return state.players.find((player) => player.id === id);
+}
+
+function registeredTournamentPlayerIds() {
+  const ids = new Set();
+  (state?.tournament?.teams || []).forEach((team) => {
+    if (team.status === "rejected") return;
+    POSITIONS.forEach((position) => {
+      const playerId = team.members?.[position];
+      if (playerId) ids.add(playerId);
+    });
+  });
+  return ids;
 }
 
 function captainById(id) {
@@ -1500,18 +1513,34 @@ function formatDateTime(timestamp) {
 function renderTeamSelectors(formSelector, containerSelector, initial = null) {
   const form = $(formSelector);
   const isSimulator = formSelector === "#team-simulator-form";
+  const excludedPlayerIds = isSimulator ? registeredTournamentPlayerIds() : new Set();
+  if (isSimulator) {
+    const excludedSignature = [...excludedPlayerIds].sort().join("|");
+    if (simulatorExcludedSignature !== excludedSignature) {
+      simulatorExcludedSignature = excludedSignature;
+      window.latestRecommendations = [];
+      const recommendationPanel = $("#simulator-recommendations");
+      if (recommendationPanel) recommendationPanel.innerHTML = "";
+    }
+  }
   const currentSelections = Object.fromEntries(
     POSITIONS.map((position) => [
       position,
-      form.elements[position]?.value || initial?.[position] || "",
+      excludedPlayerIds.has(form.elements[position]?.value || initial?.[position])
+        ? ""
+        : form.elements[position]?.value || initial?.[position] || "",
     ])
   );
   $(containerSelector).innerHTML = POSITIONS.map((position) => {
     const primaryCandidates = state.players
-      .filter((player) => player.primary_position === position)
+      .filter((player) =>
+        !excludedPlayerIds.has(player.id) &&
+        player.primary_position === position
+      )
       .sort((a, b) => a.name.localeCompare(b.name, "ko-KR"));
     const secondaryCandidates = state.players
       .filter((player) =>
+        !excludedPlayerIds.has(player.id) &&
         player.primary_position !== position &&
         playerCanPosition(player, position)
       )
@@ -2266,9 +2295,10 @@ $("#team-simulator-form").addEventListener("submit", (event) => {
   const locked = Object.fromEntries(
     POSITIONS.map((position) => [position, data[position] || null])
   );
+  const excluded_player_ids = [...registeredTournamentPlayerIds()];
   api("/api/tournament/recommend", {
     method: "POST",
-    body: JSON.stringify({ locked, limit: 12 }),
+    body: JSON.stringify({ locked, limit: 12, excluded_player_ids }),
   }).then((result) => {
     renderSimulatorRecommendations(result.recommendations);
   }).catch((error) => toast(error.message, true));
