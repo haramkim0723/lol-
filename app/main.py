@@ -2168,6 +2168,8 @@ def require_scrim_result_manager(viewer: dict, team_id: str) -> dict:
     )
     if team is None:
         raise HTTPException(404, "팀을 찾을 수 없습니다.")
+    if team.get("status") != "approved":
+        raise HTTPException(400, "Only approved teams can register scrim results.")
     team_player_ids = set(team.get("members", {}).values())
     viewer_riot_id = str(viewer.get("riot_id") or "").casefold()
     belongs_to_team = any(
@@ -2193,13 +2195,13 @@ async def create_scrim_result(data: ScrimResultInput, request: Request):
             require_scrim_result_manager(viewer, data.team_a_id)
             permission_granted = True
         except HTTPException as error:
-            if error.status_code == 404:
+            if error.status_code in (400, 404):
                 raise
         try:
             require_scrim_result_manager(viewer, data.team_b_id)
             permission_granted = True
         except HTTPException as error:
-            if error.status_code == 404:
+            if error.status_code in (400, 404):
                 raise
         if not permission_granted:
             raise HTTPException(403, "참가 팀원 또는 강사님만 결과를 등록할 수 있습니다.")
@@ -2237,13 +2239,13 @@ async def update_scrim_result(
             require_scrim_result_manager(viewer, result["team_a_id"])
             permission_granted = True
         except HTTPException as error:
-            if error.status_code == 404:
+            if error.status_code in (400, 404):
                 raise
         try:
             require_scrim_result_manager(viewer, result["team_b_id"])
             permission_granted = True
         except HTTPException as error:
-            if error.status_code == 404:
+            if error.status_code in (400, 404):
                 raise
         if not permission_granted:
             raise HTTPException(403, "참가 팀원 또는 강사님만 결과를 수정할 수 있습니다.")
