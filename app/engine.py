@@ -21,6 +21,7 @@ def new_state() -> dict[str, Any]:
             "extension_trigger_seconds": 5,
             "extension_seconds": 5,
         },
+        "notices": [],
         "captains": [],
         "players": [],
         "tournament": {

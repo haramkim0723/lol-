@@ -26,6 +26,7 @@
           <button type="button" data-view="team-register">팀 등록</button>
           <button id="tournament-nav" type="button" data-view="tournament">점수제 팀신청 승인</button>
           <button type="button" data-view="participation">참가 신청</button>
+          <button type="button" data-view="notices">공지사항</button>
           <button type="button" data-view="members">회원 관리</button>
           <button type="button" data-view="mypage">마이페이지</button>
           <button type="button" data-view="auction">경매장</button>
@@ -291,11 +292,27 @@
         </article>
       </section>
 
+      <section id="notices-panel" class="notices-panel hidden">
+        <div class="notice-heading">
+          <div>
+            <p class="eyebrow">NOTICE BOARD</p>
+            <h2>공지사항</h2>
+            <p>현재 대회의 안내와 운영 공지를 확인하세요.</p>
+          </div>
+        </div>
+        <form id="notice-form" class="notice-form hidden">
+          <input name="title" maxlength="80" required placeholder="공지 제목" />
+          <textarea name="body" maxlength="3000" required placeholder="공지 내용을 입력하세요."></textarea>
+          <button class="primary" type="submit">공지 등록</button>
+        </form>
+        <div id="notice-list" class="notice-list"></div>
+      </section>
+
       <section id="members-panel" class="scrim-shell admin-only hidden">
         <aside class="panel admin-panel">
           <div class="panel-title">
             <span>MEMBERS</span>
-            <h2>수강대난투 26-2 관리</h2>
+            <h2 id="member-roster-title">수강대난투 26-2 관리</h2>
           </div>
           <div class="member-stats">
             <div><strong id="member-stat-total">0</strong><span>전체 인원</span></div>

@@ -34,6 +34,8 @@ let currentView = location.pathname === "/score-players"
     ? "participation"
   : location.pathname === "/members"
     ? "members"
+  : location.pathname === "/notices"
+    ? "notices"
   : location.pathname === "/mypage"
     ? "mypage"
   : ["/competition-room", "/scrim"].includes(location.pathname)
@@ -357,6 +359,7 @@ function setView(view) {
   $("#team-register-panel").classList.toggle("hidden", view !== "team-register");
   $("#tournament-panel").classList.toggle("hidden", view !== "tournament");
   $("#participation-panel").classList.toggle("hidden", view !== "participation");
+  $("#notices-panel").classList.toggle("hidden", view !== "notices");
   $("#members-panel").classList.toggle("hidden", view !== "members");
   $("#mypage-panel").classList.toggle("hidden", view !== "mypage");
   $("#auction-panel").classList.toggle("hidden", view !== "auction");
@@ -369,6 +372,7 @@ function setView(view) {
     : view === "team-register" ? "/team-register"
     : view === "tournament" ? "/tournament"
     : view === "participation" ? "/participation"
+    : view === "notices" ? "/notices"
     : view === "members" ? "/members"
     : view === "mypage" ? "/mypage"
     : view === "scrim" ? "/competition-room" : "/";
@@ -457,6 +461,9 @@ function renderRole() {
     button.classList.toggle("hidden", viewer.role !== "host" && !participationEnabled)
   );
   $$('[data-view="mypage"]').forEach((button) =>
+    button.classList.toggle("hidden", !viewer.authenticated)
+  );
+  $$('[data-view="notices"]').forEach((button) =>
     button.classList.toggle("hidden", !viewer.authenticated)
   );
   $("#competition-switcher").classList.toggle("hidden", !browsable);
@@ -552,6 +559,7 @@ function applyCompetitionMode() {
       "intro",
       "setup",
       "auction",
+      "notices",
       "scrim",
       ...(state.viewer.role === "host" ? ["members"] : []),
       "mypage",
@@ -563,6 +571,7 @@ function applyCompetitionMode() {
       "team-register",
       "tournament",
       ...(state.viewer.role === "host" || state.participation?.enabled ? ["participation"] : []),
+      "notices",
       "scrim",
       ...(state.viewer.role === "host" ? ["members"] : []),
       "mypage",
@@ -1553,6 +1562,26 @@ function renderMyPage() {
   form.elements.nickname.value = viewer.nickname || "";
 }
 
+function renderNotices() {
+  const isHost = state.viewer.role === "host";
+  $("#notice-form").classList.toggle("hidden", !isHost);
+  const notices = state.notices || [];
+  $("#notice-list").innerHTML = notices.length
+    ? notices.map((notice) => `
+      <article class="notice-card">
+        <div class="notice-card-head">
+          <div>
+            <strong>${escapeHtml(notice.title)}</strong>
+            <span>${notice.created_at ? formatDateTime(notice.created_at) : ""}</span>
+          </div>
+          ${isHost ? `<button class="remove" type="button" data-notice-delete="${notice.id}">삭제</button>` : ""}
+        </div>
+        <p>${escapeHtml(notice.body).replace(/\n/g, "<br>")}</p>
+      </article>
+    `).join("")
+    : '<div class="empty-state">등록된 공지사항이 없습니다.</div>';
+}
+
 function formatDateTime(timestamp) {
   return new Date(Number(timestamp) * 1000).toLocaleString("ko-KR", {
     month: "2-digit",
@@ -1894,6 +1923,7 @@ function updateTimer() {
 
 function render() {
   $("#room-title").textContent = state.settings.room_name;
+  $("#member-roster-title").textContent = `${state.settings.room_name} 관리`;
   document.title = `${state.settings.room_name} · LoL Auction`;
   $("#deployment-warning").classList.toggle(
     "hidden",
@@ -1907,6 +1937,7 @@ function render() {
   renderSetup();
   renderTournament();
   renderParticipation();
+  renderNotices();
   renderMyPage();
   renderAuction();
   if (
@@ -2264,7 +2295,26 @@ $("#settings-form").addEventListener("submit", async (event) => {
     .forEach((key) => data[key] = Number(data[key]));
   try {
     await api("/api/settings", { method: "PUT", body: JSON.stringify(data) });
+    state = await api("/api/state");
+    stateSignature = meaningfulStateSignature(state);
+    render();
     toast("경매 설정을 저장했습니다.");
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#notice-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.target));
+  try {
+    await api("/api/notices", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    event.target.reset();
+    state = await api("/api/state");
+    stateSignature = meaningfulStateSignature(state);
+    render();
+    toast("공지사항을 등록했습니다.");
   } catch (error) { toast(error.message, true); }
 });
 
@@ -2638,6 +2688,17 @@ document.addEventListener("click", async (event) => {
       searchedPlayer.dataset.playerSearchId,
       searchedPlayer.dataset.playerSearchView
     );
+    return;
+  }
+  const noticeDeleteId = event.target.closest("[data-notice-delete]")?.dataset.noticeDelete;
+  if (noticeDeleteId) {
+    try {
+      await api(`/api/notices/${noticeDeleteId}`, { method: "DELETE" });
+      state = await api("/api/state");
+      stateSignature = meaningfulStateSignature(state);
+      render();
+      toast("공지사항을 삭제했습니다.");
+    } catch (error) { toast(error.message, true); }
     return;
   }
   const scoreIntroPosition =

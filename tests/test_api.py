@@ -503,6 +503,7 @@ class ApiFlowTest(unittest.TestCase):
             registration = client.get("/team-register")
             tournament = client.get("/tournament")
             participation = client.get("/participation")
+            notices = client.get("/notices")
             members = client.get("/members")
             mypage = client.get("/mypage")
             score_players = client.get("/score-players")
@@ -510,6 +511,7 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(registration.status_code, 200)
             self.assertEqual(tournament.status_code, 200)
             self.assertEqual(participation.status_code, 200)
+            self.assertEqual(notices.status_code, 200)
             self.assertEqual(members.status_code, 200)
             self.assertEqual(mypage.status_code, 200)
             self.assertEqual(score_players.status_code, 200)
@@ -517,6 +519,7 @@ class ApiFlowTest(unittest.TestCase):
             self.assertIn("team-register-panel", registration.text)
             self.assertIn("tournament-panel", tournament.text)
             self.assertIn("participation-panel", participation.text)
+            self.assertIn("notices-panel", notices.text)
             self.assertIn("members-panel", members.text)
             self.assertIn("mypage-panel", mypage.text)
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import secrets
 import time
 import urllib.error
 import urllib.parse
@@ -229,6 +230,11 @@ class SettingsInput(BaseModel):
     bid_increment: int = Field(ge=1, le=1_000_000)
     extension_trigger_seconds: int = Field(ge=0, le=60)
     extension_seconds: int = Field(ge=0, le=60)
+
+
+class NoticeInput(BaseModel):
+    title: str = Field(min_length=1, max_length=80)
+    body: str = Field(min_length=1, max_length=3000)
 
 
 class CaptainInput(BaseModel):
@@ -779,6 +785,11 @@ async def participation_page():
 
 @app.get("/members")
 async def members_page():
+    return FileResponse(ROOT / "static" / "index.html")
+
+
+@app.get("/notices")
+async def notices_page():
     return FileResponse(ROOT / "static" / "index.html")
 
 
@@ -1541,6 +1552,38 @@ async def update_settings(data: SettingsInput, request: Request):
         store.save()
     await broadcast()
     return engine.public_state(store.state)
+
+
+@app.post("/api/notices")
+async def create_notice(data: NoticeInput, request: Request):
+    require_host(request)
+    async with state_lock:
+        notice = {
+            "id": secrets.token_hex(8),
+            "title": data.title.strip(),
+            "body": data.body.strip(),
+            "created_at": time.time(),
+        }
+        store.state.setdefault("notices", []).insert(0, notice)
+        store.save()
+    await broadcast()
+    return notice
+
+
+@app.delete("/api/notices/{notice_id}")
+async def delete_notice(notice_id: str, request: Request):
+    require_host(request)
+    async with state_lock:
+        notices = store.state.setdefault("notices", [])
+        before = len(notices)
+        store.state["notices"] = [
+            notice for notice in notices if notice.get("id") != notice_id
+        ]
+        if len(store.state["notices"]) == before:
+            raise HTTPException(404, "공지사항을 찾을 수 없습니다.")
+        store.save()
+    await broadcast()
+    return {"ok": True}
 
 
 @app.post("/api/captains")

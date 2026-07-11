@@ -675,6 +675,41 @@ aside { display: grid; gap: 18px; }
   padding: 5px 8px;
   font-size: 10px;
 }
+.notices-panel { max-width: 980px; margin: 0 auto; padding: 20px 0 55px; }
+.notice-heading { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 18px; }
+.notice-heading h2 { margin: 0; font-size: clamp(30px,4vw,50px); letter-spacing: -.04em; }
+.notice-heading p:not(.eyebrow) { margin: 8px 0 0; color: var(--muted); }
+.notice-form {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(13,20,29,.72);
+}
+.notice-form input,
+.notice-form textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: #fff;
+  background: #080e15;
+  outline: 0;
+}
+.notice-form textarea { min-height: 140px; resize: vertical; line-height: 1.6; }
+.notice-list { display: grid; gap: 12px; }
+.notice-card {
+  padding: 17px;
+  border: 1px solid rgba(153,176,204,.18);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(19,29,42,.9), rgba(7,12,19,.92));
+}
+.notice-card-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.notice-card-head strong { display: block; color: #fff; font-size: 18px; }
+.notice-card-head span { display: block; margin-top: 5px; color: var(--gold-light); font-size: 10px; font-weight: 900; letter-spacing: .08em; }
+.notice-card p { margin: 14px 0 0; color: #c9d3df; line-height: 1.75; }
 .tournament-heading { display: flex; justify-content: space-between; align-items: end; margin-bottom: 20px; }
 .tournament-heading h2, .bracket-header h2 { margin: 0; font-size: clamp(28px,4vw,46px); letter-spacing: -.05em; }
 .tournament-heading p:not(.eyebrow) { margin: 8px 0 0; color: var(--muted); }
