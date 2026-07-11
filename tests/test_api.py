@@ -1,4 +1,5 @@
 import os
+import re
 import tempfile
 import unittest
 import uuid
@@ -1440,6 +1441,30 @@ class ApiFlowTest(unittest.TestCase):
                 message = websocket.receive_json()
                 self.assertEqual(message["type"], "state")
                 self.assertIn("auction", message["data"])
+
+    def test_feature_api_scenario_document_covers_current_routes(self):
+        root = Path(__file__).resolve().parents[1]
+        scenario_doc = (root / "docs" / "FEATURE_API_SCENARIOS.md").read_text(
+            encoding="utf-8"
+        )
+
+        def collect_routes(path: Path, prefix: str = "") -> set[str]:
+            content = path.read_text(encoding="utf-8")
+            matches = re.findall(
+                r"@(?:app|router)\.(?:get|post|put|patch|delete)\(\"([^\"]+)\"",
+                content,
+            )
+            return {
+                f"{prefix}{route}"
+                for route in matches
+                if route.startswith("/api/")
+                or prefix
+            }
+
+        routes = collect_routes(root / "app" / "main.py")
+        routes |= collect_routes(root / "app" / "scrim_api.py", "/api/scrim")
+        missing = sorted(route for route in routes if route not in scenario_doc)
+        self.assertEqual(missing, [])
 
 
 if __name__ == "__main__":
