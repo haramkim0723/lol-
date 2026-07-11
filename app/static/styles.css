@@ -967,7 +967,6 @@ aside { display: grid; gap: 18px; }
     radial-gradient(circle at center, rgba(39,211,211,.18) 0 18%, transparent 19%),
     conic-gradient(from 20deg, rgba(224,180,81,.32), transparent 18%, rgba(39,211,211,.28), transparent 48%, rgba(224,180,81,.3), transparent 78%);
   opacity: .5;
-  animation: roulette-spin 8s linear infinite;
   pointer-events: none;
 }
 .roulette-stage::after {
