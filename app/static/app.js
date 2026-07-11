@@ -47,6 +47,8 @@ let scoreIntroPlayerId = null;
 let toastTimer = null;
 let stateSignature = "";
 let scrimRoomTab = "progress";
+let lastGroupDrawAnimationSignature = "";
+let groupDrawReady = false;
 let riotPreviewData = null;
 let rosterPage = 1;
 let selectedScrimTeamId = null;
@@ -348,6 +350,7 @@ function setView(view) {
 }
 
 function renderScrimRoomTabs() {
+  if (scrimRoomTab === "results") scrimRoomTab = "stats";
   $$("[data-scrim-tab]").forEach((button) => {
     button.classList.toggle("active", button.dataset.scrimTab === scrimRoomTab);
   });
@@ -355,7 +358,6 @@ function renderScrimRoomTabs() {
     const tabs = String(panel.dataset.scrimTabPanel || "").split(/\s+/);
     panel.classList.toggle("scrim-tab-collapsed", !tabs.includes(scrimRoomTab));
   });
-  $("#scrim-stats-panel")?.classList.toggle("results-mode", scrimRoomTab === "results");
 }
 
 function movePlayerRegistrationToMembers() {
@@ -784,7 +786,7 @@ function renderTournament() {
     "hidden", !isTournamentCompetition || !["running", "finished"].includes(tournament.status)
   );
   $("#tournament-group-section").classList.toggle(
-    "hidden", !isTournamentCompetition || tournament.status !== "group"
+    "hidden", !isTournamentCompetition || (tournament.status !== "group" && !groupDrawReady)
   );
   $("#teacher-score-limit-input").value = tournament.score_limit;
   $("#tournament-format-input").value = tournament.format || "single_elimination";
@@ -861,9 +863,28 @@ function renderTournamentGroups() {
     "hidden", tournament.status !== "group" || !isHost
   );
   const groups = tournament.groups || [];
+  const drawSignature = groupDrawSignature();
+  const waitingForDraw = groupDrawReady
+    || (
+      tournament.status === "group"
+      && groups.length > 0
+      && drawSignature !== lastGroupDrawAnimationSignature
+    );
+  const replayButton = $("#play-group-draw-button");
+  replayButton?.classList.toggle("hidden", tournament.status !== "group" || groups.length === 0 || waitingForDraw);
+  if (replayButton) replayButton.textContent = "다시 보기";
   const totalTeams = groups.reduce((sum, group) => sum + group.team_ids.length, 0);
   $("#tournament-groups").innerHTML = `
-    <div class="group-draft-layout">
+    <div id="group-draw-waiting" class="group-draw-waiting${waitingForDraw ? "" : " hidden"}">
+      <div class="draw-orbit"><span></span></div>
+      <small>GROUP DRAW READY</small>
+      <strong>조 추첨 대기</strong>
+      <p>${groups.length
+        ? "랜덤 조 편성이 완료되었습니다. 시작을 누르면 한 팀씩 각 조에 들어가는 순서로 공개됩니다."
+        : "시작을 누르면 랜덤 조 편성을 실행하고, 확정된 결과를 한 팀씩 공개합니다."}</p>
+      <button id="start-group-draw-animation" class="accent" type="button">추첨 시작</button>
+    </div>
+    <div class="group-draft-layout${waitingForDraw ? " draw-hidden" : ""}">
       <aside class="group-draft-summary">
         <span>GROUP CONFIGURATION</span>
         <dl>
@@ -881,11 +902,22 @@ function renderTournamentGroups() {
               <span>${(group.qualified_team_ids || []).length}/${tournament.qualifiers_per_group}</span>
             </header>
             <div>
-              ${group.team_ids.map((teamId, teamIndex) => {
+              <div class="group-standings-head">
+                <span>순위</span>
+                <span>팀</span>
+                <span>승점</span>
+                <span>득실</span>
+                <span>전적</span>
+              </div>
+              ${groupStandings(group).map((standing, teamIndex) => {
+                const teamId = standing.teamId;
                 const checked = (group.qualified_team_ids || []).includes(teamId);
-                return `<label class="group-team-row${checked ? " qualified" : ""}">
+                return `<label class="group-team-row${checked ? " qualified" : ""}" data-group-index="${groupIndex}" data-team-id="${teamId}">
                   <span class="group-team-seed">${teamIndex + 1}</span>
                   <strong>${escapeHtml(teamById(teamId)?.name || "-")}</strong>
+                  <b>${standing.points}</b>
+                  <em>${signedNumber(standing.diff)}</em>
+                  <small>${standing.wins}승 ${standing.draws}무 ${standing.losses}패</small>
                   <input type="checkbox" data-group-qualifier="${groupIndex}" value="${teamId}"
                     aria-label="${escapeHtml(teamById(teamId)?.name || "-")} 본선 진출"
                     ${checked ? "checked" : ""} ${isHost ? "" : "disabled"} />
@@ -896,6 +928,161 @@ function renderTournamentGroups() {
         `).join("")}
       </div>
     </div>`;
+  renderGroupResultForm();
+}
+
+function renderGroupResultForm() {
+  const form = $("#group-result-form");
+  if (!form) return;
+  const groupTeamIds = new Set((state.tournament.groups || []).flatMap((group) => group.team_ids || []));
+  const teams = state.tournament.teams.filter((team) => groupTeamIds.has(team.id));
+  $("#group-result-entry")?.classList.toggle("hidden", state.tournament.status !== "group" || teams.length < 2);
+  if (teams.length < 2) return;
+  ["team_a_id", "team_b_id"].forEach((name, index) => {
+    const select = form.elements[name];
+    const selected = select.value;
+    select.innerHTML = teams.map((team) => `<option value="${team.id}">${escapeHtml(team.name)}</option>`).join("");
+    if (teams.some((team) => team.id === selected)) select.value = selected;
+    else select.selectedIndex = Math.min(index, teams.length - 1);
+  });
+  if (!form.elements.match_date.value) {
+    form.elements.match_date.value = new Date().toISOString().slice(0, 10);
+  }
+}
+
+function groupDrawSequence() {
+  const tournament = state.tournament;
+  const teamById = (id) => tournament.teams.find((team) => team.id === id);
+  const groups = tournament.groups || [];
+  const maxRows = Math.max(0, ...groups.map((group) => group.team_ids.length));
+  const sequence = [];
+  for (let rowIndex = 0; rowIndex < maxRows; rowIndex += 1) {
+    groups.forEach((group, groupIndex) => {
+      const teamId = group.team_ids[rowIndex];
+      if (!teamId) return;
+      sequence.push({
+        groupIndex,
+        groupName: group.name,
+        teamId,
+        teamName: teamById(teamId)?.name || "-",
+      });
+    });
+  }
+  return sequence;
+}
+
+function groupDrawSignature() {
+  return JSON.stringify((state.tournament.groups || []).map((group) => group.team_ids));
+}
+
+function groupStandings(group) {
+  const teamIds = new Set(group.team_ids || []);
+  const rows = new Map((group.team_ids || []).map((teamId) => [teamId, {
+    teamId,
+    played: 0,
+    wins: 0,
+    draws: 0,
+    losses: 0,
+    scored: 0,
+    conceded: 0,
+    points: 0,
+    diff: 0,
+  }]));
+  (state.scrim_results || []).forEach((result) => {
+    if (!teamIds.has(result.team_a_id) || !teamIds.has(result.team_b_id)) return;
+    const a = rows.get(result.team_a_id);
+    const b = rows.get(result.team_b_id);
+    const aScore = Number(result.team_a_score || 0);
+    const bScore = Number(result.team_b_score || 0);
+    a.played += 1;
+    b.played += 1;
+    a.scored += aScore;
+    a.conceded += bScore;
+    b.scored += bScore;
+    b.conceded += aScore;
+    if (aScore > bScore) {
+      a.wins += 1;
+      b.losses += 1;
+      a.points += 3;
+    } else if (bScore > aScore) {
+      b.wins += 1;
+      a.losses += 1;
+      b.points += 3;
+    } else {
+      a.draws += 1;
+      b.draws += 1;
+      a.points += 1;
+      b.points += 1;
+    }
+  });
+  rows.forEach((row) => { row.diff = row.scored - row.conceded; });
+  return [...rows.values()].sort((left, right) =>
+    right.points - left.points
+    || right.diff - left.diff
+    || right.scored - left.scored
+    || left.teamId.localeCompare(right.teamId)
+  );
+}
+
+function signedNumber(value) {
+  return value > 0 ? `+${value}` : String(value);
+}
+
+function maybePlayGroupDrawAnimation(force = false) {
+  if (scrimRoomTab !== "groups" || state.tournament.status !== "group") return;
+  const signature = groupDrawSignature();
+  if (!signature || signature === "[]" || (!force && signature === lastGroupDrawAnimationSignature)) return;
+  lastGroupDrawAnimationSignature = signature;
+  window.setTimeout(playGroupDrawAnimation, 80);
+}
+
+function playGroupDrawAnimation() {
+  const section = $("#tournament-group-section");
+  const board = $(".group-draft-board");
+  if (!section || !board) return;
+  const sequence = groupDrawSequence();
+  if (!sequence.length) return;
+  lastGroupDrawAnimationSignature = groupDrawSignature();
+  $("#group-draw-waiting")?.classList.add("hidden");
+  $(".group-draft-layout")?.classList.remove("draw-hidden");
+  $("#play-group-draw-button")?.classList.remove("hidden");
+  section.classList.add("draw-running");
+  board.classList.add("group-draw-animating");
+  $$(".group-team-row").forEach((row) => row.classList.remove("draw-reveal", "draw-current"));
+  const announcer = document.createElement("div");
+  announcer.className = "group-draw-announcer";
+  announcer.innerHTML = `
+    <div class="draw-orbit"><span></span></div>
+    <div>
+      <small>DRAWING TEAM</small>
+      <strong></strong>
+      <p></p>
+    </div>
+  `;
+  section.appendChild(announcer);
+  let index = 0;
+  const step = () => {
+    const item = sequence[index];
+    if (!item) {
+      section.classList.remove("draw-running");
+      board.classList.remove("group-draw-animating");
+      announcer.remove();
+      return;
+    }
+    announcer.querySelector("strong").textContent = item.teamName;
+    announcer.querySelector("p").textContent = `${item.groupName} 배정`;
+    $$(".group-draft-card").forEach((card, cardIndex) => {
+      card.classList.toggle("draw-target", cardIndex === item.groupIndex);
+    });
+    const row = $(`[data-team-id="${CSS.escape(item.teamId)}"]`);
+    if (row) {
+      row.classList.add("draw-reveal", "draw-current");
+      setTimeout(() => row.classList.remove("draw-current"), 520);
+    }
+    index += 1;
+    setTimeout(step, 720);
+  };
+  step();
 }
 
 function renderParticipation() {
@@ -2095,10 +2282,65 @@ $("#team-simulator-form").addEventListener("submit", (event) => {
   }).catch((error) => toast(error.message, true));
 });
 $("#start-tournament-button").addEventListener("click", async () => {
+  if (state.tournament.format === "group_then_knockout") {
+    groupDrawReady = true;
+    scrimRoomTab = "groups";
+    renderTournament();
+    renderScrimRoomTabs();
+    return;
+  }
   try {
     await api("/api/tournament/start", { method: "POST" });
-    toast(state.tournament.format === "group_then_knockout" ? "조 추첨을 완료했습니다." : "대진표를 생성했습니다.");
+    toast("대진표를 생성했습니다.");
   } catch (error) { toast(error.message, true); }
+});
+
+$("#tournament-groups").addEventListener("click", async (event) => {
+  if (!event.target.closest("#start-group-draw-animation")) return;
+  const button = event.target.closest("#start-group-draw-animation");
+  button.disabled = true;
+  button.textContent = "추첨 중...";
+  try {
+    await api("/api/tournament/start", { method: "POST" });
+    const nextState = await api("/api/state");
+    state = nextState;
+    stateSignature = meaningfulStateSignature(state);
+    groupDrawReady = false;
+    lastGroupDrawAnimationSignature = "";
+    scrimRoomTab = "groups";
+    render();
+    window.setTimeout(playGroupDrawAnimation, 120);
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "추첨 시작";
+    toast(error.message, true);
+  }
+});
+
+$("#play-group-draw-button")?.addEventListener("click", () => {
+  playGroupDrawAnimation();
+});
+
+$("#group-result-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const payload = Object.fromEntries(new FormData(event.target));
+  payload.best_of = Number(payload.best_of || 3);
+  payload.team_a_score = Number(payload.team_a_score || 0);
+  payload.team_b_score = Number(payload.team_b_score || 0);
+  try {
+    await api("/api/scrim/results", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    const nextState = await api("/api/state");
+    state = nextState;
+    stateSignature = meaningfulStateSignature(state);
+    render();
+    $("#group-result-entry").open = true;
+    toast("조별 경기 결과를 저장했습니다.");
+  } catch (error) {
+    toast(error.message, true);
+  }
 });
 
 $("#build-test-teams-button")?.addEventListener("click", async (event) => {
@@ -2563,7 +2805,8 @@ function renderScrimResultForm() {
 function scrimStatsByTeam() {
   const stats = new Map(state.tournament.teams.map((team) => [team.id, {
     team, setWins: 0, setLosses: 0, seriesWins: 0, seriesLosses: 0,
-    bo3Wins: 0, bo3Losses: 0, bo5Wins: 0, bo5Losses: 0,
+    seriesDraws: 0, bo3Wins: 0, bo3Losses: 0, bo3Draws: 0,
+    bo5Wins: 0, bo5Losses: 0, bo5Draws: 0,
   }]));
   (state.scrim_results || []).forEach((result) => {
     const a = stats.get(result.team_a_id);
@@ -2573,16 +2816,21 @@ function scrimStatsByTeam() {
     a.setLosses += Number(result.team_b_score);
     b.setWins += Number(result.team_b_score);
     b.setLosses += Number(result.team_a_score);
+    const draw = Number(result.team_a_score) === Number(result.team_b_score);
     const aWon = result.winner_team_id === result.team_a_id;
-    a.seriesWins += aWon ? 1 : 0;
-    a.seriesLosses += aWon ? 0 : 1;
-    b.seriesWins += aWon ? 0 : 1;
-    b.seriesLosses += aWon ? 1 : 0;
+    a.seriesWins += !draw && aWon ? 1 : 0;
+    a.seriesLosses += !draw && !aWon ? 1 : 0;
+    a.seriesDraws += draw ? 1 : 0;
+    b.seriesWins += !draw && !aWon ? 1 : 0;
+    b.seriesLosses += !draw && aWon ? 1 : 0;
+    b.seriesDraws += draw ? 1 : 0;
     const prefix = Number(result.best_of || 3) === 5 ? "bo5" : "bo3";
-    a[`${prefix}Wins`] += aWon ? 1 : 0;
-    a[`${prefix}Losses`] += aWon ? 0 : 1;
-    b[`${prefix}Wins`] += aWon ? 0 : 1;
-    b[`${prefix}Losses`] += aWon ? 1 : 0;
+    a[`${prefix}Wins`] += !draw && aWon ? 1 : 0;
+    a[`${prefix}Losses`] += !draw && !aWon ? 1 : 0;
+    a[`${prefix}Draws`] += draw ? 1 : 0;
+    b[`${prefix}Wins`] += !draw && !aWon ? 1 : 0;
+    b[`${prefix}Losses`] += !draw && aWon ? 1 : 0;
+    b[`${prefix}Draws`] += draw ? 1 : 0;
   });
   return [...stats.values()].sort((left, right) => {
     const leftRate = left.seriesWins / Math.max(1, left.seriesWins + left.seriesLosses);
@@ -2607,9 +2855,9 @@ function renderScrimWinrates() {
       </div>
       <div class="scrim-winrate-records">
         <span>세트 승률<strong>${percent(item.setWins, item.setLosses)} · ${item.setWins}승 ${item.setLosses}패</strong></span>
-        <span>시리즈 승률<strong>${item.seriesWins}승 ${item.seriesLosses}패</strong></span>
-        <span>BO3<strong>${item.bo3Wins}승 ${item.bo3Losses}패</strong></span>
-        <span>BO5<strong>${item.bo5Wins}승 ${item.bo5Losses}패</strong></span>
+        <span>시리즈 승률<strong>${item.seriesWins}승 ${item.seriesDraws}무 ${item.seriesLosses}패</strong></span>
+        <span>BO3<strong>${item.bo3Wins}승 ${item.bo3Draws}무 ${item.bo3Losses}패</strong></span>
+        <span>BO5<strong>${item.bo5Wins}승 ${item.bo5Draws}무 ${item.bo5Losses}패</strong></span>
       </div>
     </article>
   `).join("") : '<div class="empty-state">등록된 팀이 없습니다.</div>';

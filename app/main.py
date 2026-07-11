@@ -1809,20 +1809,14 @@ def scrim_result_payload(data: ScrimResultInput) -> dict:
         raise HTTPException(400, "서로 다른 두 팀을 선택해 주세요.")
     if data.best_of not in (3, 5):
         raise HTTPException(400, "경기 방식은 BO3 또는 BO5만 선택할 수 있습니다.")
-    winning_score = data.best_of // 2 + 1
-    high_score = max(data.team_a_score, data.team_b_score)
-    low_score = min(data.team_a_score, data.team_b_score)
-    if high_score != winning_score or low_score >= winning_score:
-        raise HTTPException(
-            400,
-            f"BO{data.best_of} 결과는 승리 팀이 {winning_score}세트를 이기도록 입력해 주세요.",
-        )
     return {
         **data.model_dump(),
         "winner_team_id": (
             data.team_a_id
             if data.team_a_score > data.team_b_score
             else data.team_b_id
+            if data.team_b_score > data.team_a_score
+            else None
         ),
     }
 

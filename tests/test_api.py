@@ -1321,7 +1321,7 @@ class ApiFlowTest(unittest.TestCase):
                 self.assertEqual(updated.status_code, 200)
                 self.assertEqual(updated.json()["winner_team_id"], opponent_id)
 
-                invalid_score = member_client.post(
+                draw_score = member_client.post(
                     "/api/scrim/results",
                     json={
                         "team_a_id": team_id,
@@ -1332,7 +1332,8 @@ class ApiFlowTest(unittest.TestCase):
                         "team_b_score": 2,
                     },
                 )
-                self.assertEqual(invalid_score.status_code, 400)
+                self.assertEqual(draw_score.status_code, 200)
+                self.assertIsNone(draw_score.json()["winner_team_id"])
 
             with TestClient(app) as outsider_client:
                 outsider = outsider_client.post(

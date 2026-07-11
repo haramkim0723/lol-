@@ -535,8 +535,7 @@
           <button type="button" data-scrim-tab="groups">조 편성 및 진출팀</button>
           <button type="button" data-scrim-tab="bracket">본선 대진</button>
           <button type="button" data-scrim-tab="teams">팀 목록</button>
-          <button type="button" data-scrim-tab="stats">스크림 승률</button>
-          <button type="button" data-scrim-tab="results">결과 입력</button>
+          <button type="button" data-scrim-tab="stats">스크림</button>
         </nav>
         <section class="dashboard-main">
           <article id="competition-progress-panel" class="panel wide scrim-tab-panel" data-scrim-tab-panel="progress">
@@ -560,9 +559,44 @@
             </div>
           </article>
           <article id="tournament-group-section" class="panel wide hidden scrim-tab-panel roulette-stage" data-scrim-tab-panel="groups">
-            <div class="panel-title"><span>GROUPS</span><h2>조 편성 및 진출팀</h2></div>
+            <div class="panel-title row">
+              <div><span>GROUPS</span><h2>조 편성 및 진출팀</h2></div>
+              <button id="play-group-draw-button" class="ghost hidden" type="button">추첨</button>
+            </div>
             <p class="guide">강사님이 각 조의 본선 진출팀을 선택해 주세요.</p>
             <div id="tournament-groups" class="tournament-team-list"></div>
+            <details id="group-result-entry" class="group-result-entry">
+              <summary>조별 경기 결과 입력</summary>
+              <form id="group-result-form" class="scrim-form result-form">
+                <label>날짜
+                  <input name="match_date" type="date" required />
+                </label>
+                <label>경기 방식
+                  <select name="best_of" required>
+                    <option value="3">BO3</option>
+                    <option value="5">BO5</option>
+                  </select>
+                </label>
+                <label>팀 A
+                  <select name="team_a_id" required></select>
+                </label>
+                <label>팀 A 점수
+                  <input name="team_a_score" type="number" min="0" max="3" value="1" required />
+                </label>
+                <label>팀 B
+                  <select name="team_b_id" required></select>
+                </label>
+                <label>팀 B 점수
+                  <input name="team_b_score" type="number" min="0" max="3" value="0" required />
+                </label>
+                <label>메모
+                  <input name="memo" maxlength="500" placeholder="선택 입력" />
+                </label>
+                <div class="result-actions">
+                  <button class="primary" type="submit">결과 저장</button>
+                </div>
+              </form>
+            </details>
             <button id="start-group-knockout-button" class="accent hidden" type="button">진출팀으로 본선 편집 시작</button>
           </article>
           <article id="tournament-bracket-section" class="panel wide tournament-bracket-section hidden scrim-tab-panel" data-scrim-tab-panel="bracket">
@@ -619,12 +653,12 @@
 
         </section>
 
-        <aside id="scrim-stats-panel" class="panel scrim-stats-panel scrim-tab-panel" data-scrim-tab-panel="stats results">
+        <aside id="scrim-stats-panel" class="panel scrim-stats-panel scrim-tab-panel" data-scrim-tab-panel="stats">
           <div class="panel-title row">
             <div><span>SCRIM STATS</span><h2>스크림 승률</h2></div>
           </div>
           <div id="scrim-winrate-list" class="scrim-winrate-list"></div>
-          <details id="scrim-result-entry" class="scrim-result-entry scrim-tab-panel" data-scrim-tab-panel="results">
+          <details id="scrim-result-entry" class="scrim-result-entry">
             <summary>스크림 결과 입력</summary>
             <form id="scrim-result-form" class="scrim-form result-form">
               <input name="result_id" type="hidden" />
