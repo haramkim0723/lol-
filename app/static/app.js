@@ -49,11 +49,14 @@ let stateSignature = "";
 let scrimRoomTab = "progress";
 let lastGroupDrawAnimationSignature = "";
 let groupDrawReady = false;
+let groupDrawRevealActive = false;
+let groupDrawRevealCount = 0;
 let riotPreviewData = null;
 let rosterPage = 1;
 let selectedScrimTeamId = null;
 let pendingApiCount = 0;
 let pollStateInFlight = false;
+const STATE_POLL_INTERVAL_MS = 5000;
 let participationHostView = "settings";
 let participationApprovalView = "requests";
 let participationApprovalStatus = "pending";
@@ -863,15 +866,13 @@ function renderTournamentGroups() {
     "hidden", tournament.status !== "group" || !isHost
   );
   const groups = tournament.groups || [];
-  const drawSignature = groupDrawSignature();
-  const waitingForDraw = groupDrawReady
-    || (
-      tournament.status === "group"
-      && groups.length > 0
-      && drawSignature !== lastGroupDrawAnimationSignature
-    );
+  const waitingForDraw = groupDrawReady;
+  const revealSequence = groupDrawSequence();
+  const revealDone = groupDrawRevealActive && groupDrawRevealCount >= revealSequence.length;
+  const showDrawControls = groupDrawRevealActive && !waitingForDraw;
+  const showManualReveal = showDrawControls && !revealDone;
   const replayButton = $("#play-group-draw-button");
-  replayButton?.classList.toggle("hidden", tournament.status !== "group" || groups.length === 0 || waitingForDraw);
+  replayButton?.classList.toggle("hidden", tournament.status !== "group" || groups.length === 0 || waitingForDraw || showDrawControls);
   if (replayButton) replayButton.textContent = "다시 보기";
   const totalTeams = groups.reduce((sum, group) => sum + group.team_ids.length, 0);
   $("#tournament-groups").innerHTML = `
@@ -879,10 +880,16 @@ function renderTournamentGroups() {
       <div class="draw-orbit"><span></span></div>
       <small>GROUP DRAW READY</small>
       <strong>조 추첨 대기</strong>
-      <p>${groups.length
-        ? "랜덤 조 편성이 완료되었습니다. 시작을 누르면 한 팀씩 각 조에 들어가는 순서로 공개됩니다."
-        : "시작을 누르면 랜덤 조 편성을 실행하고, 확정된 결과를 한 팀씩 공개합니다."}</p>
+      <p>추첨 시작을 누르면 서버에서 랜덤 조 편성을 확정합니다. 이후 다음 추첨을 누를 때마다 한 칸씩 공개됩니다.</p>
       <button id="start-group-draw-animation" class="accent" type="button">추첨 시작</button>
+    </div>
+    <div class="group-draw-controls${showDrawControls ? "" : " hidden"}">
+      <div>
+        <small>NEXT DRAW</small>
+        <strong>${revealDone ? "조 추첨 완료" : `${Math.min(groupDrawRevealCount + 1, revealSequence.length)} / ${revealSequence.length}`}</strong>
+        <p>${revealDone ? "모든 팀이 공개되었습니다." : "다음 추첨을 누르면 한 팀이 조에 배정됩니다."}</p>
+      </div>
+      <button id="next-group-draw-team" class="accent" type="button" ${revealDone ? "disabled" : ""}>다음 추첨</button>
     </div>
     <div class="group-draft-layout${waitingForDraw ? " draw-hidden" : ""}">
       <aside class="group-draft-summary">
@@ -909,12 +916,25 @@ function renderTournamentGroups() {
                 <span>득실</span>
                 <span>전적</span>
               </div>
-              ${groupStandings(group).map((standing, teamIndex) => {
+              ${(showManualReveal
+                ? group.team_ids.map((teamId, teamIndex) => ({
+                    teamId,
+                    points: 0,
+                    diff: 0,
+                    wins: 0,
+                    draws: 0,
+                    losses: 0,
+                    drawVisible: revealSequence.findIndex((item) => item.teamId === teamId) < groupDrawRevealCount,
+                    drawCurrent: revealSequence[groupDrawRevealCount - 1]?.teamId === teamId,
+                  }))
+                : groupStandings(group)
+              ).map((standing, teamIndex) => {
                 const teamId = standing.teamId;
                 const checked = (group.qualified_team_ids || []).includes(teamId);
-                return `<label class="group-team-row${checked ? " qualified" : ""}" data-group-index="${groupIndex}" data-team-id="${teamId}">
+                const drawHidden = showManualReveal && !standing.drawVisible;
+                return `<label class="group-team-row${checked ? " qualified" : ""}${standing.drawCurrent ? " draw-current" : ""}${drawHidden ? " draw-slot-empty" : " draw-reveal"}" data-group-index="${groupIndex}" data-team-id="${teamId}">
                   <span class="group-team-seed">${teamIndex + 1}</span>
-                  <strong>${escapeHtml(teamById(teamId)?.name || "-")}</strong>
+                  <strong>${drawHidden ? "대기 중" : escapeHtml(teamById(teamId)?.name || "-")}</strong>
                   <b>${standing.points}</b>
                   <em>${signedNumber(standing.diff)}</em>
                   <small>${standing.wins}승 ${standing.draws}무 ${standing.losses}패</small>
@@ -1033,56 +1053,27 @@ function maybePlayGroupDrawAnimation(force = false) {
   const signature = groupDrawSignature();
   if (!signature || signature === "[]" || (!force && signature === lastGroupDrawAnimationSignature)) return;
   lastGroupDrawAnimationSignature = signature;
-  window.setTimeout(playGroupDrawAnimation, 80);
+  window.setTimeout(startManualGroupDraw, 80);
 }
 
-function playGroupDrawAnimation() {
-  const section = $("#tournament-group-section");
-  const board = $(".group-draft-board");
-  if (!section || !board) return;
+function startManualGroupDraw() {
   const sequence = groupDrawSequence();
   if (!sequence.length) return;
-  lastGroupDrawAnimationSignature = groupDrawSignature();
-  $("#group-draw-waiting")?.classList.add("hidden");
-  $(".group-draft-layout")?.classList.remove("draw-hidden");
-  $("#play-group-draw-button")?.classList.remove("hidden");
-  section.classList.add("draw-running");
-  board.classList.add("group-draw-animating");
-  $$(".group-team-row").forEach((row) => row.classList.remove("draw-reveal", "draw-current"));
-  const announcer = document.createElement("div");
-  announcer.className = "group-draw-announcer";
-  announcer.innerHTML = `
-    <div class="draw-orbit"><span></span></div>
-    <div>
-      <small>DRAWING TEAM</small>
-      <strong></strong>
-      <p></p>
-    </div>
-  `;
-  section.appendChild(announcer);
-  let index = 0;
-  const step = () => {
-    const item = sequence[index];
-    if (!item) {
-      section.classList.remove("draw-running");
-      board.classList.remove("group-draw-animating");
-      announcer.remove();
-      return;
-    }
-    announcer.querySelector("strong").textContent = item.teamName;
-    announcer.querySelector("p").textContent = `${item.groupName} 배정`;
-    $$(".group-draft-card").forEach((card, cardIndex) => {
-      card.classList.toggle("draw-target", cardIndex === item.groupIndex);
-    });
-    const row = $(`[data-team-id="${CSS.escape(item.teamId)}"]`);
-    if (row) {
-      row.classList.add("draw-reveal", "draw-current");
-      setTimeout(() => row.classList.remove("draw-current"), 520);
-    }
-    index += 1;
-    setTimeout(step, 720);
-  };
-  step();
+  groupDrawRevealActive = true;
+  groupDrawRevealCount = 0;
+  lastGroupDrawAnimationSignature = "";
+  renderTournamentGroups();
+}
+
+function revealNextGroupDrawTeam() {
+  const sequence = groupDrawSequence();
+  if (!sequence.length) return;
+  groupDrawRevealActive = true;
+  groupDrawRevealCount = Math.min(groupDrawRevealCount + 1, sequence.length);
+  if (groupDrawRevealCount >= sequence.length) {
+    lastGroupDrawAnimationSignature = groupDrawSignature();
+  }
+  renderTournamentGroups();
 }
 
 function renderParticipation() {
@@ -1850,7 +1841,7 @@ function connectSocket() {
   if (location.hostname.endsWith(".vercel.app")) {
     $("#socket-dot").classList.add("online");
     $("#socket-text").textContent = "자동 갱신";
-    setInterval(pollState, 1000);
+    setInterval(pollState, STATE_POLL_INTERVAL_MS);
     return;
   }
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -1885,6 +1876,7 @@ function meaningfulStateSignature(value) {
 }
 
 async function pollState() {
+  if (document.hidden) return;
   if (pollStateInFlight || pendingApiCount > 0) return;
   pollStateInFlight = true;
   try {
@@ -2296,8 +2288,13 @@ $("#start-tournament-button").addEventListener("click", async () => {
 });
 
 $("#tournament-groups").addEventListener("click", async (event) => {
-  if (!event.target.closest("#start-group-draw-animation")) return;
+  const nextButton = event.target.closest("#next-group-draw-team");
+  if (nextButton) {
+    revealNextGroupDrawTeam();
+    return;
+  }
   const button = event.target.closest("#start-group-draw-animation");
+  if (!button) return;
   button.disabled = true;
   button.textContent = "추첨 중...";
   try {
@@ -2309,7 +2306,7 @@ $("#tournament-groups").addEventListener("click", async (event) => {
     lastGroupDrawAnimationSignature = "";
     scrimRoomTab = "groups";
     render();
-    window.setTimeout(playGroupDrawAnimation, 120);
+    window.setTimeout(startManualGroupDraw, 120);
   } catch (error) {
     button.disabled = false;
     button.textContent = "추첨 시작";
@@ -2318,7 +2315,7 @@ $("#tournament-groups").addEventListener("click", async (event) => {
 });
 
 $("#play-group-draw-button")?.addEventListener("click", () => {
-  playGroupDrawAnimation();
+  startManualGroupDraw();
 });
 
 $("#group-result-form")?.addEventListener("submit", async (event) => {

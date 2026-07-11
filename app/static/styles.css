@@ -677,13 +677,13 @@ aside { display: grid; gap: 18px; }
 .group-draft-card.purple { --group-color: #9455c5; }
 .group-draft-card.indigo { --group-color: #5068bd; }
 .group-draft-card header { display: flex; justify-content: space-between; align-items: center; min-height: 42px; padding: 10px 13px; color: #fff; background: var(--group-color); }
-.group-draft-card header strong { font-size: 13px; letter-spacing: .05em; }
-.group-draft-card header span { padding: 3px 7px; border-radius: 999px; background: rgba(0,0,0,.2); font-size: 9px; font-weight: 900; }
+.group-draft-card header strong { font-size: 16px; letter-spacing: .05em; }
+.group-draft-card header span { padding: 5px 9px; border-radius: 999px; background: rgba(0,0,0,.2); font-size: 11px; font-weight: 900; }
 .group-draft-card > div { display: grid; gap: 5px; padding: 8px; }
 .group-standings-head,
 .group-team-row { display: grid; grid-template-columns: 25px minmax(0,1fr) 42px 42px 72px 22px; align-items: center; gap: 6px; }
-.group-standings-head { padding: 0 7px 4px; color: var(--muted); font-size: 8px; font-weight: 900; letter-spacing: .08em; }
-.group-team-row { min-height: 38px; padding: 5px 7px; border: 1px solid rgba(153,176,204,.13); border-radius: 8px; background: rgba(255,255,255,.025); cursor: pointer; }
+.group-standings-head { padding: 2px 9px 6px; color: var(--muted); font-size: 10px; font-weight: 900; letter-spacing: .08em; }
+.group-team-row { min-height: 54px; padding: 8px 9px; border: 1px solid rgba(153,176,204,.13); border-radius: 10px; background: rgba(255,255,255,.025); cursor: pointer; }
 .group-team-row:hover { border-color: var(--group-color); }
 .group-team-row.qualified {
   border-color: var(--group-color);
@@ -691,12 +691,23 @@ aside { display: grid; gap: 18px; }
     linear-gradient(90deg, color-mix(in srgb,var(--group-color) 20%,transparent), rgba(255,255,255,.025));
   box-shadow: inset 3px 0 0 var(--group-color), 0 0 18px color-mix(in srgb,var(--group-color) 18%,transparent);
 }
-.group-team-seed { display: grid; place-items: center; width: 21px; height: 21px; border-radius: 6px; color: var(--group-color); background: rgba(255,255,255,.07); font-size: 9px; font-weight: 900; }
-.group-team-row strong { overflow: hidden; color: #edf3fa; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.group-team-row b, .group-team-row em, .group-team-row small { color: #edf3fa; font-style: normal; font-size: 10px; font-weight: 900; text-align: center; }
+.group-team-seed { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; color: var(--group-color); background: rgba(255,255,255,.07); font-size: 12px; font-weight: 900; }
+.group-team-row strong { overflow: hidden; color: #edf3fa; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.group-team-row b, .group-team-row em, .group-team-row small { color: #edf3fa; font-style: normal; font-size: 14px; font-weight: 900; text-align: center; }
 .group-team-row em { color: var(--gold-light); }
-.group-team-row small { color: var(--muted); font-size: 9px; white-space: nowrap; }
+.group-team-row small { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .group-team-row input { accent-color: var(--group-color); }
+.group-team-row.draw-slot-empty { border-style: dashed; opacity: .42; }
+.group-team-row.draw-slot-empty strong { color: #6e7b8b; }
+.group-team-row.draw-slot-empty b,
+.group-team-row.draw-slot-empty em,
+.group-team-row.draw-slot-empty small,
+.group-team-row.draw-slot-empty input { visibility: hidden; }
+.group-team-row.draw-reveal { animation: group-slot-fill .28s ease-out; }
+@keyframes group-slot-fill {
+  from { opacity: .25; transform: translateY(8px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 .group-result-entry {
   margin-top: 16px;
   padding-top: 14px;
@@ -868,6 +879,32 @@ aside { display: grid; gap: 18px; }
   line-height: 1.7;
 }
 .group-draw-waiting button { min-width: 240px; min-height: 52px; font-size: 15px; font-weight: 900; }
+.group-draw-controls {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  margin: 0 0 16px;
+  padding: 16px 18px;
+  border: 1px solid rgba(39,211,211,.28);
+  border-radius: 13px;
+  background: linear-gradient(135deg, rgba(39,211,211,.1), rgba(224,180,81,.08));
+}
+.group-draw-controls small {
+  color: var(--gold-light);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .18em;
+}
+.group-draw-controls strong {
+  display: block;
+  margin-top: 4px;
+  color: #fff;
+  font-size: 26px;
+  font-weight: 900;
+}
+.group-draw-controls p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.group-draw-controls button { min-width: 190px; min-height: 50px; font-size: 15px; font-weight: 900; }
 .draw-orbit {
   position: relative;
   width: 112px;
