@@ -1334,7 +1334,43 @@ async def setup_test_competitions(request: Request):
             WHERE role = 'USER' AND approved = 1 AND is_active = 1
             """
         ).fetchone()
-        test1_users = users[:5]
+        roster_entries_by_user_id = {}
+        for user in users:
+            entry = scrim_db.get_roster_entry_by_user_identity(
+                connection,
+                user["user_id"],
+                user.get("riot_id"),
+            )
+            if entry:
+                roster_entries_by_user_id[user["user_id"]] = entry
+
+        test1_users = []
+        used_user_ids = set()
+        for position in engine.POSITIONS:
+            for user in users:
+                user_id = user["user_id"]
+                if user_id in used_user_ids:
+                    continue
+                entry = roster_entries_by_user_id.get(user_id)
+                if entry and position in scrim_db.roster_positions(entry.get("preferred_lines")):
+                    test1_users.append(user)
+                    used_user_ids.add(user_id)
+                    break
+        for user in users:
+            if len(test1_users) >= 5:
+                break
+            user_id = user["user_id"]
+            entry = roster_entries_by_user_id.get(user_id)
+            if user_id not in used_user_ids and entry and scrim_db.roster_positions(entry.get("preferred_lines")):
+                test1_users.append(user)
+                used_user_ids.add(user_id)
+        for user in users:
+            if len(test1_users) >= 5:
+                break
+            user_id = user["user_id"]
+            if user_id not in used_user_ids:
+                test1_users.append(user)
+                used_user_ids.add(user_id)
         for user in test1_users:
             scrim_db.record_competition_participation(
                 connection,
@@ -1365,7 +1401,7 @@ async def setup_test_competitions(request: Request):
         ]
         store.document = {
             "version": 2,
-            "active_competition_id": TEST2_COMPETITION_ID,
+            "active_competition_id": TEST_COMPETITION_ID,
             "competitions": [
                 {
                     "id": TEST_COMPETITION_ID,
@@ -1401,7 +1437,6 @@ async def setup_test_competitions(request: Request):
                 )
                 if entry:
                     sync_score_player_from_roster(entry)
-        store.select_competition(TEST2_COMPETITION_ID)
         store.save()
     await broadcast()
     return {

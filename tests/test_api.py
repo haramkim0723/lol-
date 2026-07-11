@@ -602,12 +602,13 @@ class ApiFlowTest(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             state = host_client.get("/api/state").json()
+            self.assertEqual(state["settings"]["room_name"], "test1")
             competitions = state["competition_registry"]["competitions"]
             self.assertEqual(
                 [competition["name"] for competition in competitions],
                 ["test1", "test2"],
             )
-            self.assertEqual(state["participation"]["application_count"], 0)
+            self.assertEqual(state["participation"]["application_count"], 1)
             host_client.post(
                 "/api/competitions/test-score-approved/select"
             )
@@ -687,10 +688,14 @@ class ApiFlowTest(unittest.TestCase):
 
             setup = host_client.post("/api/admin/setup-test-competitions")
             self.assertEqual(setup.status_code, 200)
-            host_client.post("/api/competitions/test-score-approved/select")
             test1_state = host_client.get("/api/state").json()
+            self.assertEqual(test1_state["settings"]["room_name"], "test1")
             self.assertEqual(test1_state["participation"]["application_count"], 5)
             self.assertEqual(len(test1_state["players"]), 5)
+            self.assertEqual(
+                {player["primary_position"] for player in test1_state["players"]},
+                {"TOP", "JUG", "MID", "ADC", "SUP"},
+            )
             self.assertEqual(test1_state["tournament"]["teams"], [])
             host_client.post("/api/competitions/test2-score-open/select")
             settings = host_client.put(
