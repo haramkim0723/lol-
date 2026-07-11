@@ -88,9 +88,35 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 36px 60px; }
 .score-limit-form select { color: var(--gold-light); }
 .score-limit-form button { grid-column: 1 / -1; width: 100%; min-height: 48px; font-size: 12px; }
 .security-guide { margin: 9px 0 0; color: var(--muted); font-size: 9px; }
-.competition-create-form { display: grid; grid-template-columns: 1fr 180px auto; gap: 8px; }
+#room-title { cursor: pointer; }
+#room-title:focus-visible { outline: 2px solid var(--gold); outline-offset: 6px; border-radius: 8px; }
+.competition-create-form { display: grid; grid-template-columns: minmax(180px,1fr) 180px minmax(180px,.8fr) auto; gap: 8px; }
 .competition-create-form input, .competition-create-form select { padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; color: #fff; background: #080e15; outline: 0; }
 .competition-create-form select option { color: #111821; }
+.competition-poster-field {
+  display: grid;
+  grid-template-columns: auto minmax(0,1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--muted);
+  background: #080e15;
+  font-size: 11px;
+  font-weight: 900;
+}
+.competition-poster-field input {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: 10px;
+}
+#competition-tournament-options {
+  grid-column: 1 / -1;
+}
 .competition-list { display: grid; grid-template-columns: repeat(auto-fill,minmax(230px,1fr)); gap: 8px; margin-top: 13px; }
 .competition-item { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.02); }
 .competition-item.active { border-color: rgba(39,211,211,.32); background: rgba(39,211,211,.055); }

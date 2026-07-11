@@ -734,6 +734,7 @@ class TeamRecommendationInput(BaseModel):
 class CompetitionInput(BaseModel):
     name: str = Field(min_length=1, max_length=50)
     mode: Literal["auction", "tournament"]
+    poster_image: str | None = Field(default=None, max_length=5_000_000)
     tournament_format: Literal[
         "single_elimination", "group_then_knockout"
     ] = "single_elimination"
@@ -812,8 +813,15 @@ async def get_state(scrim_auth: str | None = Cookie(default=None)):
 @app.post("/api/competitions")
 async def create_competition(data: CompetitionInput, request: Request):
     require_host(request)
+    poster_image = (data.poster_image or "").strip()
+    if poster_image and not poster_image.startswith("data:image/"):
+        raise HTTPException(400, "포스터 이미지는 이미지 파일만 업로드할 수 있습니다.")
     async with state_lock:
-        competition = store.create_competition(data.name, data.mode)
+        competition = store.create_competition(
+            data.name,
+            data.mode,
+            poster_image=poster_image,
+        )
         if data.mode == "tournament":
             tournament = competition["state"]["tournament"]
             tournament["format"] = data.tournament_format
@@ -825,6 +833,7 @@ async def create_competition(data: CompetitionInput, request: Request):
         "id": competition["id"],
         "name": competition["name"],
         "mode": competition["mode"],
+        "poster_image": competition.get("poster_image", ""),
         "created_at": competition["created_at"],
     }
 

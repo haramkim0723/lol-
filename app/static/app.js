@@ -6,6 +6,7 @@ const TIER_DIVISIONS = { 1: "I", 2: "II", 3: "III", 4: "IV" };
 const DIVISION_TIERS = new Set([
   "IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND",
 ]);
+const DEFAULT_POSTER_IMAGE = "/static/season-26-2-poster.png";
 const TIER_STYLES = {
   IRON: ["#82909e", "#b1bbc4", "#303944", "rgba(130,144,158,.22)"],
   BRONZE: ["#ad7049", "#d69a6d", "#4d2d20", "rgba(173,112,73,.24)"],
@@ -154,6 +155,23 @@ async function api(path, options = {}) {
     pendingApiCount = Math.max(0, pendingApiCount - 1);
     if (pendingApiCount === 0) setGlobalLoading(false);
   }
+}
+
+function readPosterImageInput(input) {
+  const file = input?.files?.[0];
+  if (!file) return Promise.resolve("");
+  if (!file.type.startsWith("image/")) {
+    return Promise.reject(new Error("포스터는 이미지 파일만 업로드할 수 있습니다."));
+  }
+  if (file.size > 3 * 1024 * 1024) {
+    return Promise.reject(new Error("포스터 이미지는 3MB 이하로 업로드해 주세요."));
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("포스터 이미지를 읽지 못했습니다."));
+    reader.readAsDataURL(file);
+  });
 }
 
 window.addEventListener("unhandledrejection", (event) => {
@@ -485,6 +503,26 @@ function activeCompetition() {
   );
 }
 
+function mainViewForCompetition() {
+  return (activeCompetition()?.mode || "auction") === "auction"
+    ? "intro"
+    : "score-intro";
+}
+
+function renderMainPoster() {
+  const source = activeCompetition()?.poster_image || DEFAULT_POSTER_IMAGE;
+  $$(".main-poster-image").forEach((image) => {
+    if (image.getAttribute("src") !== source) {
+      image.src = source;
+    }
+    image.onerror = () => {
+      if (image.getAttribute("src") !== DEFAULT_POSTER_IMAGE) {
+        image.src = DEFAULT_POSTER_IMAGE;
+      }
+    };
+  });
+}
+
 function applyCompetitionMode() {
   const isAuction = (activeCompetition()?.mode || "auction") === "auction";
   $$('[data-view="intro"], [data-view="auction"]').forEach((button) => {
@@ -530,7 +568,7 @@ function applyCompetitionMode() {
       "mypage",
     ];
   if (!allowedViews.includes(currentView)) {
-    currentView = isAuction ? "intro" : "score-intro";
+    currentView = mainViewForCompetition();
   }
 }
 
@@ -1864,6 +1902,7 @@ function render() {
   renderRole();
   renderCompetitions();
   applyCompetitionMode();
+  renderMainPoster();
   renderIntro();
   renderSetup();
   renderTournament();
@@ -2057,15 +2096,31 @@ $("#logout-button").addEventListener("click", async () => {
   location.href = "/";
 });
 
+$("#room-title").setAttribute("role", "button");
+$("#room-title").setAttribute("tabindex", "0");
+$("#room-title").setAttribute("title", "메인으로 이동");
+$("#room-title").addEventListener("click", () => {
+  if (!state?.viewer?.authenticated) return;
+  setView(mainViewForCompetition());
+});
+$("#room-title").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  if (!state?.viewer?.authenticated) return;
+  setView(mainViewForCompetition());
+});
+
 $("#competition-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const data = Object.fromEntries(new FormData(event.target));
+  const form = event.target;
+  const data = Object.fromEntries(new FormData(form));
   try {
+    data.poster_image = await readPosterImageInput(form.elements.poster_image);
     await api("/api/competitions", {
       method: "POST",
       body: JSON.stringify(data),
     });
-    event.target.reset();
+    form.reset();
     toast("새 대회를 만들고 현재 대회로 선택했습니다.");
   } catch (error) { toast(error.message, true); }
 });

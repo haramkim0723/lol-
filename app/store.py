@@ -72,6 +72,7 @@ class JsonStore:
                     "id": competition["id"],
                     "name": competition["name"],
                     "mode": competition.get("mode", "auction"),
+                    "poster_image": competition.get("poster_image", ""),
                     "created_at": competition["created_at"],
                     "player_count": len(competition["state"]["players"]),
                     "team_count": len(
@@ -86,12 +87,18 @@ class JsonStore:
         }
 
     def create_competition(
-        self, name: str, mode: str = "auction", *, save: bool = True
+        self,
+        name: str,
+        mode: str = "auction",
+        *,
+        poster_image: str | None = None,
+        save: bool = True,
     ) -> dict[str, Any]:
         competition = {
             "id": uuid.uuid4().hex,
             "name": name.strip(),
             "mode": mode,
+            "poster_image": poster_image or "",
             "created_at": __import__("time").time(),
             "state": new_state(),
         }
@@ -226,6 +233,7 @@ class JsonStore:
         raw.setdefault("version", 2)
         for competition in raw["competitions"]:
             competition.setdefault("mode", "auction")
+            competition.setdefault("poster_image", "")
             competition["state"] = self._normalize_event(
                 competition.get("state", new_state())
             )
