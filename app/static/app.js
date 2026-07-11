@@ -2582,6 +2582,26 @@ $("#build-test-teams-button")?.addEventListener("click", async (event) => {
   }
 });
 
+$("#setup-test-competitions-button")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  button.textContent = "세팅 중...";
+  try {
+    const result = await api("/api/admin/setup-test-competitions", {
+      method: "POST",
+    });
+    state = await api("/api/state");
+    stateSignature = meaningfulStateSignature(state);
+    render();
+    toast(`test1 승인 ${result.test_approved || 0}명 세팅 완료`);
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = "test1 5명 세팅";
+  }
+});
+
 $$("[data-participation-host-view]").forEach((button) => {
   button.addEventListener("click", () => {
     setParticipationHostView(button.dataset.participationHostView);
