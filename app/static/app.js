@@ -62,6 +62,7 @@ let selectedScrimTeamId = null;
 let pendingApiCount = 0;
 let pollStateInFlight = false;
 const STATE_POLL_INTERVAL_MS = 15000;
+const STATE_POLL_VIEWS = new Set(["poster", "setup", "auction", "tournament", "scrim"]);
 let simulatorExcludedSignature = "";
 let participationHostView = "settings";
 let participationApprovalView = "requests";
@@ -164,6 +165,18 @@ async function api(path, options = {}) {
       if (pendingApiCount === 0) setGlobalLoading(false);
     }
   }
+}
+
+async function refreshState({ renderView = true, silent = false } = {}) {
+  const data = await api("/api/state", { silent });
+  state = data;
+  stateSignature = meaningfulStateSignature(state);
+  if (renderView) render();
+  return state;
+}
+
+function shouldPollState() {
+  return STATE_POLL_VIEWS.has(currentView);
 }
 
 function readPosterImageInput(input) {
@@ -456,9 +469,7 @@ async function enterAuctionView() {
     }
     try {
       await api("/api/auction/start", { method: "POST" });
-      state = await api("/api/state");
-      stateSignature = meaningfulStateSignature(state);
-      render();
+      await refreshState();
       toast("현재 대회의 경매장을 열었습니다. 첫 후보의 타이머를 시작해 주세요.");
     } catch (error) {
       toast(error.message, true);
@@ -2027,6 +2038,7 @@ function meaningfulStateSignature(value) {
 
 async function pollState() {
   if (document.hidden) return;
+  if (!shouldPollState()) return;
   if (pollStateInFlight || pendingApiCount > 0) return;
   pollStateInFlight = true;
   try {
@@ -2197,9 +2209,7 @@ $("#competition-form").addEventListener("submit", async (event) => {
       body: JSON.stringify(data),
     });
     form.reset();
-    state = await api("/api/state");
-    stateSignature = meaningfulStateSignature(state);
-    render();
+    await refreshState();
     toast("새 대회를 만들고 현재 대회로 선택했습니다.");
   } catch (error) { toast(error.message, true); }
 });
@@ -2343,9 +2353,7 @@ $("#settings-form").addEventListener("submit", async (event) => {
     .forEach((key) => data[key] = Number(data[key]));
   try {
     await api("/api/settings", { method: "PUT", body: JSON.stringify(data) });
-    state = await api("/api/state");
-    stateSignature = meaningfulStateSignature(state);
-    render();
+    await refreshState();
     toast("경매 설정을 저장했습니다.");
   } catch (error) { toast(error.message, true); }
 });
@@ -2359,9 +2367,7 @@ $("#notice-form").addEventListener("submit", async (event) => {
       body: JSON.stringify(data),
     });
     event.target.reset();
-    state = await api("/api/state");
-    stateSignature = meaningfulStateSignature(state);
-    render();
+    await refreshState();
     toast("공지사항을 등록했습니다.");
   } catch (error) { toast(error.message, true); }
 });
@@ -2386,9 +2392,7 @@ $("#score-table-form")?.addEventListener("submit", async (event) => {
       method: "PUT",
       body: JSON.stringify({ rows }),
     });
-    state = await api("/api/state");
-    stateSignature = meaningfulStateSignature(state);
-    render();
+    await refreshState();
     toast("점수표를 저장했습니다.");
   } catch (error) { toast(error.message, true); }
 });
@@ -2523,9 +2527,7 @@ $("#tournament-groups").addEventListener("click", async (event) => {
   button.textContent = "추첨 중...";
   try {
     await api("/api/tournament/start", { method: "POST" });
-    const nextState = await api("/api/state");
-    state = nextState;
-    stateSignature = meaningfulStateSignature(state);
+    await refreshState({ renderView: false });
     groupDrawReady = false;
     lastGroupDrawAnimationSignature = "";
     scrimRoomTab = "groups";
@@ -2553,10 +2555,7 @@ $("#group-result-form")?.addEventListener("submit", async (event) => {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    const nextState = await api("/api/state");
-    state = nextState;
-    stateSignature = meaningfulStateSignature(state);
-    render();
+    await refreshState();
     $("#group-result-entry").open = true;
     toast("조별 경기 결과를 저장했습니다.");
   } catch (error) {
@@ -2573,9 +2572,7 @@ $("#build-test-teams-button")?.addEventListener("click", async (event) => {
       method: "POST",
       body: JSON.stringify({ max_teams: 6 }),
     });
-    state = await api("/api/state");
-    stateSignature = meaningfulStateSignature(state);
-    render();
+    await refreshState();
     button.classList.add("hidden");
     toast(`test 팀 ${result.created_teams || 0}개를 생성했습니다.`);
   } catch (error) {
@@ -2593,9 +2590,7 @@ $("#setup-test-competitions-button")?.addEventListener("click", async (event) =>
     const result = await api("/api/admin/setup-test-competitions", {
       method: "POST",
     });
-    state = await api("/api/state");
-    stateSignature = meaningfulStateSignature(state);
-    render();
+    await refreshState();
     toast(`test1 승인 ${result.test_approved || 0}명 세팅 완료`);
   } catch (error) {
     toast(error.message, true);
@@ -2706,8 +2701,7 @@ $("#save-bracket-editor-button").addEventListener("click", async () => {
       method: "PUT",
       body: JSON.stringify({ rounds: bracketDraft }),
     });
-    state = await api("/api/state");
-    stateSignature = meaningfulStateSignature(state);
+    await refreshState({ renderView: false });
     bracketDraft = null;
     $("#bracket-editor-panel").classList.add("hidden");
     render();
@@ -2731,9 +2725,7 @@ $("#participation-apply-button").addEventListener("click", async () => {
         terms_agreed: $("#participation-terms-agree").checked,
       }),
     });
-    state = await api("/api/state");
-    stateSignature = meaningfulStateSignature(state);
-    render();
+    await refreshState();
     toast("대회 참가 신청을 완료했습니다.");
   } catch (error) { toast(error.message, true); }
 });
@@ -2777,9 +2769,13 @@ $("#participation-settings-form").addEventListener("submit", async (event) => {
         terms: form.elements.terms.value,
       }),
     });
-    state = await api("/api/state");
+    state.participation.enabled = form.elements.enabled.checked;
+    state.participation.terms = form.elements.terms.value;
     stateSignature = meaningfulStateSignature(state);
     render();
+    if (participationHostView === "approvals") {
+      await loadParticipationApplications({ force: true, signature: `settings:${Date.now()}` });
+    }
     toast("참가 신청 설정을 저장했습니다.");
   } catch (error) { toast(error.message, true); }
 });
@@ -2797,9 +2793,7 @@ document.addEventListener("click", async (event) => {
   if (noticeDeleteId) {
     try {
       await api(`/api/notices/${noticeDeleteId}`, { method: "DELETE" });
-      state = await api("/api/state");
-      stateSignature = meaningfulStateSignature(state);
-      render();
+      await refreshState();
       toast("공지사항을 삭제했습니다.");
     } catch (error) { toast(error.message, true); }
     return;
@@ -3292,9 +3286,7 @@ $("#scrim-result-form").addEventListener("submit", async (event) => {
     form.reset();
     form.elements.result_id.value = "";
     $("#cancel-result-edit").classList.add("hidden");
-    state = await api("/api/state");
-    stateSignature = meaningfulStateSignature(state);
-    render();
+    await refreshState();
     toast(resultId ? "결과를 수정했습니다." : "결과를 등록했습니다.");
   } catch (error) { toast(error.message, true); }
 });
