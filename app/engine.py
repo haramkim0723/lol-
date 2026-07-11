@@ -22,6 +22,7 @@ def new_state() -> dict[str, Any]:
             "extension_seconds": 5,
         },
         "notices": [],
+        "roster_score_table": [],
         "captains": [],
         "players": [],
         "tournament": {

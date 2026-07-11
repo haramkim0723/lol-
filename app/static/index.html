@@ -324,6 +324,23 @@
             <div><strong id="member-stat-not-applied">0</strong><span>대회 미참가</span></div>
           </div>
           <div id="member-player-registration-slot"></div>
+          <details class="member-toolbox score-table-toolbox">
+            <summary><span>04</span><strong>점수 자동 산출표</strong><small>티어별 포지션 점수 수정</small></summary>
+            <form id="score-table-form" class="score-table-form">
+              <div class="score-table-grid">
+                <div class="score-table-header">
+                  <span>티어</span>
+                  <span>탑</span>
+                  <span>정글</span>
+                  <span>미드</span>
+                  <span>원딜</span>
+                  <span>서폿</span>
+                </div>
+                <div id="score-table-rows"></div>
+              </div>
+              <button class="primary" type="submit">점수표 저장</button>
+            </form>
+          </details>
           <div class="member-filter-bar">
             <button class="secondary active" type="button" data-roster-filter="with_id">Riot ID 있음</button>
             <button class="secondary" type="button" data-roster-filter="without_id">Riot ID 없음</button>

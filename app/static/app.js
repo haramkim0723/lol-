@@ -422,6 +422,22 @@ function movePlayerRegistrationToMembers() {
 }
 
 
+function renderScoreTableEditor() {
+  const container = $("#score-table-rows");
+  if (!container) return;
+  const rows = state.roster_score_table || [];
+  container.innerHTML = rows.map((row, index) => `
+    <div class="score-table-row" data-score-row="${index}">
+      <input name="tier_key" value="${escapeHtml(row.tier_key || "")}" aria-label="tier key" />
+      <input name="top" type="number" step="0.1" min="0" max="200" value="${Number(row.top ?? 0)}" aria-label="top score" />
+      <input name="jungle" type="number" step="0.1" min="0" max="200" value="${Number(row.jungle ?? 0)}" aria-label="jungle score" />
+      <input name="mid" type="number" step="0.1" min="0" max="200" value="${Number(row.mid ?? 0)}" aria-label="mid score" />
+      <input name="adc" type="number" step="0.1" min="0" max="200" value="${Number(row.adc ?? 0)}" aria-label="adc score" />
+      <input name="support" type="number" step="0.1" min="0" max="200" value="${Number(row.support ?? 0)}" aria-label="support score" />
+    </div>
+  `).join("");
+}
+
 async function enterAuctionView() {
   if (state.auction.status === "setup") {
     if (state.viewer.role !== "host") {
@@ -1938,6 +1954,7 @@ function render() {
   renderTournament();
   renderParticipation();
   renderNotices();
+  renderScoreTableEditor();
   renderMyPage();
   renderAuction();
   if (
@@ -2315,6 +2332,33 @@ $("#notice-form").addEventListener("submit", async (event) => {
     stateSignature = meaningfulStateSignature(state);
     render();
     toast("공지사항을 등록했습니다.");
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#score-table-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const rows = [...event.target.querySelectorAll(".score-table-row")]
+    .map((row) => {
+      const field = (name) => row.querySelector(`[name="${name}"]`);
+      return {
+        tier_key: field("tier_key").value.trim(),
+        top: Number(field("top").value || 0),
+        jungle: Number(field("jungle").value || 0),
+        mid: Number(field("mid").value || 0),
+        adc: Number(field("adc").value || 0),
+        support: Number(field("support").value || 0),
+      };
+    })
+    .filter((row) => row.tier_key);
+  try {
+    await api("/api/roster-score-table", {
+      method: "PUT",
+      body: JSON.stringify({ rows }),
+    });
+    state = await api("/api/state");
+    stateSignature = meaningfulStateSignature(state);
+    render();
+    toast("점수표를 저장했습니다.");
   } catch (error) { toast(error.message, true); }
 });
 

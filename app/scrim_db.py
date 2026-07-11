@@ -765,7 +765,7 @@ ROSTER_POSITION_ALIASES = {
 }
 
 # 수강대난투 26-2.xlsx의 '점수표' 시트 기준: TOP, JUG, MID, ADC, SUP
-ROSTER_TIER_SCORES = {
+DEFAULT_ROSTER_TIER_SCORES = {
     "GM1300": (65.5, 65.5, 65.0, 63.0, 64.0),
     "GM1200": (63.4, 63.1, 63.0, 61.0, 62.1),
     "GM1100": (60.2, 60.0, 60.5, 59.9, 60.2),
@@ -808,6 +808,41 @@ ROSTER_TIER_SCORES = {
     "I3": (5.6, 5.2, 5.3, 5.0, 6.0),
     "I4": (5.0, 4.6, 4.6, 4.4, 5.3),
 }
+ROSTER_TIER_SCORES = dict(DEFAULT_ROSTER_TIER_SCORES)
+
+
+def roster_score_table_rows() -> list[dict]:
+    return [
+        {
+            "tier_key": key,
+            "top": values[0],
+            "jungle": values[1],
+            "mid": values[2],
+            "adc": values[3],
+            "support": values[4],
+        }
+        for key, values in DEFAULT_ROSTER_TIER_SCORES.items()
+    ]
+
+
+def set_roster_tier_scores(rows: list[dict] | None) -> None:
+    global ROSTER_TIER_SCORES
+    if not rows:
+        ROSTER_TIER_SCORES = dict(DEFAULT_ROSTER_TIER_SCORES)
+        return
+    next_scores = {}
+    for row in rows:
+        key = normalize_roster_tier(row.get("tier_key")) or str(row.get("tier_key") or "").strip().upper()
+        if not key:
+            continue
+        next_scores[key] = (
+            float(row.get("top") or 0),
+            float(row.get("jungle") or 0),
+            float(row.get("mid") or 0),
+            float(row.get("adc") or 0),
+            float(row.get("support") or 0),
+        )
+    ROSTER_TIER_SCORES = next_scores or dict(DEFAULT_ROSTER_TIER_SCORES)
 
 
 def normalize_roster_tier(value: str | None) -> str | None:

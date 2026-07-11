@@ -204,6 +204,7 @@ class JsonStore:
         state.setdefault("scrim_results", defaults["scrim_results"])
         state.setdefault("settings", defaults["settings"])
         state.setdefault("notices", [])
+        state.setdefault("roster_score_table", [])
         state.setdefault("captains", [])
         state.setdefault("players", [])
         state.setdefault("auction", defaults["auction"])

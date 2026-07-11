@@ -44,6 +44,10 @@ state_lock = asyncio.Lock()
 connections: set[WebSocket] = set()
 connection_viewers: dict[WebSocket, dict] = {}
 
+
+def apply_roster_score_table() -> None:
+    scrim_db.set_roster_tier_scores(store.state.get("roster_score_table"))
+
 SCRIM_RESULT_IMAGE_MAX_BYTES = int(os.getenv("SCRIM_RESULT_IMAGE_MAX_BYTES", "1048576"))
 SCRIM_RESULT_IMAGE_MAX_PER_TEAM = int(os.getenv("SCRIM_RESULT_IMAGE_MAX_PER_TEAM", "30"))
 SCRIM_RESULT_IMAGE_RETENTION_DAYS = int(os.getenv("SCRIM_RESULT_IMAGE_RETENTION_DAYS", "10"))
@@ -235,6 +239,19 @@ class SettingsInput(BaseModel):
 class NoticeInput(BaseModel):
     title: str = Field(min_length=1, max_length=80)
     body: str = Field(min_length=1, max_length=3000)
+
+
+class RosterScoreRowInput(BaseModel):
+    tier_key: str = Field(min_length=1, max_length=30)
+    top: float = Field(ge=0, le=200)
+    jungle: float = Field(ge=0, le=200)
+    mid: float = Field(ge=0, le=200)
+    adc: float = Field(ge=0, le=200)
+    support: float = Field(ge=0, le=200)
+
+
+class RosterScoreTableInput(BaseModel):
+    rows: list[RosterScoreRowInput] = Field(min_length=1, max_length=100)
 
 
 class CaptainInput(BaseModel):
@@ -811,6 +828,8 @@ async def competition_room_page():
 @app.get("/api/state")
 async def get_state(scrim_auth: str | None = Cookie(default=None)):
     viewer = compute_viewer(scrim_auth)
+    if not store.state.get("roster_score_table"):
+        store.state["roster_score_table"] = scrim_db.roster_score_table_rows()
     result = engine.public_state(store.state, viewer)
     result["competition_registry"] = store.competition_summary()
     result["captain_presence"] = captain_presence()
@@ -1258,6 +1277,7 @@ async def create_roster_entry(data: RosterCreateInput, request: Request):
     require_host(request)
     payload = data.model_dump(exclude_unset=True)
     try:
+        apply_roster_score_table()
         with scrim_db.connect() as connection:
             entry = scrim_db.create_roster_entry(connection, **payload)
             participation = store.state.setdefault(
@@ -1479,6 +1499,7 @@ async def bulk_build_competition_teams(
 @app.post("/api/roster/riot/preview")
 async def preview_roster_riot(data: RosterRiotLookupInput, request: Request):
     require_host(request)
+    apply_roster_score_table()
     try:
         riot = await lookup_kr_player(data.riot_id)
     except RiotApiError as exc:
@@ -1504,6 +1525,7 @@ async def update_roster_entry(roster_id: int, data: RosterEntryInput, request: R
     require_host(request)
     payload = data.model_dump(exclude_unset=True)
     try:
+        apply_roster_score_table()
         with scrim_db.connect() as connection:
             entry = scrim_db.update_roster_entry(connection, roster_id, payload)
     except ValueError as exc:
@@ -1530,6 +1552,7 @@ async def update_roster_entry(roster_id: int, data: RosterEntryInput, request: R
 async def bulk_update_roster(data: RosterBulkUpdateInput, request: Request):
     require_host(request)
     try:
+        apply_roster_score_table()
         with scrim_db.connect() as connection:
             for row in data.rows:
                 scrim_db.update_roster_entry(
@@ -1584,6 +1607,18 @@ async def delete_notice(notice_id: str, request: Request):
         store.save()
     await broadcast()
     return {"ok": True}
+
+
+@app.put("/api/roster-score-table")
+async def update_roster_score_table(data: RosterScoreTableInput, request: Request):
+    require_host(request)
+    rows = [row.model_dump() for row in data.rows]
+    async with state_lock:
+        store.state["roster_score_table"] = rows
+        apply_roster_score_table()
+        store.save()
+    await broadcast()
+    return {"ok": True, "rows": rows}
 
 
 @app.post("/api/captains")
