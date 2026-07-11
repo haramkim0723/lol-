@@ -2062,6 +2062,13 @@ $$("[data-view]").forEach((button) => {
   });
 });
 
+$$("[data-navigate-view]").forEach((link) => {
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    setView(link.dataset.navigateView);
+  });
+});
+
 $$("[data-scrim-tab]").forEach((button) => {
   button.addEventListener("click", () => {
     scrimRoomTab = button.dataset.scrimTab || "progress";
