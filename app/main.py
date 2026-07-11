@@ -589,6 +589,37 @@ def sync_score_player_from_roster(entry: dict) -> dict | None:
     return engine.add_player(store.state, **payload)
 
 
+def force_score_player_primary_position(player: dict, position: str) -> None:
+    if position not in engine.POSITIONS:
+        return
+    playable_positions = [
+        item
+        for item in [
+            player.get("primary_position"),
+            player.get("secondary_position"),
+            *(player.get("extra_positions") or []),
+        ]
+        if item in engine.POSITIONS and item != position
+    ]
+    position_scores = player.get("position_scores") or {}
+    primary_score = position_scores.get(position, player.get("score", 0))
+    secondary_position = playable_positions[0] if playable_positions else None
+    secondary_score = (
+        position_scores.get(secondary_position, player.get("secondary_score", player.get("score", 0)))
+        if secondary_position
+        else None
+    )
+    player["primary_position"] = position
+    player["score"] = int(round(float(primary_score or 0)))
+    player["secondary_position"] = secondary_position
+    player["secondary_score"] = (
+        int(round(float(secondary_score or 0)))
+        if secondary_score is not None
+        else player["score"]
+    )
+    player["extra_positions"] = playable_positions[1:3]
+
+
 def sync_score_players_from_approved_participation() -> int:
     participation = store.state.setdefault(
         "participation",
@@ -1346,6 +1377,7 @@ async def setup_test_competitions(request: Request):
 
         test1_users = []
         used_user_ids = set()
+        test1_primary_positions = {}
         for position in engine.POSITIONS:
             for user in users:
                 user_id = user["user_id"]
@@ -1355,6 +1387,7 @@ async def setup_test_competitions(request: Request):
                 if entry and position in scrim_db.roster_positions(entry.get("preferred_lines")):
                     test1_users.append(user)
                     used_user_ids.add(user_id)
+                    test1_primary_positions[user_id] = position
                     break
         for user in users:
             if len(test1_users) >= 5:
@@ -1364,6 +1397,12 @@ async def setup_test_competitions(request: Request):
             if user_id not in used_user_ids and entry and scrim_db.roster_positions(entry.get("preferred_lines")):
                 test1_users.append(user)
                 used_user_ids.add(user_id)
+                missing_positions = [
+                    position
+                    for position in engine.POSITIONS
+                    if position not in test1_primary_positions.values()
+                ]
+                test1_primary_positions[user_id] = missing_positions[0] if missing_positions else scrim_db.roster_positions(entry.get("preferred_lines"))[0]
         for user in users:
             if len(test1_users) >= 5:
                 break
@@ -1371,6 +1410,13 @@ async def setup_test_competitions(request: Request):
             if user_id not in used_user_ids:
                 test1_users.append(user)
                 used_user_ids.add(user_id)
+                missing_positions = [
+                    position
+                    for position in engine.POSITIONS
+                    if position not in test1_primary_positions.values()
+                ]
+                if missing_positions:
+                    test1_primary_positions[user_id] = missing_positions[0]
         for user in test1_users:
             scrim_db.record_competition_participation(
                 connection,
@@ -1436,7 +1482,12 @@ async def setup_test_competitions(request: Request):
                     user.get("riot_id"),
                 )
                 if entry:
-                    sync_score_player_from_roster(entry)
+                    player = sync_score_player_from_roster(entry)
+                    if player:
+                        force_score_player_primary_position(
+                            player,
+                            test1_primary_positions.get(user["user_id"], player["primary_position"]),
+                        )
         store.save()
     await broadcast()
     return {
