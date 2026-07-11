@@ -432,6 +432,20 @@ aside { display: grid; gap: 18px; }
 }
 
 .intro-panel { padding: 20px 0 40px; }
+.main-poster {
+  width: min(1040px, 100%);
+  margin: 0 auto 34px;
+  overflow: hidden;
+  border: 1px solid rgba(178,93,255,.36);
+  border-radius: 18px;
+  background: #05070d;
+  box-shadow: 0 26px 80px rgba(0,0,0,.45), 0 0 46px rgba(151,65,255,.16);
+}
+.main-poster img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
 .intro-heading { display: flex; align-items: end; justify-content: space-between; margin-bottom: 24px; }
 .intro-heading h2 { font-size: clamp(28px, 4vw, 48px); margin: 0; letter-spacing: -.05em; }
 .intro-heading p:not(.eyebrow) { color: var(--muted); margin: 9px 0 0; }
