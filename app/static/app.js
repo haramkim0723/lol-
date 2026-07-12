@@ -495,7 +495,7 @@ function renderRole() {
     button.classList.toggle("hidden", viewer.role !== "host")
   );
   $$('[data-view="participation"]').forEach((button) =>
-    button.classList.toggle("hidden", viewer.role !== "host" && !participationEnabled)
+    button.classList.toggle("hidden", !viewer.authenticated)
   );
   $$('[data-view="mypage"]').forEach((button) =>
     button.classList.toggle("hidden", !viewer.authenticated)
@@ -582,7 +582,7 @@ function applyCompetitionMode() {
   $$('[data-view="participation"]').forEach((button) => {
     button.classList.toggle(
       "hidden",
-      isAuction || (state.viewer.role !== "host" && !state.participation?.enabled)
+      isAuction || !state.viewer.authenticated
     );
   });
   $$('[data-view="mypage"]').forEach((button) => {
@@ -610,7 +610,7 @@ function applyCompetitionMode() {
       "team-simulator",
       "team-register",
       "tournament",
-      ...(state.viewer.role === "host" || state.participation?.enabled ? ["participation"] : []),
+      ...(state.viewer.authenticated ? ["participation"] : []),
       "notices",
       "scrim",
       ...(state.viewer.role === "host" ? ["members"] : []),
