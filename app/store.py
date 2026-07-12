@@ -118,6 +118,17 @@ class JsonStore:
         self.document["active_competition_id"] = competition_id
         self.save()
 
+    def update_competition_name(self, competition_id: str, name: str) -> dict[str, Any]:
+        normalized = name.strip()
+        for competition in self.document["competitions"]:
+            if competition["id"] != competition_id:
+                continue
+            competition["name"] = normalized
+            competition["state"]["settings"]["room_name"] = normalized
+            self.save()
+            return competition
+        raise ValueError("??뚮? 李얠쓣 ???놁뒿?덈떎.")
+
     def delete_competition(self, competition_id: str) -> None:
         before = len(self.document["competitions"])
         self.document["competitions"] = [

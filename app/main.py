@@ -796,6 +796,10 @@ class CompetitionInput(BaseModel):
     qualifiers_per_group: int = Field(default=2, ge=1, le=8)
 
 
+class CompetitionUpdateInput(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+
+
 @app.get("/")
 async def index():
     return FileResponse(ROOT / "static" / "index.html")
@@ -914,6 +918,26 @@ async def select_competition(competition_id: str, request: Request):
         raise HTTPException(404, str(exc)) from exc
     await broadcast()
     return {"ok": True}
+
+
+@app.patch("/api/competitions/{competition_id}")
+async def update_competition(
+    competition_id: str, data: CompetitionUpdateInput, request: Request
+):
+    require_host(request)
+    try:
+        async with state_lock:
+            competition = store.update_competition_name(competition_id, data.name)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    await broadcast()
+    return {
+        "id": competition["id"],
+        "name": competition["name"],
+        "mode": competition.get("mode", "auction"),
+        "poster_image": competition.get("poster_image", ""),
+        "created_at": competition["created_at"],
+    }
 
 
 @app.delete("/api/competitions/{competition_id}")

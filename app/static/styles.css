@@ -123,6 +123,8 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 36px 60px; }
 .competition-item strong, .competition-item small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .competition-item strong { font-size: 12px; }
 .competition-item small { margin-top: 4px; color: var(--muted); font-size: 9px; }
+.competition-name-edit { display: grid; gap: 4px; margin-top: 8px; color: var(--muted); font-size: 9px; font-weight: 800; }
+.competition-name-edit input { min-width: 0; max-width: 260px; padding: 8px 9px; color: var(--text); background: #0a1018; border: 1px solid var(--line); border-radius: 8px; font-size: 11px; }
 .competition-actions { display: flex; gap: 4px; }
 .competition-actions button { padding: 5px 7px; font-size: 8px; }
 .danger-guide { margin: 10px 0 0; color: #a76a72; font-size: 9px; }

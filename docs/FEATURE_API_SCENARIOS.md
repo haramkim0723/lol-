@@ -338,3 +338,12 @@
 - `POST /api/scrim/teams`
 - `POST /api/scrim/teams/join`
 - `POST /api/scrim/schedules`
+
+## Competition Rename Scenario
+
+1. Host edits a competition name from the competition manager.
+2. `PATCH /api/competitions/{competition_id}`
+3. `GET /api/state`
+4. Expected result
+   - `competition_registry.competitions[].name` is updated.
+   - If the renamed competition is active, `settings.room_name` is updated too.

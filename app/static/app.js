@@ -530,9 +530,14 @@ function renderCompetitions() {
       <article class="competition-item${competition.id === activeId ? " active" : ""}">
         <div>
           <strong>${escapeHtml(competition.name)}</strong>
+          <label class="competition-name-edit">
+            <span>이름 수정</span>
+            <input value="${escapeHtml(competition.name)}" maxlength="50" data-competition-name-input="${competition.id}" />
+          </label>
           <small>${competition.mode === "auction" ? "경매 대회" : "점수제 대회"} · 참가자 ${competition.player_count}명 · 팀 ${competition.team_count}개</small>
         </div>
         <div class="competition-actions">
+          <button class="ghost" type="button" data-competition-rename="${competition.id}">저장</button>
           ${competition.id !== activeId ? `<button class="ghost" type="button" data-competition-select="${competition.id}">선택</button>` : ""}
           <button class="remove" type="button" data-competition-delete="${competition.id}" data-competition-name="${escapeHtml(competition.name)}">삭제</button>
         </div>
@@ -2852,8 +2857,27 @@ document.addEventListener("click", async (event) => {
   }
   const selectCompetitionId =
     event.target.closest("[data-competition-select]")?.dataset.competitionSelect;
+  const renameCompetitionId =
+    event.target.closest("[data-competition-rename]")?.dataset.competitionRename;
   const deleteCompetitionButton =
     event.target.closest("[data-competition-delete]");
+  if (renameCompetitionId) {
+    const input = document.querySelector(`[data-competition-name-input="${renameCompetitionId}"]`);
+    const name = (input?.value || "").trim();
+    if (!name) {
+      toast("대회 이름을 입력해주세요.", true);
+      return;
+    }
+    try {
+      await api(`/api/competitions/${renameCompetitionId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+      await refreshState({ force: true });
+      toast("대회 이름을 수정했습니다.");
+    } catch (error) { toast(error.message, true); }
+    return;
+  }
   if (selectCompetitionId) {
     try {
       await api(`/api/competitions/${selectCompetitionId}/select`, {

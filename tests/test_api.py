@@ -361,6 +361,21 @@ class ApiFlowTest(unittest.TestCase):
             )
             self.assertEqual(len(state["players"]), 1)
 
+            renamed = client.patch(
+                f"/api/competitions/{competition_id}",
+                json={"name": "Renamed Tournament"},
+            )
+            self.assertEqual(renamed.status_code, 200)
+            self.assertEqual(renamed.json()["name"], "Renamed Tournament")
+            renamed_state = client.get("/api/state").json()
+            renamed_competition = next(
+                competition
+                for competition in renamed_state["competition_registry"]["competitions"]
+                if competition["id"] == competition_id
+            )
+            self.assertEqual(renamed_competition["name"], "Renamed Tournament")
+            self.assertEqual(renamed_state["settings"]["room_name"], "Renamed Tournament")
+
             deleted = client.delete(f"/api/competitions/{competition_id}")
             self.assertEqual(deleted.status_code, 200)
             after = client.get("/api/state").json()
