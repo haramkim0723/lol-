@@ -75,6 +75,16 @@ class TournamentEngineTest(unittest.TestCase):
             )
             self.members[position] = player["id"]
 
+    def make_complete_state(self):
+        state = engine.new_state()
+        members = {}
+        for position, score in zip(engine.POSITIONS, (8, 7, 10, 9, 6)):
+            player = engine.add_player(
+                state, f"base-{position}", "", "GOLD", position, score=score
+            )
+            members[position] = player["id"]
+        return state, members
+
     def test_people_can_register_complete_team_within_limit(self):
         team = engine.register_tournament_team(
             self.state, "직접 만든 팀", self.members, "1234"
@@ -156,6 +166,140 @@ class TournamentEngineTest(unittest.TestCase):
         self.assertTrue(locked_secondary)
         self.assertTrue(locked_secondary[0]["lineup"]["MID"]["is_off_position"])
         self.assertEqual(locked_secondary[0]["lineup"]["MID"]["score"], 4)
+
+    def test_recommendations_can_lock_extra_positions_for_every_position(self):
+        for target in engine.POSITIONS:
+            with self.subTest(target=target):
+                state, members = self.make_complete_state()
+                primary = next(position for position in engine.POSITIONS if position != target)
+                secondary = next(
+                    position
+                    for position in engine.POSITIONS
+                    if position not in (target, primary)
+                )
+                extra_player = engine.add_player(
+                    state,
+                    f"extra-locked-{target}",
+                    "",
+                    "GOLD",
+                    primary,
+                    secondary_position=secondary,
+                    extra_positions=[target],
+                    score=12,
+                    secondary_score=3,
+                )
+                locked = dict(members)
+                locked[target] = extra_player["id"]
+
+                recommendations = engine.recommend_team_combinations(
+                    state, locked, target_score=40
+                )
+
+                self.assertTrue(recommendations)
+                self.assertEqual(
+                    recommendations[0]["lineup"][target]["id"],
+                    extra_player["id"],
+                )
+                self.assertEqual(recommendations[0]["lineup"][target]["score"], 3)
+
+    def test_recommendations_can_fill_extra_positions_for_every_position(self):
+        for target in engine.POSITIONS:
+            with self.subTest(target=target):
+                state, members = self.make_complete_state()
+                primary = next(position for position in engine.POSITIONS if position != target)
+                secondary = next(
+                    position
+                    for position in engine.POSITIONS
+                    if position not in (target, primary)
+                )
+                extra_player = engine.add_player(
+                    state,
+                    f"extra-auto-{target}",
+                    "",
+                    "GOLD",
+                    primary,
+                    secondary_position=secondary,
+                    extra_positions=[target],
+                    score=12,
+                    secondary_score=3,
+                )
+                locked = {
+                    position: player_id if position != target else None
+                    for position, player_id in members.items()
+                }
+
+                recommendations = engine.recommend_team_combinations(
+                    state,
+                    locked,
+                    target_score=40,
+                    excluded_player_ids={members[target]},
+                )
+
+                self.assertTrue(recommendations)
+                self.assertEqual(
+                    recommendations[0]["lineup"][target]["id"],
+                    extra_player["id"],
+                )
+
+    def test_team_registration_accepts_extra_positions_for_every_position(self):
+        for target in engine.POSITIONS:
+            with self.subTest(target=target):
+                state, members = self.make_complete_state()
+                primary = next(position for position in engine.POSITIONS if position != target)
+                secondary = next(
+                    position
+                    for position in engine.POSITIONS
+                    if position not in (target, primary)
+                )
+                extra_player = engine.add_player(
+                    state,
+                    f"extra-register-{target}",
+                    "",
+                    "GOLD",
+                    primary,
+                    secondary_position=secondary,
+                    extra_positions=[target],
+                    score=12,
+                    secondary_score=3,
+                )
+                members[target] = extra_player["id"]
+
+                team = engine.register_tournament_team(
+                    state, f"extra-team-{target}", members, "1234"
+                )
+
+                self.assertEqual(team["members"][target], extra_player["id"])
+
+    def test_simulator_accepts_player_with_adc_and_sup_secondary_positions(self):
+        state, members = self.make_complete_state()
+        haram = engine.add_player(
+            state,
+            "김하람",
+            "",
+            "GOLD",
+            "MID",
+            secondary_position="ADC",
+            extra_positions=["SUP"],
+            score=10,
+            secondary_score=6,
+        )
+
+        adc_locked = dict(members)
+        adc_locked["ADC"] = haram["id"]
+        adc_recommendations = engine.recommend_team_combinations(
+            state, adc_locked, target_score=40
+        )
+
+        sup_locked = dict(members)
+        sup_locked["SUP"] = haram["id"]
+        sup_recommendations = engine.recommend_team_combinations(
+            state, sup_locked, target_score=40
+        )
+
+        self.assertEqual(adc_recommendations[0]["lineup"]["ADC"]["id"], haram["id"])
+        self.assertEqual(sup_recommendations[0]["lineup"]["SUP"]["id"], haram["id"])
+        self.assertEqual(adc_recommendations[0]["lineup"]["ADC"]["score"], 6)
+        self.assertEqual(sup_recommendations[0]["lineup"]["SUP"]["score"], 6)
 
     def test_team_total_uses_secondary_position_score(self):
         secondary_mid = engine.add_player(

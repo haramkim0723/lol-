@@ -196,15 +196,27 @@ def player_score_for_position(player: dict[str, Any], position: str) -> float:
     position_scores = player.get("position_scores") or {}
     if position in position_scores and position_scores[position] not in (None, ""):
         return float(position_scores[position])
-    if (
-        position != player.get("primary_position")
-        and (
-            player.get("secondary_position") == position
-            or position in (player.get("extra_positions") or [])
-        )
+    if position != player.get("primary_position") and player_can_play_position(
+        player, position
     ):
         return int(player.get("secondary_score", player.get("score", 0)))
     return int(player.get("score", 0))
+
+
+def player_positions(player: dict[str, Any]) -> list[str]:
+    return [
+        position
+        for position in (
+            player.get("primary_position"),
+            player.get("secondary_position"),
+            *(player.get("extra_positions") or []),
+        )
+        if position in POSITIONS
+    ]
+
+
+def player_can_play_position(player: dict[str, Any], position: str) -> bool:
+    return position in player_positions(player)
 
 
 
@@ -264,10 +276,7 @@ def recommend_team_combinations(
             raise ValueError("선택한 참가자를 찾을 수 없습니다.")
         if player_id in excluded_player_ids:
             raise ValueError("이미 팀에 등록된 참가자는 조합 시뮬레이션에 사용할 수 없습니다.")
-        if position not in (
-            player["primary_position"],
-            player.get("secondary_position"),
-        ):
+        if not player_can_play_position(player, position):
             raise ValueError(
                 f'{player["name"]} 님은 {position} 포지션으로 배치할 수 없습니다.'
             )
@@ -284,9 +293,11 @@ def recommend_team_combinations(
                 continue
             if player["id"] in excluded_player_ids:
                 continue
+            if not player_can_play_position(player, position):
+                continue
             if player["primary_position"] == position:
                 candidates.append((player, 0))
-            elif player.get("secondary_position") == position:
+            else:
                 candidates.append((player, 1))
         if not candidates:
             raise ValueError(f"{position}에 배치 가능한 참가자가 없습니다.")
@@ -374,11 +385,7 @@ def register_tournament_team(
         player = by_id.get(player_id)
         if player is None:
             raise ValueError("등록할 참가자를 찾을 수 없습니다.")
-        if position not in (
-            player["primary_position"],
-            player["secondary_position"],
-            *(player.get("extra_positions") or []),
-        ):
+        if not player_can_play_position(player, position):
             raise ValueError(
                 f'{player["name"]} 님은 {position} 포지션으로 배치할 수 없습니다.'
             )
@@ -818,11 +825,8 @@ def finalize_if_due(state: dict[str, Any], now: float | None = None) -> bool:
 
 
 def _assign_player(captain: dict[str, Any], player: dict[str, Any]) -> None:
-    primary = player["primary_position"]
-    secondary = player["secondary_position"]
-    if captain["team"].get(primary) is None:
-        captain["team"][primary] = player["id"]
-    elif secondary and captain["team"].get(secondary) is None:
-        captain["team"][secondary] = player["id"]
-    else:
-        captain["bench"].append(player["id"])
+    for position in player_positions(player):
+        if captain["team"].get(position) is None:
+            captain["team"][position] = player["id"]
+            return
+    captain["bench"].append(player["id"])

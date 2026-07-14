@@ -1483,7 +1483,14 @@ async function loadMembers() {
       ["#member-stat-total", "#member-stat-with-id", "#member-stat-without-id", "#member-stat-issued", "#member-stat-applied", "#member-stat-applied-unpaid", "#member-stat-not-applied"]
         .forEach((selector) => { $(selector).textContent = "…"; });
       $("#member-list").innerHTML = '<div class="empty-state member-loading">회원 명단을 한 번 불러오는 중입니다...</div>';
-      memberRosterCache = await api("/api/roster?filter=all&page=1&page_size=500");
+      const query = ($("#member-search-form")?.elements.query.value || "").trim();
+      const params = new URLSearchParams({
+        filter: rosterFilter,
+        page: String(rosterPage),
+        page_size: "50",
+      });
+      if (query) params.set("query", query);
+      memberRosterCache = await api(`/api/roster?${params.toString()}`);
     }
     const data = memberRosterCache;
     $("#member-stat-total").textContent = data.stats.total;
@@ -1507,7 +1514,7 @@ async function loadMembers() {
         .some((value) => String(value || "").toLocaleLowerCase().includes(query));
     });
     renderMemberRows(entries);
-    $("#member-pagination")?.remove();
+    renderRosterPagination(data.pagination);
   } catch (error) {
     memberRosterCache = null;
     $("#member-list").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
@@ -2348,6 +2355,8 @@ $("#active-competition-select").addEventListener("change", async (event) => {
     await api(`/api/competitions/${event.target.value}/select`, {
       method: "POST",
     });
+    memberRosterCache = null;
+    await refreshState();
   } catch (error) { toast(error.message, true); }
 });
 
@@ -2516,6 +2525,7 @@ $("#start-tournament-button").addEventListener("click", async () => {
   }
   try {
     await api("/api/tournament/start", { method: "POST" });
+    await refreshState();
     toast("대진표를 생성했습니다.");
   } catch (error) { toast(error.message, true); }
 });
@@ -2634,6 +2644,8 @@ $("#tournament-groups").addEventListener("change", async (event) => {
       method: "PUT",
       body: JSON.stringify({ group_index: groupIndex, team_ids: teamIds }),
     });
+    await refreshState({ renderView: false });
+    renderTournamentGroups();
   } catch (error) {
     input.checked = !input.checked;
     toast(error.message, true);
@@ -2883,6 +2895,8 @@ document.addEventListener("click", async (event) => {
       await api(`/api/competitions/${selectCompetitionId}/select`, {
         method: "POST",
       });
+      memberRosterCache = null;
+      await refreshState();
     } catch (error) { toast(error.message, true); }
     return;
   }
@@ -2894,6 +2908,8 @@ document.addEventListener("click", async (event) => {
     }
     try {
       await api(`/api/competitions/${competitionId}`, { method: "DELETE" });
+      memberRosterCache = null;
+      await refreshState();
       toast("대회와 관련 데이터를 삭제했습니다.");
     } catch (error) { toast(error.message, true); }
     return;
@@ -2939,12 +2955,14 @@ document.addEventListener("click", async (event) => {
         method: "POST",
         body: JSON.stringify({ approved: Boolean(approveTeamId) }),
       });
+      await refreshState();
       toast(approveTeamId ? "팀 신청을 승인했습니다." : "팀 신청을 반려했습니다.");
       return;
     }
     if (deleteTeamId) {
       setTeamActionBusy(true);
       await api(`/api/tournament/teams/${deleteTeamId}`, { method: "DELETE" });
+      await refreshState();
       toast("팀 신청을 삭제했습니다.");
       return;
     }
@@ -2957,6 +2975,7 @@ document.addEventListener("click", async (event) => {
           team_id: winnerButton.dataset.matchWinner,
         }),
       });
+      await refreshState();
       return;
     }
   } catch (error) {
@@ -3385,6 +3404,7 @@ $("#member-create-form")?.addEventListener("submit", async (event) => {
 $("#member-search-form").addEventListener("input", async (event) => {
   if (!event.target.matches('input[name="query"]')) return;
   rosterPage = 1;
+  memberRosterCache = null;
   window.clearTimeout(window.memberSearchTimer);
   window.memberSearchTimer = window.setTimeout(loadMembers, 180);
 });
@@ -3392,6 +3412,7 @@ $("#member-search-form").addEventListener("input", async (event) => {
 $("#member-search-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   rosterPage = 1;
+  memberRosterCache = null;
   await loadMembers();
 });
 
@@ -3561,6 +3582,7 @@ document.addEventListener("click", async (event) => {
   const pageButton = event.target.closest("[data-roster-page]");
   if (!pageButton) return;
   rosterPage = Number(pageButton.dataset.rosterPage);
+  memberRosterCache = null;
   await loadMembers();
 });
 
@@ -3586,6 +3608,7 @@ document.querySelectorAll("[data-roster-filter]").forEach((button) => {
   button.addEventListener("click", async () => {
     rosterFilter = button.dataset.rosterFilter;
     rosterPage = 1;
+    memberRosterCache = null;
     document.querySelectorAll("[data-roster-filter]").forEach((item) => {
       item.classList.toggle("active", item === button);
     });
