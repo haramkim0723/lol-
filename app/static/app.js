@@ -1445,22 +1445,13 @@ function renderMemberRows(entries) {
             <button class="participation-count" type="button" data-participation-count="${entry.id}">${Number(entry.participation_count || 0)}회</button>
             ${renderParticipationPopover(entry)}
           </div>
-          <div class="roster-sheet-save"><button class="primary" type="submit">저장</button></div>
+          <div class="roster-sheet-save">
+            <button class="primary" type="submit">저장</button>
+            <button class="remove" type="button" data-roster-delete="${entry.id}" data-roster-name="${escapeHtml(entry.name || "")}">삭제</button>
+          </div>
         </form>
       `).join("")}
     </div>`;
-  entries.forEach((entry) => {
-    const form = list.querySelector(`[data-roster-entry="${entry.id}"]`);
-    const actions = form?.querySelector(".roster-sheet-save");
-    if (!actions || actions.querySelector("[data-roster-delete]")) return;
-    const button = document.createElement("button");
-    button.className = "remove";
-    button.type = "button";
-    button.dataset.rosterDelete = String(entry.id);
-    button.dataset.rosterName = entry.name || "";
-    button.textContent = "삭제";
-    actions.appendChild(button);
-  });
 }
 
 function renderRiotPreview(data) {

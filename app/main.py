@@ -548,12 +548,16 @@ def roster_payload(
     if application is None and applications_by_riot_id:
         riot_id_key = str(entry.get("riot_id") or "").strip().casefold()
         application = applications_by_riot_id.get(riot_id_key) if riot_id_key else None
-    active_application = bool(
-        application and application.get("status") in {"APPLIED", "APPROVED"}
-    )
+    application_status = application.get("status") if application else None
+    active_application = application_status in {"APPLIED", "APPROVED"}
     is_applied = roster_applied or active_application
     payload["tournament_status"] = "applied" if is_applied else "not_applied"
-    payload["tournament_label"] = "\ub300\ud68c \ucc38\uac00" if is_applied else "\ub300\ud68c \ubbf8\ucc38\uac00"
+    if application_status == "APPROVED":
+        payload["tournament_label"] = "\ucc38\uac00 \uc2b9\uc778"
+    elif application_status == "APPLIED":
+        payload["tournament_label"] = "\uc2b9\uc778 \ub300\uae30"
+    else:
+        payload["tournament_label"] = "\ub300\ud68c \ucc38\uac00" if is_applied else "\ub300\ud68c \ubbf8\ucc38\uac00"
     payload["applied_at"] = application.get("applied_at") if application else None
     events = (participation_history or {}).get(user_id, []) if user_id else []
     payload["participation_events"] = events
@@ -1719,7 +1723,15 @@ async def delete_roster_entry(roster_id: int, request: Request):
         async with state_lock:
             with scrim_db.connect() as connection:
                 result = scrim_db.delete_roster_entry(connection, roster_id)
-            removed_score_player = remove_score_player_for_roster(result["entry"])
+                remaining_entry = scrim_db.get_roster_entry_by_riot_id(
+                    connection,
+                    result["entry"].get("riot_id"),
+                )
+            if remaining_entry:
+                sync_score_player_from_roster(remaining_entry)
+                removed_score_player = False
+            else:
+                removed_score_player = remove_score_player_for_roster(result["entry"])
             store.save()
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

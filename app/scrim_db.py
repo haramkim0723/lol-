@@ -1004,6 +1004,25 @@ def get_roster_entry_by_user_identity(
     return normalize_roster_row(dict(row)) if row is not None else None
 
 
+def get_roster_entry_by_riot_id(connection, riot_id: str | None) -> dict | None:
+    normalized = clean_optional_text(riot_id)
+    if not normalized:
+        return None
+    row = connection.execute(
+        """
+        SELECT *
+        FROM roster_entries
+        WHERE LOWER(TRIM(riot_id)) = LOWER(TRIM(?))
+        ORDER BY
+          CASE WHEN COALESCE(tier, '') <> '' AND COALESCE(preferred_lines, '') <> '' THEN 0 ELSE 1 END,
+          source_row ASC
+        LIMIT 1
+        """,
+        (normalized,),
+    ).fetchone()
+    return normalize_roster_row(dict(row)) if row is not None else None
+
+
 def roster_applied_condition(
     active_user_ids: set[int] | None = None,
     active_riot_ids: set[str] | None = None,

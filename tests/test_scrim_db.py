@@ -144,6 +144,18 @@ class ScrimDatabaseTest(unittest.TestCase):
             )
             self.assertEqual(updated["riot_id"], "HARAM#KR1")
 
+    def test_roster_entry_by_riot_id_matches_case_insensitively(self):
+        with scrim_db.connect(self.db_file) as connection:
+            entry = scrim_db.create_roster_entry(
+                connection,
+                name="Haram",
+                riot_id="haram#kr1",
+                tier="E4",
+                preferred_lines="MID,SUP",
+            )
+            matched = scrim_db.get_roster_entry_by_riot_id(connection, "HARAM#KR1")
+            self.assertEqual(matched["id"], entry["id"])
+
     def test_delete_roster_entry_deactivates_unused_user(self):
         with scrim_db.connect(self.db_file) as connection:
             entry = scrim_db.create_roster_entry(
