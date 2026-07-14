@@ -136,6 +136,15 @@ def set_session_cookie(response: Response, user: dict) -> None:
     )
 
 
+def clear_session_cookie(response: Response) -> None:
+    response.delete_cookie(
+        SCRIM_AUTH_COOKIE,
+        httponly=True,
+        samesite="lax",
+        secure=bool(os.getenv("VERCEL")),
+    )
+
+
 def current_user_or_none(scrim_auth: str | None) -> dict | None:
     session = read_session(scrim_auth)
     if session is None:
@@ -191,7 +200,7 @@ async def login(data: LoginInput, response: Response):
         if user is None or not scrim_db.verify_password(
             data.password, user["password_hash"]
         ):
-            response.delete_cookie(SCRIM_AUTH_COOKIE)
+            clear_session_cookie(response)
             raise HTTPException(401, "롤 아이디 또는 비밀번호가 올바르지 않습니다.")
         scrim_db.touch_last_login(connection, user["id"])
         user = scrim_db.get_user(connection, user["id"])
@@ -201,7 +210,7 @@ async def login(data: LoginInput, response: Response):
 
 @router.post("/auth/logout")
 async def logout(response: Response):
-    response.delete_cookie(SCRIM_AUTH_COOKIE)
+    clear_session_cookie(response)
     return {"ok": True}
 
 
@@ -213,6 +222,7 @@ async def me(scrim_auth: str | None = Cookie(default=None)):
 @router.patch("/me")
 async def update_me(
     data: MyProfileInput,
+    response: Response,
     scrim_auth: str | None = Cookie(default=None),
 ):
     current_user = current_user_from_cookie(scrim_auth)
@@ -223,7 +233,10 @@ async def update_me(
                 user_id=current_user["id"],
                 **data.model_dump(),
             )
+            set_session_cookie(response, user)
             return public_user(user)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     except sqlite3.IntegrityError as exc:
         raise HTTPException(400, "이미 사용 중인 본 아이디입니다.") from exc
 

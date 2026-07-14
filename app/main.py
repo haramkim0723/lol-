@@ -334,6 +334,7 @@ class TournamentSettingsInput(BaseModel):
     format: Literal["single_elimination", "group_then_knockout"] = "single_elimination"
     group_count: int = Field(default=2, ge=2, le=16)
     qualifiers_per_group: int = Field(default=2, ge=1, le=8)
+    score_visible: bool = False
 
 
 class TournamentTeamInput(BaseModel):
@@ -1966,6 +1967,10 @@ async def update_tournament_settings(
         if tournament["status"] in ("running", "finished"):
             raise HTTPException(409, "본선 시작 후에는 대회 형식을 바꿀 수 없습니다.")
         tournament["score_limit"] = data.score_limit
+        store.state.setdefault(
+            "participation",
+            {"enabled": False, "score_visible": False, "terms": "", "applications": []},
+        )["score_visible"] = data.score_visible
         changed = (
             tournament.get("format") != data.format
             or tournament.get("group_count") != data.group_count

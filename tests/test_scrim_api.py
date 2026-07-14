@@ -228,6 +228,23 @@ class ScrimApiTest(unittest.TestCase):
                 self.assertEqual(updated.json()["riot_id"], "changed#KR1")
                 self.assertEqual(updated.json()["secondary_riot_id"], "changed-sub#KR1")
 
+            with TestClient(app) as old_password_client:
+                old_login = old_password_client.post(
+                    "/api/scrim/auth/login",
+                    json={"riot_id": "changed#KR1", "password": "1234"},
+                )
+                self.assertEqual(old_login.status_code, 401)
+                random_login = old_password_client.post(
+                    "/api/scrim/auth/login",
+                    json={"riot_id": "changed#KR1", "password": "wrongpass"},
+                )
+                self.assertEqual(random_login.status_code, 401)
+                new_login = old_password_client.post(
+                    "/api/scrim/auth/login",
+                    json={"riot_id": "changed#KR1", "password": "5678"},
+                )
+                self.assertEqual(new_login.status_code, 200)
+
     def test_scrim_page_serves_main_spa_with_scrim_tab(self):
         with TestClient(app) as client:
             response = client.get("/scrim")

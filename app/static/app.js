@@ -410,6 +410,11 @@ function setView(view) {
   }
 }
 
+function navigateView(view) {
+  setView(view);
+  renderCurrentView();
+}
+
 function renderScrimRoomTabs() {
   if (scrimRoomTab === "results") scrimRoomTab = "stats";
   $$("[data-scrim-tab]").forEach((button) => {
@@ -810,6 +815,7 @@ function moveIntro(direction) {
 function renderSetup() {
   if (state.viewer.role !== "host") return;
   $("#teacher-score-limit-input").value = state.tournament.score_limit;
+  $("#tournament-score-visible-input").checked = Boolean(state.participation?.score_visible);
   const settings = state.settings;
   const form = $("#settings-form");
   Object.entries(settings).forEach(([key, value]) => {
@@ -901,11 +907,12 @@ function renderTournament() {
     "hidden", !isTournamentCompetition || (tournament.status !== "group" && !groupDrawReady)
   );
   $("#teacher-score-limit-input").value = tournament.score_limit;
+  $("#tournament-score-visible-input").checked = Boolean(state.participation?.score_visible);
   $("#tournament-format-input").value = tournament.format || "single_elimination";
   $("#tournament-group-count-input").value = tournament.group_count || 2;
   $("#tournament-qualifiers-input").value = tournament.qualifiers_per_group || 2;
   const settingsLocked = ["running", "finished"].includes(tournament.status);
-  ["#teacher-score-limit-input", "#tournament-format-input", "#tournament-group-count-input", "#tournament-qualifiers-input", "#save-tournament-settings"]
+  ["#teacher-score-limit-input", "#tournament-score-visible-input", "#tournament-format-input", "#tournament-group-count-input", "#tournament-qualifiers-input", "#save-tournament-settings"]
     .forEach((selector) => { $(selector).disabled = settingsLocked; });
   $("#start-tournament-button").classList.toggle(
     "hidden", !registrationOpen || !isHost || tournament.format !== "group_then_knockout"
@@ -1691,6 +1698,21 @@ function renderTeamSelectors(formSelector, containerSelector, initial = null) {
         playerCanPosition(player, position)
       )
       .sort((a, b) => a.name.localeCompare(b.name, "ko-KR"));
+    const primaryOptions = primaryCandidates.map((player) =>
+      `<option value="${player.id}">${escapeHtml(player.name)} | ${scoreForPosition(player, position)}점 [주]</option>`
+    ).join("");
+    const secondaryOptions = secondaryCandidates.map((player) =>
+      `<option value="${player.id}">${escapeHtml(player.name)} | ${scoreForPosition(player, position)}점 [부]</option>`
+    ).join("");
+    return `<label class="tournament-member-slot">
+      <strong><span>${position}</span>${POSITION_NAMES[position]} 배치</strong>
+      <select name="${position}" ${isSimulator ? "" : "required"}>
+        <option value="">${POSITION_NAMES[position]} 선수 선택</option>
+        ${primaryCandidates.length ? `<optgroup label="${POSITION_NAMES[position]} 주 포지션">${primaryOptions}</optgroup>` : ""}
+        ${secondaryCandidates.length ? `<optgroup label="${POSITION_NAMES[position]} 부 포지션 가능">${secondaryOptions}</optgroup>` : ""}
+      </select>
+      <small>주 ${primaryCandidates.length}명 · 부 ${secondaryCandidates.length}명</small>
+    </label>`;
     const candidateOptions = `
       ${primaryCandidates.length ? `<optgroup label="${POSITION_NAMES[position]} 주 포지션">
         ${primaryCandidates.map((player) =>
@@ -2119,14 +2141,14 @@ $$("[data-view]").forEach((button) => {
       enterAuctionView();
       return;
     }
-    setView(button.dataset.view);
+    navigateView(button.dataset.view);
   });
 });
 
 $$("[data-navigate-view]").forEach((link) => {
   link.addEventListener("click", (event) => {
     event.preventDefault();
-    setView(link.dataset.navigateView);
+    navigateView(link.dataset.navigateView);
   });
 });
 
@@ -2145,11 +2167,12 @@ window.addEventListener("popstate", () => {
     : location.pathname === "/team-register" ? "team-register"
     : location.pathname === "/tournament" ? "tournament"
     : location.pathname === "/participation" ? "participation"
+    : location.pathname === "/notices" ? "notices"
     : location.pathname === "/members" ? "members"
     : location.pathname === "/mypage" ? "mypage"
     : location.pathname === "/players" ? "intro"
     : ["/competition-room", "/scrim"].includes(location.pathname) ? "scrim" : "poster";
-  if (state) setView(currentView);
+  if (state) navigateView(currentView);
 });
 
 function setAuthMode(mode) {
@@ -2193,6 +2216,12 @@ $("#login-form").addEventListener("submit", async (event) => {
     }
     render();
   } catch (error) {
+    try {
+      state = await api("/api/state", { silent: true });
+      stateSignature = meaningfulStateSignature(state);
+      authPromptOpen = !Boolean(state.viewer?.authenticated);
+      render();
+    } catch {}
     if (status) {
       status.className = "login-status error";
       status.textContent = `로그인 실패: ${error.message}`;
@@ -2262,6 +2291,7 @@ $("#teacher-score-limit-form").addEventListener("submit", async (event) => {
         body: JSON.stringify(tournamentSettingsPayload(scoreLimit)),
       })
     );
+    await refreshState();
     toast("점수제 대회 설정을 저장했습니다.");
   } catch (error) { toast(error.message, true); }
 });
@@ -2269,6 +2299,7 @@ $("#teacher-score-limit-form").addEventListener("submit", async (event) => {
 function tournamentSettingsPayload(scoreLimit = Number($("#teacher-score-limit-input").value)) {
   return {
     score_limit: scoreLimit,
+    score_visible: $("#tournament-score-visible-input").checked,
     format: $("#tournament-format-input").value || state.tournament.format || "single_elimination",
     group_count: Number($("#tournament-group-count-input").value || state.tournament.group_count || 2),
     qualifiers_per_group: Number($("#tournament-qualifiers-input").value || state.tournament.qualifiers_per_group || 2),
@@ -3684,7 +3715,7 @@ $("#mypage-form").addEventListener("submit", async (event) => {
       body: JSON.stringify(payload),
     });
     toast("마이페이지를 저장했습니다.");
-    setTimeout(() => location.reload(), 500);
+    await refreshState();
   } catch (error) { toast(error.message, true); }
 });
 
