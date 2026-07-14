@@ -812,10 +812,19 @@ function moveIntro(direction) {
   renderScoreIntro();
 }
 
+function updateScoreVisibleControl() {
+  const input = $("#tournament-score-visible-input");
+  const label = $("#tournament-score-visible-label");
+  if (!input || !label) return;
+  const visible = Boolean(state.participation?.score_visible);
+  input.checked = visible;
+  label.textContent = visible ? "공개 중" : "비공개";
+}
+
 function renderSetup() {
   if (state.viewer.role !== "host") return;
   $("#teacher-score-limit-input").value = state.tournament.score_limit;
-  $("#tournament-score-visible-input").checked = Boolean(state.participation?.score_visible);
+  updateScoreVisibleControl();
   const settings = state.settings;
   const form = $("#settings-form");
   Object.entries(settings).forEach(([key, value]) => {
@@ -907,7 +916,7 @@ function renderTournament() {
     "hidden", !isTournamentCompetition || (tournament.status !== "group" && !groupDrawReady)
   );
   $("#teacher-score-limit-input").value = tournament.score_limit;
-  $("#tournament-score-visible-input").checked = Boolean(state.participation?.score_visible);
+  updateScoreVisibleControl();
   $("#tournament-format-input").value = tournament.format || "single_elimination";
   $("#tournament-group-count-input").value = tournament.group_count || 2;
   $("#tournament-qualifiers-input").value = tournament.qualifiers_per_group || 2;
@@ -2313,6 +2322,11 @@ $("#teacher-score-limit-form").addEventListener("submit", async (event) => {
     await refreshState();
     toast("점수제 대회 설정을 저장했습니다.");
   } catch (error) { toast(error.message, true); }
+});
+
+$("#tournament-score-visible-input").addEventListener("change", (event) => {
+  const label = $("#tournament-score-visible-label");
+  if (label) label.textContent = event.target.checked ? "공개 예정" : "비공개";
 });
 
 function tournamentSettingsPayload(scoreLimit = Number($("#teacher-score-limit-input").value)) {

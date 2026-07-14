@@ -132,9 +132,11 @@
             <label class="score-setting-field">조당 진출팀
               <input id="tournament-qualifiers-input" type="number" min="1" max="8" />
             </label>
-            <label class="score-setting-field toggle-row">
+            <label class="score-setting-field score-visibility-toggle">
               <input id="tournament-score-visible-input" type="checkbox" />
-              <span>점수 공개</span>
+              <span class="field-caption">참가자 점수 공개</span>
+              <strong id="tournament-score-visible-label">비공개</strong>
+              <small>강사님이 공개로 바꾸고 저장한 뒤부터 참가자에게 점수가 보입니다.</small>
             </label>
             <button id="save-tournament-settings" class="primary" type="submit">대회 설정 저장</button>
           </form>
