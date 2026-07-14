@@ -4,11 +4,11 @@ import random
 import time
 import uuid
 from copy import deepcopy
-from itertools import product
 from typing import Any
 
 
 POSITIONS = ("TOP", "JUG", "MID", "ADC", "SUP")
+MAX_RECOMMENDATION_CANDIDATES_PER_POSITION = 24
 
 
 def new_state() -> dict[str, Any]:
@@ -40,6 +40,7 @@ def new_state() -> dict[str, Any]:
         },
         "participation": {
             "enabled": False,
+            "score_visible": False,
             "terms": (
                 "대회 진행 공지와 운영 규칙을 확인했고, 참가 신청 후 "
                 "강사님의 안내에 따르는 것에 동의합니다."
@@ -61,9 +62,10 @@ def new_state() -> dict[str, Any]:
     }
 
 
-def public_state(
-    state: dict[str, Any], viewer: dict[str, Any] | None = None
-) -> dict[str, Any]:
+def public_state_base(
+    state: dict[str, Any],
+    now: float | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     result = deepcopy(state)
     for captain in result["captains"]:
         captain.pop("user_id", None)
@@ -77,21 +79,19 @@ def public_state(
             "champion_id": None,
         },
     )
+    team_access = []
     for team in tournament["teams"]:
         team_player_ids = set(team.get("members", {}).values())
-        viewer_riot_id = str((viewer or {}).get("riot_id") or "").casefold()
-        belongs_to_team = any(
-            player["id"] in team_player_ids
-            and str(player.get("riot_id") or "").casefold() == viewer_riot_id
+        member_riot_ids = {
+            str(player.get("riot_id") or "").casefold()
             for player in result["players"]
-        )
-        team["can_manage_scrim_result"] = bool(
-            viewer
-            and (
-                viewer.get("role") == "host"
-                or team.get("created_by_user_id") == viewer.get("user_id")
-                or belongs_to_team
-            )
+            if player["id"] in team_player_ids
+        }
+        team_access.append(
+            {
+                "created_by_user_id": team.get("created_by_user_id"),
+                "member_riot_ids": member_riot_ids,
+            }
         )
         team.pop("registration_pin", None)
         team.pop("created_by_user_id", None)
@@ -99,30 +99,84 @@ def public_state(
         "participation",
         {
             "enabled": False,
+            "score_visible": False,
             "terms": "",
             "applications": [],
         },
     )
+    participation.setdefault("score_visible", False)
     applications = participation.pop("applications", [])
-    active_applications = [
-        application
+    active_application_user_ids = {
+        application.get("user_id")
         for application in applications
         if application.get("status", "APPLIED") in {"APPLIED", "APPROVED"}
-    ]
-    viewer_user_id = (viewer or {}).get("user_id")
-    participation["application_count"] = len(active_applications)
-    participation["viewer_has_applied"] = any(
-        application.get("user_id") == viewer_user_id
-        for application in active_applications
-    )
-    now = time.time()
+    }
+    participation["application_count"] = len(active_application_user_ids)
+    now = now or time.time()
     deadline = result["auction"].get("deadline")
     result["server_time"] = now
     result["auction"]["remaining_seconds"] = (
         max(0, deadline - now) if deadline is not None else None
     )
-    result["viewer"] = viewer or {"role": "spectator", "captain_id": None}
+    return result, {
+        "active_application_user_ids": active_application_user_ids,
+        "team_access": team_access,
+    }
+
+
+def public_state_from_base(
+    base_state: dict[str, Any],
+    context: dict[str, Any],
+    viewer: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    viewer = viewer or {"role": "spectator", "captain_id": None}
+    result = dict(base_state)
+    tournament = dict(base_state["tournament"])
+    participation = dict(base_state["participation"])
+    score_visible = bool(participation.get("score_visible")) or viewer.get("role") == "host"
+    if not score_visible:
+        hidden_score_fields = {"score", "secondary_score", "position_scores", "tier"}
+        result["players"] = [
+            {
+                key: value
+                for key, value in player.items()
+                if key not in hidden_score_fields
+            }
+            for player in base_state.get("players", [])
+        ]
+    viewer_riot_id = str(viewer.get("riot_id") or "").casefold()
+    viewer_user_id = viewer.get("user_id")
+    tournament["teams"] = []
+    for team, access in zip(
+        base_state["tournament"]["teams"],
+        context.get("team_access", []),
+    ):
+        public_team = dict(team)
+        belongs_to_team = viewer_riot_id in access.get("member_riot_ids", set())
+        public_team["can_manage_scrim_result"] = bool(
+            viewer
+            and (
+                viewer.get("role") == "host"
+                or access.get("created_by_user_id") == viewer_user_id
+                or belongs_to_team
+            )
+        )
+        tournament["teams"].append(public_team)
+    result["tournament"] = tournament
+    participation["viewer_has_applied"] = viewer_user_id in context.get(
+        "active_application_user_ids",
+        set(),
+    )
+    result["participation"] = participation
+    result["viewer"] = viewer
     return result
+
+
+def public_state(
+    state: dict[str, Any], viewer: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    base_state, context = public_state_base(state)
+    return public_state_from_base(base_state, context, viewer)
 
 
 def add_captain(
@@ -286,6 +340,7 @@ def recommend_team_combinations(
         position for position in POSITIONS if position not in lineup
     ]
     candidate_lists: list[list[tuple[dict[str, Any], int]]] = []
+    target_per_position = target_score / len(POSITIONS)
     for position in empty_positions:
         candidates = []
         for player in players:
@@ -301,20 +356,53 @@ def recommend_team_combinations(
                 candidates.append((player, 1))
         if not candidates:
             raise ValueError(f"{position}에 배치 가능한 참가자가 없습니다.")
-        candidate_lists.append(candidates)
+        candidates.sort(
+            key=lambda item: (
+                item[1],
+                abs(player_score_for_position(item[0], position) - target_per_position),
+                -player_score_for_position(item[0], position),
+                item[0]["name"],
+            )
+        )
+        candidate_lists.append(
+            candidates[:MAX_RECOMMENDATION_CANDIDATES_PER_POSITION]
+        )
 
     best: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
-    combinations = product(*candidate_lists) if candidate_lists else [()]
-    for choices in combinations:
-        chosen = [choice[0] for choice in choices]
-        chosen_ids = [player["id"] for player in chosen]
-        if len(chosen_ids) != len(set(chosen_ids)):
-            continue
-        completed = dict(lineup)
-        off_position_count = 0
-        for position, (player, penalty) in zip(empty_positions, choices):
-            completed[position] = player
-            off_position_count += penalty
+    remaining_min_scores: list[float] = [0] * (len(candidate_lists) + 1)
+    remaining_max_scores: list[float] = [0] * (len(candidate_lists) + 1)
+    for index in range(len(candidate_lists) - 1, -1, -1):
+        position = empty_positions[index]
+        scores = [
+            player_score_for_position(player, position)
+            for player, _penalty in candidate_lists[index]
+        ]
+        remaining_min_scores[index] = remaining_min_scores[index + 1] + min(scores)
+        remaining_max_scores[index] = remaining_max_scores[index + 1] + max(scores)
+
+    def result_key(result: dict[str, Any]) -> tuple[Any, ...]:
+        total_score = result["total_score"]
+        return (
+            result["score_difference"],
+            result["off_position_count"],
+            0 if total_score <= target_score else 1,
+            -total_score,
+            tuple(result["lineup"][position]["name"] for position in POSITIONS),
+        )
+
+    def best_possible_difference(index: int, score_so_far: float) -> float:
+        minimum = score_so_far + remaining_min_scores[index]
+        maximum = score_so_far + remaining_max_scores[index]
+        if target_score < minimum:
+            return minimum - target_score
+        if target_score > maximum:
+            return target_score - maximum
+        return 0
+
+    def remember_result(
+        completed: dict[str, dict[str, Any]],
+        off_position_count: int,
+    ) -> None:
         total_score = sum(
             player_score_for_position(completed[position], position)
             for position in POSITIONS
@@ -339,17 +427,49 @@ def recommend_team_combinations(
             "score_difference": abs(total_score - target_score),
             "off_position_count": off_position_count,
         }
-        key = (
-            result["score_difference"],
-            off_position_count,
-            0 if total_score <= target_score else 1,
-            -total_score,
-            tuple(result["lineup"][position]["name"] for position in POSITIONS),
-        )
+        key = result_key(result)
         best.append((key, result))
         best.sort(key=lambda item: item[0])
         if len(best) > limit:
             best.pop()
+
+    def backtrack(
+        index: int,
+        completed: dict[str, dict[str, Any]],
+        used_ids: set[str],
+        score_so_far: float,
+        off_position_count: int,
+    ) -> None:
+        if (
+            len(best) >= limit
+            and best_possible_difference(index, score_so_far) > best[-1][0][0]
+        ):
+            return
+        if index == len(empty_positions):
+            remember_result(completed, off_position_count)
+            return
+        position = empty_positions[index]
+        for player, penalty in candidate_lists[index]:
+            player_id = player["id"]
+            if player_id in used_ids:
+                continue
+            completed[position] = player
+            used_ids.add(player_id)
+            backtrack(
+                index + 1,
+                completed,
+                used_ids,
+                score_so_far + player_score_for_position(player, position),
+                off_position_count + penalty,
+            )
+            used_ids.remove(player_id)
+            completed.pop(position, None)
+
+    locked_score = sum(
+        player_score_for_position(player, position)
+        for position, player in lineup.items()
+    )
+    backtrack(0, dict(lineup), set(selected_ids), locked_score, 0)
     return [item[1] for item in best]
 
 

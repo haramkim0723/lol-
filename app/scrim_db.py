@@ -111,6 +111,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_team_per_user
 ON team_members(user_id)
 WHERE status = 'ACTIVE';
 
+CREATE INDEX IF NOT EXISTS idx_roster_entries_user_id
+ON roster_entries(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_users_active_role_approved
+ON users(is_active, role, approved);
+
+CREATE INDEX IF NOT EXISTS idx_member_competition_participations_user_competition
+ON member_competition_participations(user_id, competition_id);
+
 CREATE TABLE IF NOT EXISTS team_join_requests (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   team_id INTEGER NOT NULL,
@@ -393,6 +402,7 @@ def migrate_db(connection) -> None:
         connection.execute(
             "ALTER TABLE member_competition_participations ADD COLUMN cancelled_at REAL"
         )
+    ensure_performance_indexes(connection)
 
 
 def migrate_postgres_db(connection) -> None:
@@ -409,6 +419,22 @@ def migrate_postgres_db(connection) -> None:
     )
     connection.execute(
         "ALTER TABLE member_competition_participations ADD COLUMN IF NOT EXISTS cancelled_at DOUBLE PRECISION"
+    )
+    ensure_performance_indexes(connection)
+
+
+def ensure_performance_indexes(connection) -> None:
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_roster_entries_user_id ON roster_entries(user_id)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_users_active_role_approved ON users(is_active, role, approved)"
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_member_competition_participations_user_competition
+        ON member_competition_participations(user_id, competition_id)
+        """
     )
 
 
@@ -512,7 +538,7 @@ def row_to_dict(row: sqlite3.Row | None) -> dict | None:
     return dict(row) if row is not None else None
 
 
-def create_user(
+def _legacy_create_user_unused(
     connection,
     *,
     name: str,
@@ -524,6 +550,9 @@ def create_user(
     role: str = "USER",
     approved: bool = False,
 ) -> dict:
+    normalized_name = name.strip()
+    if active_user_name_exists(connection, normalized_name):
+        raise ValueError("이미 같은 이름의 회원이 있습니다.")
     user_id = insert_and_get_id(
         connection,
         """
@@ -543,7 +572,7 @@ def create_user(
             riot_id.strip(),
             clean_optional_text(secondary_riot_id),
             hash_password(password),
-            name.strip(),
+            normalized_name,
             clean_optional_text(nickname),
             clean_optional_text(phone),
             role,
@@ -603,7 +632,9 @@ def get_user_by_riot_id(connection, riot_id: str) -> dict | None:
         """
         SELECT *
         FROM users
-        WHERE riot_id = ? AND is_active = 1
+        WHERE LOWER(TRIM(riot_id)) = LOWER(TRIM(?)) AND is_active = 1
+        ORDER BY id ASC
+        LIMIT 1
         """,
         (riot_id,),
     ).fetchone()
@@ -661,6 +692,13 @@ def update_user_profile(
     password: str | None = None,
 ) -> dict:
     get_user(connection, user_id)
+    normalized_riot_id = riot_id.strip()
+    if active_user_riot_id_exists(
+        connection,
+        normalized_riot_id,
+        exclude_user_id=user_id,
+    ):
+        raise ValueError("이미 같은 Riot ID의 회원이 있습니다.")
     if password:
         connection.execute(
             """
@@ -673,7 +711,7 @@ def update_user_profile(
             WHERE id = ?
             """,
             (
-                riot_id.strip(),
+                normalized_riot_id,
                 clean_optional_text(secondary_riot_id),
                 clean_optional_text(nickname),
                 hash_password(password),
@@ -691,7 +729,7 @@ def update_user_profile(
             WHERE id = ?
             """,
             (
-                riot_id.strip(),
+                normalized_riot_id,
                 clean_optional_text(secondary_riot_id),
                 clean_optional_text(nickname),
                 user_id,
@@ -966,6 +1004,29 @@ def get_roster_entry_by_user_identity(
     return normalize_roster_row(dict(row)) if row is not None else None
 
 
+def roster_applied_condition(
+    active_user_ids: set[int] | None = None,
+    active_riot_ids: set[str] | None = None,
+) -> tuple[str, list]:
+    clauses = [
+        "("
+        "participation_status_text LIKE ? "
+        "AND participation_status_text NOT LIKE ? "
+        "AND participation_status_text NOT LIKE ?"
+        ")"
+    ]
+    params: list = ["%참가%", "%불참%", "%미참가%"]
+    if active_user_ids:
+        placeholders = ", ".join("?" for _ in active_user_ids)
+        clauses.append(f"user_id IN ({placeholders})")
+        params.extend(sorted(active_user_ids))
+    if active_riot_ids:
+        placeholders = ", ".join("?" for _ in active_riot_ids)
+        clauses.append(f"LOWER(COALESCE(riot_id, '')) IN ({placeholders})")
+        params.extend(sorted(active_riot_ids))
+    return f"({' OR '.join(clauses)})", params
+
+
 def list_roster_entries(
     connection,
     *,
@@ -975,6 +1036,9 @@ def list_roster_entries(
     limit: int = 500,
     offset: int = 0,
     participation_status: str | None = None,
+    tournament_status: str | None = None,
+    active_application_user_ids: set[int] | None = None,
+    active_application_riot_ids: set[str] | None = None,
     payment_status: str | None = None,
 ) -> list[dict]:
     clauses = []
@@ -1015,6 +1079,17 @@ def list_roster_entries(
     elif payment_status == "unpaid":
         clauses.append("UPPER(TRIM(COALESCE(payment_status, ''))) <> ?")
         params.append("O")
+    if tournament_status in {"applied", "not_applied"}:
+        applied_clause, applied_params = roster_applied_condition(
+            active_application_user_ids,
+            active_application_riot_ids,
+        )
+        clauses.append(
+            applied_clause
+            if tournament_status == "applied"
+            else f"NOT {applied_clause}"
+        )
+        params.extend(applied_params)
     if user_ids is not None:
         if not user_ids:
             return []
@@ -1041,6 +1116,9 @@ def count_roster_entries(
     query: str = "",
     has_riot_id: bool | None = None,
     participation_status: str | None = None,
+    tournament_status: str | None = None,
+    active_application_user_ids: set[int] | None = None,
+    active_application_riot_ids: set[str] | None = None,
     payment_status: str | None = None,
 ) -> int:
     clauses = []
@@ -1075,6 +1153,17 @@ def count_roster_entries(
             ")"
         )
         params.extend(["%李멸?%", "%遺덉갭%", "%誘몄갭媛%"])
+    if tournament_status in {"applied", "not_applied"}:
+        applied_clause, applied_params = roster_applied_condition(
+            active_application_user_ids,
+            active_application_riot_ids,
+        )
+        clauses.append(
+            applied_clause
+            if tournament_status == "applied"
+            else f"NOT {applied_clause}"
+        )
+        params.extend(applied_params)
     if payment_status == "paid":
         clauses.append("UPPER(TRIM(COALESCE(payment_status, ''))) = ?")
         params.append("O")
@@ -1087,6 +1176,28 @@ def count_roster_entries(
         tuple(params),
     ).fetchone()
     return int(row["count"] or 0)
+
+
+def roster_tournament_counts(
+    connection,
+    *,
+    active_application_user_ids: set[int] | None = None,
+    active_application_riot_ids: set[str] | None = None,
+) -> dict:
+    applied = count_roster_entries(
+        connection,
+        tournament_status="applied",
+        active_application_user_ids=active_application_user_ids,
+        active_application_riot_ids=active_application_riot_ids,
+    )
+    applied_unpaid = count_roster_entries(
+        connection,
+        tournament_status="applied",
+        active_application_user_ids=active_application_user_ids,
+        active_application_riot_ids=active_application_riot_ids,
+        payment_status="unpaid",
+    )
+    return {"applied": applied, "applied_unpaid": applied_unpaid}
 
 
 def approved_user_count(connection) -> int:
@@ -1127,6 +1238,56 @@ def roster_counts(connection) -> dict:
     }
 
 
+def roster_name_exists(
+    connection,
+    name: str,
+    *,
+    exclude_id: int | None = None,
+    exclude_source_row: int | None = None,
+) -> bool:
+    normalized = name.strip()
+    if not normalized:
+        return False
+    clauses = ["LOWER(TRIM(name)) = LOWER(TRIM(?))"]
+    params: list = [normalized]
+    if exclude_id is not None:
+        clauses.append("id <> ?")
+        params.append(exclude_id)
+    if exclude_source_row is not None:
+        clauses.append("source_row <> ?")
+        params.append(exclude_source_row)
+    row = connection.execute(
+        f"SELECT 1 FROM roster_entries WHERE {' AND '.join(clauses)} LIMIT 1",
+        tuple(params),
+    ).fetchone()
+    return row is not None
+
+
+def roster_riot_id_exists(
+    connection,
+    riot_id: str | None,
+    *,
+    exclude_id: int | None = None,
+    exclude_source_row: int | None = None,
+) -> bool:
+    normalized = clean_optional_text(riot_id)
+    if not normalized:
+        return False
+    clauses = ["LOWER(TRIM(riot_id)) = LOWER(TRIM(?))"]
+    params: list = [normalized]
+    if exclude_id is not None:
+        clauses.append("id <> ?")
+        params.append(exclude_id)
+    if exclude_source_row is not None:
+        clauses.append("source_row <> ?")
+        params.append(exclude_source_row)
+    row = connection.execute(
+        f"SELECT 1 FROM roster_entries WHERE {' AND '.join(clauses)} LIMIT 1",
+        tuple(params),
+    ).fetchone()
+    return row is not None
+
+
 def upsert_roster_entry(connection, *, source_row: int, **fields) -> dict:
     normalized = {
         field: clean_optional_text(fields.get(field))
@@ -1136,6 +1297,13 @@ def upsert_roster_entry(connection, *, source_row: int, **fields) -> dict:
     if not normalized.get("name"):
         raise ValueError("명단 이름은 필수입니다.")
     existing = get_roster_entry_by_source_row(connection, source_row)
+    if roster_riot_id_exists(
+        connection,
+        normalized.get("riot_id"),
+        exclude_id=existing.get("id") if existing else None,
+        exclude_source_row=source_row,
+    ):
+        raise ValueError("이미 같은 Riot ID의 명단이 있습니다.")
     score_source = {**(existing or {}), **normalized}
     normalized.update(calculate_roster_scores(score_source))
     if existing is None:
@@ -1333,6 +1501,12 @@ def update_roster_entry(connection, roster_id: int, fields: dict) -> dict:
         return get_roster_entry(connection, roster_id)
     if "name" in allowed and not allowed["name"]:
         raise ValueError("명단 이름은 필수입니다.")
+    if "riot_id" in allowed and roster_riot_id_exists(
+        connection,
+        allowed.get("riot_id"),
+        exclude_id=roster_id,
+    ):
+        raise ValueError("이미 같은 Riot ID의 명단이 있습니다.")
     score_drivers = {"tier", "preferred_lines", "top_adjustment", "game_count_adjustment"}
     if score_drivers.intersection(allowed):
         existing = get_roster_entry(connection, roster_id)
@@ -1488,6 +1662,147 @@ def set_user_approval(
         (1 if approved else 0, user_id),
     )
     return get_user(connection, user_id)
+
+
+def active_user_name_exists(
+    connection,
+    name: str,
+    *,
+    exclude_user_id: int | None = None,
+) -> bool:
+    normalized = name.strip()
+    if not normalized:
+        return False
+    clauses = ["LOWER(TRIM(name)) = LOWER(TRIM(?))", "is_active = 1"]
+    params: list = [normalized]
+    if exclude_user_id is not None:
+        clauses.append("id <> ?")
+        params.append(exclude_user_id)
+    where = " AND ".join(clauses)
+    row = connection.execute(
+        f"SELECT 1 FROM users WHERE {where} LIMIT 1",
+        tuple(params),
+    ).fetchone()
+    return row is not None
+
+
+def active_user_riot_id_exists(
+    connection,
+    riot_id: str,
+    *,
+    exclude_user_id: int | None = None,
+) -> bool:
+    normalized = riot_id.strip()
+    if not normalized:
+        return False
+    clauses = ["LOWER(TRIM(riot_id)) = LOWER(TRIM(?))", "is_active = 1"]
+    params: list = [normalized]
+    if exclude_user_id is not None:
+        clauses.append("id <> ?")
+        params.append(exclude_user_id)
+    row = connection.execute(
+        f"SELECT 1 FROM users WHERE {' AND '.join(clauses)} LIMIT 1",
+        tuple(params),
+    ).fetchone()
+    return row is not None
+
+
+def create_user(
+    connection,
+    *,
+    name: str,
+    riot_id: str,
+    password: str,
+    secondary_riot_id: str | None = None,
+    nickname: str | None = None,
+    phone: str | None = None,
+    role: str = "USER",
+    approved: bool = False,
+) -> dict:
+    normalized_riot_id = riot_id.strip()
+    if active_user_riot_id_exists(connection, normalized_riot_id):
+        raise ValueError("이미 같은 Riot ID의 회원이 있습니다.")
+    user_id = insert_and_get_id(
+        connection,
+        """
+        INSERT INTO users (
+          riot_id,
+          secondary_riot_id,
+          password_hash,
+          name,
+          nickname,
+          phone,
+          role,
+          approved
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            normalized_riot_id,
+            clean_optional_text(secondary_riot_id),
+            hash_password(password),
+            name.strip(),
+            clean_optional_text(nickname),
+            clean_optional_text(phone),
+            role,
+            1 if approved else 0,
+        ),
+    )
+    return get_user(connection, user_id)
+
+
+def deactivate_user(connection, user_id: int) -> dict:
+    user = get_user(connection, user_id)
+    if user["role"] == "ADMIN":
+        raise ValueError("관리자 계정은 삭제할 수 없습니다.")
+    archived_riot_id = f"deleted-{user_id}-{secrets.token_hex(4)}#LOCAL"
+    connection.execute(
+        """
+        UPDATE users
+        SET riot_id = ?,
+            secondary_riot_id = NULL,
+            approved = 0,
+            is_active = 0,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (archived_riot_id, user_id),
+    )
+    connection.execute(
+        """
+        UPDATE team_members
+        SET status = 'REMOVED',
+            left_at = CURRENT_TIMESTAMP
+        WHERE user_id = ? AND status = 'ACTIVE'
+        """,
+        (user_id,),
+    )
+    connection.execute(
+        """
+        UPDATE roster_entries
+        SET user_id = NULL,
+            account_status = 'NOT_ELIGIBLE',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = ?
+        """,
+        (user_id,),
+    )
+    return get_user(connection, user_id)
+
+
+def delete_roster_entry(connection, roster_id: int) -> dict:
+    entry = get_roster_entry(connection, roster_id)
+    user_id = entry.get("user_id")
+    connection.execute("DELETE FROM roster_entries WHERE id = ?", (roster_id,))
+    deactivated_user = None
+    if user_id:
+        remaining = connection.execute(
+            "SELECT 1 FROM roster_entries WHERE user_id = ? LIMIT 1",
+            (user_id,),
+        ).fetchone()
+        if remaining is None:
+            deactivated_user = deactivate_user(connection, user_id)
+    return {"entry": entry, "deactivated_user": deactivated_user}
 
 
 def user_can_schedule(

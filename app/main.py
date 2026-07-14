@@ -74,6 +74,10 @@ def compute_viewer(token: str | None) -> dict:
     user = current_user_or_none(token)
     if user is None:
         return {"role": "spectator", "captain_id": None, "authenticated": False}
+    can_view_scores = (
+        user.get("role") == "ADMIN"
+        or bool(store.state.get("participation", {}).get("score_visible"))
+    )
     with scrim_db.connect() as connection:
         roster = scrim_db.get_roster_entry_by_user_identity(
             connection, user["id"], user.get("riot_id")
@@ -86,7 +90,7 @@ def compute_viewer(token: str | None) -> dict:
         "SUP": ("서폿", "score_support"),
     }
     score_lines = []
-    if roster:
+    if roster and can_view_scores:
         for index, position in enumerate(
             scrim_db.roster_positions(roster.get("preferred_lines"))
         ):
@@ -110,8 +114,9 @@ def compute_viewer(token: str | None) -> dict:
         "secondary_riot_id": user.get("secondary_riot_id"),
         "nickname": user.get("nickname"),
         "name": user["name"],
-        "roster_tier": roster.get("tier") if roster else None,
+        "roster_tier": roster.get("tier") if roster and can_view_scores else None,
         "score_lines": score_lines,
+        "score_visible": can_view_scores,
     }
     if user["role"] == "ADMIN":
         return {**base, "role": "host", "approved": True}
@@ -160,18 +165,23 @@ def require_participant(request: Request) -> dict:
 
 async def broadcast() -> None:
     dead: list[WebSocket] = []
+    base_state, public_context = engine.public_state_base(store.state)
+    registry = store.competition_summary()
+    presence = captain_presence()
 
     async def send_state(connection: WebSocket) -> None:
         try:
             viewer = connection_viewers.get(connection)
             payload = {
                 "type": "state",
-                "data": engine.public_state(store.state, viewer),
+                "data": engine.public_state_from_base(
+                    base_state,
+                    public_context,
+                    viewer,
+                ),
             }
-            payload["data"]["competition_registry"] = (
-                store.competition_summary()
-            )
-            payload["data"]["captain_presence"] = captain_presence()
+            payload["data"]["competition_registry"] = registry
+            payload["data"]["captain_presence"] = presence
             await asyncio.wait_for(connection.send_json(payload), timeout=1.5)
         except Exception:
             dead.append(connection)
@@ -211,6 +221,28 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="LoL Auction", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 app.include_router(scrim_router)
+
+
+@app.middleware("http")
+async def timing_middleware(request: Request, call_next):
+    started = time.perf_counter()
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        try:
+            state_size = len(json.dumps(store.document, ensure_ascii=False))
+        except Exception:
+            state_size = -1
+        print(
+            "api_timing "
+            f"path={request.url.path} "
+            f"status={response.status_code} "
+            f"duration_ms={elapsed_ms:.1f} "
+            f"state_bytes={state_size} "
+            f"websockets={len(connections)}",
+            flush=True,
+        )
+    return response
 
 
 @app.middleware("http")
@@ -369,6 +401,7 @@ class ScrimResultInput(BaseModel):
 
 class ParticipationSettingsInput(BaseModel):
     enabled: bool
+    score_visible: bool = False
     terms: str = Field(min_length=1, max_length=2000)
 
 
@@ -467,6 +500,8 @@ def participation_application_maps(
     by_user_id: dict[int, dict] = {}
     by_riot_id: dict[str, dict] = {}
     for application in participation.get("applications", []):
+        if application.get("status") not in {"APPLIED", "APPROVED"}:
+            continue
         try:
             user_id = int(application["user_id"])
         except (KeyError, TypeError, ValueError):
@@ -589,6 +624,35 @@ def sync_score_player_from_roster(entry: dict) -> dict | None:
     return engine.add_player(store.state, **payload)
 
 
+def remove_score_player_for_roster(entry: dict) -> bool:
+    riot_id = str(entry.get("riot_id") or "").strip().casefold()
+    if not riot_id:
+        return False
+    player = next(
+        (
+            item
+            for item in store.state.get("players", [])
+            if str(item.get("riot_id") or "").strip().casefold() == riot_id
+        ),
+        None,
+    )
+    if player is None:
+        return False
+    player_id = player["id"]
+    registered = any(
+        player_id in (team.get("members") or {}).values()
+        and team.get("status") != "rejected"
+        for team in store.state.get("tournament", {}).get("teams", [])
+    )
+    captain_or_sold = player.get("status") in {"captain", "sold"}
+    if registered or captain_or_sold:
+        return False
+    store.state["players"] = [
+        item for item in store.state.get("players", []) if item["id"] != player_id
+    ]
+    return True
+
+
 def force_score_player_primary_position(player: dict, position: str) -> None:
     if position not in engine.POSITIONS:
         return
@@ -623,7 +687,7 @@ def force_score_player_primary_position(player: dict, position: str) -> None:
 def sync_score_players_from_approved_participation() -> int:
     participation = store.state.setdefault(
         "participation",
-        {"enabled": False, "terms": "", "applications": []},
+        {"enabled": False, "score_visible": False, "terms": "", "applications": []},
     )
     approved_user_ids = [
         application.get("user_id")
@@ -960,6 +1024,7 @@ async def update_participation_settings(
     async with state_lock:
         store.state.setdefault("participation", {})
         store.state["participation"]["enabled"] = data.enabled
+        store.state["participation"]["score_visible"] = data.score_visible
         store.state["participation"]["terms"] = data.terms
         store.state["participation"].setdefault("applications", [])
         store.save()
@@ -977,7 +1042,7 @@ async def apply_participation(
     async with state_lock:
         participation = store.state.setdefault(
             "participation",
-            {"enabled": False, "terms": "", "applications": []},
+            {"enabled": False, "score_visible": False, "terms": "", "applications": []},
         )
         if not participation.get("enabled"):
             raise HTTPException(409, "현재 참가 신청이 열려 있지 않습니다.")
@@ -1029,7 +1094,7 @@ async def participation_applications(request: Request):
     require_host(request)
     participation = store.state.setdefault(
         "participation",
-        {"enabled": False, "terms": "", "applications": []},
+        {"enabled": False, "score_visible": False, "terms": "", "applications": []},
     )
     applications = {
         application["user_id"]: application
@@ -1063,6 +1128,7 @@ async def participation_applications(request: Request):
             not_applied.append(payload)
     return {
         "enabled": bool(participation.get("enabled")),
+        "score_visible": bool(participation.get("score_visible")),
         "applied": applied,
         "not_applied": not_applied,
     }
@@ -1082,7 +1148,7 @@ async def update_participation_application(
         competition_name = competition["name"] if competition else store.state["settings"]["room_name"]
         participation = store.state.setdefault(
             "participation",
-            {"enabled": False, "terms": "", "applications": []},
+            {"enabled": False, "score_visible": False, "terms": "", "applications": []},
         )
         applications = participation.setdefault("applications", [])
         application = next(
@@ -1184,11 +1250,12 @@ async def list_roster(
         "participation",
         {"enabled": False, "terms": "", "applications": []},
     )
-    roster_view_filters = {"applied", "not_applied", "applied_unpaid"}
     with scrim_db.connect() as connection:
         applications, applications_by_riot_id = participation_application_maps(
             connection, participation
         )
+        active_application_user_ids = set(applications)
+        active_application_riot_ids = set(applications_by_riot_id)
         counts = scrim_db.roster_counts(connection)
         approved_member_count = scrim_db.approved_user_count(connection)
         if counts["total"] < approved_member_count:
@@ -1198,49 +1265,51 @@ async def list_roster(
         user_ids = None
         participation_status = None
         payment_status = None
-        filter_after_payload = filter in roster_view_filters
+        tournament_status = None
         if filter == "with_id":
             has_riot_id = True
         elif filter == "without_id":
             has_riot_id = False
-        elif filter == "applied" and not filter_after_payload:
-            participation_status = "applied"
-        elif filter == "not_applied" and not filter_after_payload:
-            participation_status = "not_applied"
+        elif filter == "applied":
+            tournament_status = "applied"
+        elif filter == "not_applied":
+            tournament_status = "not_applied"
         elif filter == "applied_unpaid":
+            tournament_status = "applied"
             payment_status = "unpaid"
-        if not filter_after_payload:
-            total = scrim_db.count_roster_entries(
-                connection,
-                query=query,
-                has_riot_id=has_riot_id,
-                participation_status=participation_status,
-                payment_status=payment_status,
-            )
-            total_pages = max(1, (total + page_size - 1) // page_size)
-            page = min(page, total_pages)
+        total = scrim_db.count_roster_entries(
+            connection,
+            query=query,
+            has_riot_id=has_riot_id,
+            participation_status=participation_status,
+            tournament_status=tournament_status,
+            active_application_user_ids=active_application_user_ids,
+            active_application_riot_ids=active_application_riot_ids,
+            payment_status=payment_status,
+        )
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        page = min(page, total_pages)
         entries = scrim_db.list_roster_entries(
             connection,
             query=query,
             has_riot_id=has_riot_id,
             user_ids=user_ids,
             participation_status=participation_status,
+            tournament_status=tournament_status,
+            active_application_user_ids=active_application_user_ids,
+            active_application_riot_ids=active_application_riot_ids,
             payment_status=payment_status,
-            limit=1_000_000 if filter_after_payload else page_size,
-            offset=0 if filter_after_payload else (page - 1) * page_size,
+            limit=page_size,
+            offset=(page - 1) * page_size,
         )
-        unpaid_entries_for_stats = scrim_db.list_roster_entries(
+        tournament_counts = scrim_db.roster_tournament_counts(
             connection,
-            payment_status="unpaid",
-            limit=1_000_000,
-        )
-        all_entries_for_stats = scrim_db.list_roster_entries(
-            connection,
-            limit=1_000_000,
+            active_application_user_ids=active_application_user_ids,
+            active_application_riot_ids=active_application_riot_ids,
         )
         history_user_ids = {
             entry["user_id"]
-            for entry in [*entries, *unpaid_entries_for_stats, *all_entries_for_stats]
+            for entry in entries
             if entry.get("user_id")
         }
         participation_rows = scrim_db.list_competition_participations(
@@ -1254,42 +1323,6 @@ async def list_roster(
         roster_payload(entry, applications, applications_by_riot_id, participation_history)
         for entry in entries
     ]
-    unpaid_payload_entries = [
-        roster_payload(entry, applications, applications_by_riot_id, participation_history)
-        for entry in unpaid_entries_for_stats
-    ]
-    all_payload_entries = [
-        roster_payload(entry, applications, applications_by_riot_id, participation_history)
-        for entry in all_entries_for_stats
-    ]
-    applied_roster_count = sum(
-        1 for entry in all_payload_entries if entry["tournament_status"] == "applied"
-    )
-    applied_unpaid_count = sum(
-        1
-        for entry in unpaid_payload_entries
-        if entry["tournament_status"] == "applied"
-    )
-    if filter == "applied":
-        payload_entries = [
-            entry for entry in payload_entries if entry["tournament_status"] == "applied"
-        ]
-    elif filter == "not_applied":
-        payload_entries = [
-            entry for entry in payload_entries if entry["tournament_status"] != "applied"
-        ]
-    elif filter == "applied_unpaid":
-        payload_entries = [
-            entry
-            for entry in payload_entries
-            if entry["tournament_status"] == "applied"
-            and str(entry.get("payment_status") or "").strip().upper() != "O"
-        ]
-    if filter_after_payload:
-        total = len(payload_entries)
-        total_pages = max(1, (total + page_size - 1) // page_size)
-        page = min(page, total_pages)
-        payload_entries = payload_entries[(page - 1) * page_size : page * page_size]
     return {
         "entries": payload_entries,
         "pagination": {
@@ -1300,9 +1333,9 @@ async def list_roster(
         },
         "stats": {
             **counts,
-            "applied": applied_roster_count,
-            "not_applied": max(0, counts["total"] - applied_roster_count),
-            "applied_unpaid": applied_unpaid_count,
+            "applied": tournament_counts["applied"],
+            "not_applied": max(0, counts["total"] - tournament_counts["applied"]),
+            "applied_unpaid": tournament_counts["applied_unpaid"],
         },
     }
 
@@ -1677,6 +1710,26 @@ async def update_roster_entry(roster_id: int, data: RosterEntryInput, request: R
     for row in participation_rows:
         participation_history.setdefault(row["user_id"], []).append(row)
     return roster_payload(entry, applications, applications_by_riot_id, participation_history)
+
+
+@app.delete("/api/roster/{roster_id}")
+async def delete_roster_entry(roster_id: int, request: Request):
+    require_host(request)
+    try:
+        async with state_lock:
+            with scrim_db.connect() as connection:
+                result = scrim_db.delete_roster_entry(connection, roster_id)
+            removed_score_player = remove_score_player_for_roster(result["entry"])
+            store.save()
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    await broadcast()
+    return {
+        "ok": True,
+        "deleted_entry": result["entry"],
+        "deactivated_user": bool(result.get("deactivated_user")),
+        "removed_score_player": removed_score_player,
+    }
 
 
 @app.patch("/api/roster")

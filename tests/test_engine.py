@@ -85,6 +85,31 @@ class TournamentEngineTest(unittest.TestCase):
             members[position] = player["id"]
         return state, members
 
+    def test_public_state_hides_scores_until_score_visibility_is_enabled(self):
+        hidden = engine.public_state(
+            self.state,
+            {"role": "participant", "authenticated": True, "user_id": 1},
+        )
+        self.assertFalse(hidden["participation"]["score_visible"])
+        self.assertNotIn("score", hidden["players"][0])
+        self.assertNotIn("position_scores", hidden["players"][0])
+
+        self.state["participation"]["score_visible"] = True
+        visible = engine.public_state(
+            self.state,
+            {"role": "participant", "authenticated": True, "user_id": 1},
+        )
+        self.assertIn("score", visible["players"][0])
+        self.assertIn("position_scores", visible["players"][0])
+
+    def test_host_can_see_scores_before_public_score_visibility(self):
+        visible = engine.public_state(
+            self.state,
+            {"role": "host", "authenticated": True, "user_id": 1},
+        )
+        self.assertFalse(visible["participation"]["score_visible"])
+        self.assertIn("score", visible["players"][0])
+
     def test_people_can_register_complete_team_within_limit(self):
         team = engine.register_tournament_team(
             self.state, "직접 만든 팀", self.members, "1234"

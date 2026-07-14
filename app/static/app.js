@@ -572,6 +572,7 @@ function renderMainPoster() {
 
 function applyCompetitionMode() {
   const isAuction = (activeCompetition()?.mode || "auction") === "auction";
+  const scoreVisible = Boolean(state.participation?.score_visible) || state.viewer.role === "host";
   $$('[data-view="poster"]').forEach((button) => {
     button.classList.remove("hidden");
   });
@@ -579,7 +580,7 @@ function applyCompetitionMode() {
     button.classList.toggle("hidden", !isAuction);
   });
   $$('[data-view="score-intro"], [data-view="team-simulator"], [data-view="team-register"], [data-view="tournament"]').forEach((button) => {
-    button.classList.toggle("hidden", isAuction);
+    button.classList.toggle("hidden", isAuction || !scoreVisible);
   });
   $$('[data-view="members"]').forEach((button) => {
     button.classList.toggle("hidden", state.viewer.role !== "host");
@@ -611,10 +612,7 @@ function applyCompetitionMode() {
     : [
       "setup",
       "poster",
-      "score-intro",
-      "team-simulator",
-      "team-register",
-      "tournament",
+      ...(scoreVisible ? ["score-intro", "team-simulator", "team-register", "tournament"] : []),
       ...(state.viewer.authenticated ? ["participation"] : []),
       "notices",
       "scrim",
@@ -1190,6 +1188,7 @@ function revealNextGroupDrawTeam() {
 function renderParticipation() {
   const participation = state.participation || {
     enabled: false,
+    score_visible: false,
     terms: "",
     application_count: 0,
     viewer_has_applied: false,
@@ -1215,6 +1214,7 @@ function renderParticipation() {
   if (isHost) {
     const form = $("#participation-settings-form");
     form.elements.enabled.checked = Boolean(participation.enabled);
+    form.elements.score_visible.checked = Boolean(participation.score_visible);
     form.elements.terms.value = participation.terms || "";
     setParticipationHostView(participationHostView);
     const signature = `${participation.enabled ? 1 : 0}:${participation.application_count || 0}`;
@@ -1285,6 +1285,7 @@ async function loadParticipationApplications({ force = false, signature = "" } =
     if (state?.participation) {
       state.participation.application_count = data.applied.length;
       state.participation.enabled = Boolean(data.enabled);
+      state.participation.score_visible = Boolean(data.score_visible);
     }
     $("#participation-status").textContent = data.enabled
       ? `신청 접수 중 · ${data.applied.length}명`
@@ -1448,6 +1449,18 @@ function renderMemberRows(entries) {
         </form>
       `).join("")}
     </div>`;
+  entries.forEach((entry) => {
+    const form = list.querySelector(`[data-roster-entry="${entry.id}"]`);
+    const actions = form?.querySelector(".roster-sheet-save");
+    if (!actions || actions.querySelector("[data-roster-delete]")) return;
+    const button = document.createElement("button");
+    button.className = "remove";
+    button.type = "button";
+    button.dataset.rosterDelete = String(entry.id);
+    button.dataset.rosterName = entry.name || "";
+    button.textContent = "삭제";
+    actions.appendChild(button);
+  });
 }
 
 function renderRiotPreview(data) {
@@ -1608,7 +1621,9 @@ function renderMyPage() {
   if (!form || !viewer.authenticated) return;
   $("#mypage-score-tier").textContent = viewer.roster_tier || "티어 미등록";
   const scoreLines = viewer.score_lines || [];
-  $("#mypage-score-list").innerHTML = scoreLines.length
+  $("#mypage-score-list").innerHTML = !viewer.score_visible
+    ? '<div class="empty-state">점수는 아직 공개되지 않았습니다.</div>'
+    : scoreLines.length
     ? scoreLines.map((line) => `
       <article class="mypage-score-item">
         <div><span>${escapeHtml(line.role)}</span><strong>${escapeHtml(line.label)}</strong></div>
@@ -1980,6 +1995,25 @@ function updateTimer() {
   timer.classList.toggle("danger", seconds <= 5);
 }
 
+function renderCurrentView() {
+  if (currentView === "poster") renderMainPoster();
+  else if (currentView === "intro") renderIntro();
+  else if (currentView === "score-intro") renderScoreIntro();
+  else if (currentView === "setup") {
+    renderSetup();
+    renderScoreTableEditor();
+  } else if (["team-simulator", "team-register", "tournament"].includes(currentView)) {
+    renderTournament();
+  } else if (currentView === "participation") renderParticipation();
+  else if (currentView === "notices") renderNotices();
+  else if (currentView === "mypage") renderMyPage();
+  else if (currentView === "auction") renderAuction();
+  else if (currentView === "scrim") {
+    renderTournament();
+    renderScrimRoomTabs();
+  }
+}
+
 function render() {
   $("#room-title").textContent = state.settings.room_name;
   $("#member-roster-title").textContent = `${state.settings.room_name} 관리`;
@@ -1991,15 +2025,6 @@ function render() {
   renderRole();
   renderCompetitions();
   applyCompetitionMode();
-  renderMainPoster();
-  renderIntro();
-  renderSetup();
-  renderTournament();
-  renderParticipation();
-  renderNotices();
-  renderScoreTableEditor();
-  renderMyPage();
-  renderAuction();
   if (
     state.viewer.role !== "host"
     && state.auction.status === "setup"
@@ -2008,6 +2033,7 @@ function render() {
     currentView = "poster";
   }
   setView(currentView);
+  renderCurrentView();
 }
 
 function connectSocket() {
@@ -2783,10 +2809,12 @@ $("#participation-settings-form").addEventListener("submit", async (event) => {
       method: "PUT",
       body: JSON.stringify({
         enabled: form.elements.enabled.checked,
+        score_visible: form.elements.score_visible.checked,
         terms: form.elements.terms.value,
       }),
     });
     state.participation.enabled = form.elements.enabled.checked;
+    state.participation.score_visible = form.elements.score_visible.checked;
     state.participation.terms = form.elements.terms.value;
     stateSignature = meaningfulStateSignature(state);
     render();
@@ -3212,6 +3240,7 @@ function renderScrimAdminUsers(users) {
           <button class="${user.approved ? "ghost" : "accent"}" type="button" data-user-approval="${user.id}" data-approved="${user.approved ? "false" : "true"}">
             ${user.approved ? "승인 해제" : "참가 승인"}
           </button>
+          <button class="remove" type="button" data-user-delete="${user.id}" data-user-name="${escapeHtml(user.name)}">삭제</button>
         </div>
       ` : ""}
       <form data-password-reset="${user.id}">
@@ -3256,6 +3285,18 @@ async function setMemberApproval(button) {
     await searchScrimUsers($("#admin-search-form").elements.query.value || "");
   }
   toast(button.dataset.approved === "true" ? "회원을 승인했습니다." : "승인을 해제했습니다.");
+}
+
+async function deleteScrimUser(button) {
+  const name = button.dataset.userName || "선택한 회원";
+  if (!confirm(`${name} 계정을 삭제할까요? 삭제한 계정의 Riot ID는 다시 등록할 수 있습니다.`)) return;
+  await api(`/api/scrim/admin/users/${button.dataset.userDelete}`, { method: "DELETE" });
+  if (currentView === "members") {
+    await reloadMembers();
+  } else {
+    await searchScrimUsers($("#admin-search-form").elements.query.value || "");
+  }
+  toast("회원 계정을 삭제했습니다.");
 }
 
 async function loadScrimData() {
@@ -3378,6 +3419,13 @@ $("#admin-user-list").addEventListener("submit", async (event) => {
 });
 
 $("#admin-user-list").addEventListener("click", async (event) => {
+  const deleteButton = event.target.closest("[data-user-delete]");
+  if (deleteButton) {
+    try {
+      await deleteScrimUser(deleteButton);
+    } catch (error) { toast(error.message, true); }
+    return;
+  }
   const button = event.target.closest("[data-user-approval]");
   if (!button) return;
   try {
@@ -3527,6 +3575,23 @@ $("#member-list").addEventListener("submit", async (event) => {
 });
 
 $("#member-list").addEventListener("click", async (event) => {
+  const rosterDeleteButton = event.target.closest("[data-roster-delete]");
+  if (rosterDeleteButton) {
+    const name = rosterDeleteButton.dataset.rosterName || "선택한 명단";
+    if (!confirm(`${name} 명단을 삭제할까요? 연결된 계정이 더 이상 쓰이지 않으면 함께 비활성화됩니다.`)) {
+      return;
+    }
+    try {
+      await api(`/api/roster/${rosterDeleteButton.dataset.rosterDelete}`, {
+        method: "DELETE",
+      });
+      await reloadMembers();
+      toast("명단을 삭제했습니다.");
+    } catch (error) {
+      toast(error.message, true);
+    }
+    return;
+  }
   if (event.target.closest("[data-roster-create-cancel]")) {
     rosterCreateOpen = false;
     $("#add-roster-member-button")?.classList.remove("active");

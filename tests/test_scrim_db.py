@@ -82,12 +82,85 @@ class ScrimDatabaseTest(unittest.TestCase):
                 preferred_lines="정글,미드",
             )
             sync = scrim_db.sync_roster_member_from_approval(connection, user["id"])
-            self.assertEqual(sync["linked"], 1)
+            self.assertEqual(sync["linked"], 0)
             entry = scrim_db.get_roster_entry_by_user_identity(
                 connection, user["id"], user["riot_id"]
             )
+            self.assertEqual(entry["user_id"], user["id"])
             self.assertEqual(entry["tier"], "D3")
             self.assertEqual(entry["score_jungle"], "34.9")
+
+    def test_same_name_is_allowed_but_duplicate_riot_id_is_rejected(self):
+        with scrim_db.connect(self.db_file) as connection:
+            first = scrim_db.create_user(
+                connection,
+                name="Haram",
+                riot_id="haram#KR1",
+                password="1234",
+            )
+            second = scrim_db.create_user(
+                connection,
+                name="Haram",
+                riot_id="haram2#KR1",
+                password="1234",
+            )
+            self.assertNotEqual(first["id"], second["id"])
+            with self.assertRaisesRegex(ValueError, "Riot ID"):
+                scrim_db.create_user(
+                    connection,
+                    name="Other",
+                    riot_id="HARAM#kr1",
+                    password="1234",
+                )
+
+    def test_roster_rejects_duplicate_riot_id_case_insensitively(self):
+        with scrim_db.connect(self.db_file) as connection:
+            first = scrim_db.create_roster_entry(
+                connection,
+                name="Haram One",
+                riot_id="haram#kr1",
+            )
+            with self.assertRaisesRegex(ValueError, "Riot ID"):
+                scrim_db.create_roster_entry(
+                    connection,
+                    name="Haram Two",
+                    riot_id="haram#KR1",
+                )
+            second = scrim_db.create_roster_entry(
+                connection,
+                name="Haram Three",
+                riot_id="haram3#KR1",
+            )
+            with self.assertRaisesRegex(ValueError, "Riot ID"):
+                scrim_db.update_roster_entry(
+                    connection,
+                    second["id"],
+                    {"riot_id": "HARAM#kr1"},
+                )
+            updated = scrim_db.update_roster_entry(
+                connection,
+                first["id"],
+                {"riot_id": "HARAM#KR1"},
+            )
+            self.assertEqual(updated["riot_id"], "HARAM#KR1")
+
+    def test_delete_roster_entry_deactivates_unused_user(self):
+        with scrim_db.connect(self.db_file) as connection:
+            entry = scrim_db.create_roster_entry(
+                connection,
+                name="Delete Me",
+                riot_id="delete-me#KR1",
+            )
+            user_id = entry["user_id"]
+            result = scrim_db.delete_roster_entry(connection, entry["id"])
+            user = scrim_db.get_user(connection, user_id)
+            self.assertEqual(result["entry"]["id"], entry["id"])
+            self.assertFalse(user["is_active"])
+            removed = connection.execute(
+                "SELECT 1 FROM roster_entries WHERE id = ?",
+                (entry["id"],),
+            ).fetchone()
+            self.assertIsNone(removed)
 
     def test_team_creator_becomes_leader(self):
         with scrim_db.connect(self.db_file) as connection:

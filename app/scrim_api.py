@@ -289,6 +289,22 @@ async def admin_set_user_approval(
         return public_user(user)
 
 
+@router.delete("/admin/users/{user_id}")
+async def admin_delete_user(
+    user_id: int,
+    scrim_auth: str | None = Cookie(default=None),
+):
+    admin = require_admin(scrim_auth)
+    if admin["id"] == user_id:
+        raise HTTPException(400, "본인 계정은 삭제할 수 없습니다.")
+    try:
+        with scrim_db.connect() as connection:
+            user = scrim_db.deactivate_user(connection, user_id)
+            return public_user(user)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @router.get("/teams")
 async def list_teams():
     with scrim_db.connect() as connection:
