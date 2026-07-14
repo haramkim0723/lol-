@@ -2092,6 +2092,7 @@ function renderCurrentView() {
     renderTournament();
   } else if (currentView === "participation") renderParticipation();
   else if (currentView === "notices") renderNotices();
+  else if (currentView === "members") renderScoreTableEditor();
   else if (currentView === "mypage") renderMyPage();
   else if (currentView === "auction") renderAuction();
   else if (currentView === "scrim") {
