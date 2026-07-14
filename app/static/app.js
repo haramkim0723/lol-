@@ -7,6 +7,49 @@ const DIVISION_TIERS = new Set([
   "IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND",
 ]);
 const DEFAULT_POSTER_IMAGE = "/static/season-26-2-poster.png";
+const DEFAULT_ROSTER_SCORE_TABLE = [
+  ["C1", 56.3, 58.5, 57.4, 57.8, 55.7],
+  ["C2", 53.4, 55.4, 54.4, 54.8, 52.8],
+  ["C3", 50.5, 52.4, 51.4, 51.8, 49.9],
+  ["C4", 47.6, 49.4, 48.4, 48.8, 47.0],
+  ["GM1", 44.8, 46.5, 45.6, 45.9, 44.2],
+  ["M1", 41.8, 43.4, 42.6, 42.9, 41.3],
+  ["D1", 36.9, 38.3, 37.6, 37.8, 36.4],
+  ["D2", 35.3, 36.6, 35.9, 36.0, 34.8],
+  ["D3", 33.6, 34.9, 34.3, 34.5, 33.2],
+  ["D4", 32.0, 33.3, 32.6, 32.7, 31.7],
+  ["E1", 29.8, 31.0, 30.4, 30.6, 29.4],
+  ["E2", 28.2, 29.4, 28.8, 28.9, 27.9],
+  ["E3", 26.6, 27.6, 27.1, 27.1, 26.3],
+  ["E4", 25.0, 26.0, 25.5, 25.5, 24.8],
+  ["P1", 22.8, 23.6, 23.3, 23.2, 22.6],
+  ["P2", 21.7, 22.6, 22.1, 22.2, 21.6],
+  ["P3", 20.6, 21.5, 21.0, 21.1, 20.5],
+  ["P4", 19.5, 20.2, 19.9, 19.4, 19.5],
+  ["G1", 17.9, 16.5, 16.5, 16.9, 19.1],
+  ["G2", 16.8, 15.5, 15.6, 16.0, 17.9],
+  ["G3", 15.7, 14.5, 14.4, 15.0, 16.8],
+  ["G4", 14.6, 13.5, 13.5, 14.1, 15.6],
+  ["S1", 13.6, 12.5, 12.6, 13.0, 14.5],
+  ["S2", 12.8, 11.7, 11.7, 12.4, 13.7],
+  ["S3", 11.9, 11.0, 11.0, 11.7, 12.8],
+  ["S4", 11.1, 10.2, 10.2, 10.9, 11.8],
+  ["B1", 10.2, 9.4, 9.5, 9.5, 10.9],
+  ["B2", 9.3, 8.5, 8.5, 8.3, 10.0],
+  ["B3", 8.5, 7.8, 7.8, 7.6, 9.0],
+  ["B4", 7.6, 7.0, 7.0, 6.8, 8.1],
+  ["I1", 6.9, 6.4, 6.4, 6.3, 7.4],
+  ["I2", 6.3, 5.8, 5.8, 5.6, 6.7],
+  ["I3", 5.6, 5.2, 5.3, 5.0, 6.0],
+  ["I4", 5.0, 4.6, 4.6, 4.4, 5.3],
+].map(([tier_key, top, jungle, mid, adc, support]) => ({
+  tier_key,
+  top,
+  jungle,
+  mid,
+  adc,
+  support,
+}));
 const TIER_STYLES = {
   IRON: ["#82909e", "#b1bbc4", "#303944", "rgba(130,144,158,.22)"],
   BRONZE: ["#ad7049", "#d69a6d", "#4d2d20", "rgba(173,112,73,.24)"],
@@ -453,7 +496,9 @@ function movePlayerRegistrationToMembers() {
 function renderScoreTableEditor() {
   const container = $("#score-table-rows");
   if (!container) return;
-  const rows = state.roster_score_table || [];
+  const rows = state.roster_score_table?.length
+    ? state.roster_score_table
+    : DEFAULT_ROSTER_SCORE_TABLE;
   container.innerHTML = rows.map((row, index) => `
     <div class="score-table-row" data-score-row="${index}">
       <input name="tier_key" value="${escapeHtml(row.tier_key || "")}" aria-label="tier key" />
