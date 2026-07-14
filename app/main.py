@@ -48,6 +48,14 @@ connection_viewers: dict[WebSocket, dict] = {}
 def apply_roster_score_table() -> None:
     scrim_db.set_roster_tier_scores(store.state.get("roster_score_table"))
 
+
+def ensure_roster_score_table() -> None:
+    if store.state.get("roster_score_table"):
+        apply_roster_score_table()
+        return
+    store.state["roster_score_table"] = scrim_db.roster_score_table_rows()
+    apply_roster_score_table()
+
 SCRIM_RESULT_IMAGE_MAX_BYTES = int(os.getenv("SCRIM_RESULT_IMAGE_MAX_BYTES", "1048576"))
 SCRIM_RESULT_IMAGE_MAX_PER_TEAM = int(os.getenv("SCRIM_RESULT_IMAGE_MAX_PER_TEAM", "30"))
 SCRIM_RESULT_IMAGE_RETENTION_DAYS = int(os.getenv("SCRIM_RESULT_IMAGE_RETENTION_DAYS", "10"))
@@ -165,6 +173,7 @@ def require_participant(request: Request) -> dict:
 
 async def broadcast() -> None:
     dead: list[WebSocket] = []
+    ensure_roster_score_table()
     base_state, public_context = engine.public_state_base(store.state)
     registry = store.competition_summary()
     presence = captain_presence()
@@ -937,8 +946,7 @@ async def competition_room_page():
 @app.get("/api/state")
 async def get_state(scrim_auth: str | None = Cookie(default=None)):
     viewer = compute_viewer(scrim_auth)
-    if not store.state.get("roster_score_table"):
-        store.state["roster_score_table"] = scrim_db.roster_score_table_rows()
+    ensure_roster_score_table()
     result = engine.public_state(store.state, viewer)
     result["competition_registry"] = store.competition_summary()
     result["captain_presence"] = captain_presence()

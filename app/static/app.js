@@ -1663,6 +1663,24 @@ function formatDateTime(timestamp) {
   });
 }
 
+function renderTeamSelectorSlot(position, primaryCandidates, secondaryCandidates, isSimulator) {
+  const primaryOptions = primaryCandidates.map((player) =>
+    `<option value="${player.id}">${escapeHtml(player.name)} | ${scoreForPosition(player, position)}점 [주]</option>`
+  ).join("");
+  const secondaryOptions = secondaryCandidates.map((player) =>
+    `<option value="${player.id}">${escapeHtml(player.name)} | ${scoreForPosition(player, position)}점 [부]</option>`
+  ).join("");
+  return `<label class="tournament-member-slot">
+    <strong><span>${position}</span>${POSITION_NAMES[position]} 배치</strong>
+    <select name="${position}" ${isSimulator ? "" : "required"}>
+      <option value="">${POSITION_NAMES[position]} 선수 선택</option>
+      ${primaryCandidates.length ? `<optgroup label="${POSITION_NAMES[position]} 주 포지션">${primaryOptions}</optgroup>` : ""}
+      ${secondaryCandidates.length ? `<optgroup label="${POSITION_NAMES[position]} 부 포지션 가능">${secondaryOptions}</optgroup>` : ""}
+    </select>
+    <small>주 ${primaryCandidates.length}명 · 부 ${secondaryCandidates.length}명</small>
+  </label>`;
+}
+
 function renderTeamSelectors(formSelector, containerSelector, initial = null) {
   const form = $(formSelector);
   const isSimulator = formSelector === "#team-simulator-form";
@@ -1698,6 +1716,7 @@ function renderTeamSelectors(formSelector, containerSelector, initial = null) {
         playerCanPosition(player, position)
       )
       .sort((a, b) => a.name.localeCompare(b.name, "ko-KR"));
+    return renderTeamSelectorSlot(position, primaryCandidates, secondaryCandidates, isSimulator);
     const primaryOptions = primaryCandidates.map((player) =>
       `<option value="${player.id}">${escapeHtml(player.name)} | ${scoreForPosition(player, position)}점 [주]</option>`
     ).join("");
