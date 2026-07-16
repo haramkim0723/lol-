@@ -105,7 +105,7 @@ class ScrimDatabaseTest(unittest.TestCase):
                 password="1234",
             )
             self.assertNotEqual(first["id"], second["id"])
-            with self.assertRaisesRegex(ValueError, "Riot ID"):
+            with self.assertRaisesRegex(ValueError, '이미 등록된 Riot ID입니다: "HARAM#kr1"'):
                 scrim_db.create_user(
                     connection,
                     name="Other",
@@ -120,7 +120,7 @@ class ScrimDatabaseTest(unittest.TestCase):
                 name="Haram One",
                 riot_id="haram#kr1",
             )
-            with self.assertRaisesRegex(ValueError, "Riot ID"):
+            with self.assertRaisesRegex(ValueError, '이미 명단에 등록된 Riot ID입니다: "haram#KR1"'):
                 scrim_db.create_roster_entry(
                     connection,
                     name="Haram Two",
@@ -131,7 +131,7 @@ class ScrimDatabaseTest(unittest.TestCase):
                 name="Haram Three",
                 riot_id="haram3#KR1",
             )
-            with self.assertRaisesRegex(ValueError, "Riot ID"):
+            with self.assertRaisesRegex(ValueError, '이미 명단에 등록된 Riot ID입니다: "HARAM#kr1"'):
                 scrim_db.update_roster_entry(
                     connection,
                     second["id"],

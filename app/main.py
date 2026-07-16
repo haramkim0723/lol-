@@ -517,13 +517,24 @@ def participation_application_maps(
         except (KeyError, TypeError, ValueError):
             continue
         by_user_id[user_id] = application
-        try:
-            user = scrim_db.get_user(connection, user_id)
-        except ValueError:
-            continue
+
+    if not by_user_id:
+        return by_user_id, by_riot_id
+
+    placeholders = ", ".join("?" for _ in by_user_id)
+    rows = connection.execute(
+        f"""
+        SELECT id, riot_id
+        FROM users
+        WHERE id IN ({placeholders})
+        """,
+        tuple(sorted(by_user_id)),
+    ).fetchall()
+    for row in rows:
+        user = dict(row)
         riot_id = str(user.get("riot_id") or "").strip().casefold()
         if riot_id:
-            by_riot_id[riot_id] = application
+            by_riot_id[riot_id] = by_user_id[user["id"]]
     return by_user_id, by_riot_id
 
 

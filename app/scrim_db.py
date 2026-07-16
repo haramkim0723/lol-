@@ -552,7 +552,7 @@ def _legacy_create_user_unused(
 ) -> dict:
     normalized_name = name.strip()
     if active_user_name_exists(connection, normalized_name):
-        raise ValueError("이미 같은 이름의 회원이 있습니다.")
+        raise ValueError(f'이미 같은 이름의 회원이 있습니다: "{normalized_name}"')
     user_id = insert_and_get_id(
         connection,
         """
@@ -698,7 +698,7 @@ def update_user_profile(
         normalized_riot_id,
         exclude_user_id=user_id,
     ):
-        raise ValueError("이미 같은 Riot ID의 회원이 있습니다.")
+        raise ValueError(f'이미 등록된 Riot ID입니다: "{normalized_riot_id}"')
     if password:
         connection.execute(
             """
@@ -1322,7 +1322,7 @@ def upsert_roster_entry(connection, *, source_row: int, **fields) -> dict:
         exclude_id=existing.get("id") if existing else None,
         exclude_source_row=source_row,
     ):
-        raise ValueError("이미 같은 Riot ID의 명단이 있습니다.")
+        raise ValueError(f'이미 명단에 등록된 Riot ID입니다: "{normalized.get("riot_id")}"')
     score_source = {**(existing or {}), **normalized}
     normalized.update(calculate_roster_scores(score_source))
     if existing is None:
@@ -1525,7 +1525,7 @@ def update_roster_entry(connection, roster_id: int, fields: dict) -> dict:
         allowed.get("riot_id"),
         exclude_id=roster_id,
     ):
-        raise ValueError("이미 같은 Riot ID의 명단이 있습니다.")
+        raise ValueError(f'이미 명단에 등록된 Riot ID입니다: "{allowed.get("riot_id")}"')
     score_drivers = {"tier", "preferred_lines", "top_adjustment", "game_count_adjustment"}
     if score_drivers.intersection(allowed):
         existing = get_roster_entry(connection, roster_id)
@@ -1740,7 +1740,7 @@ def create_user(
 ) -> dict:
     normalized_riot_id = riot_id.strip()
     if active_user_riot_id_exists(connection, normalized_riot_id):
-        raise ValueError("이미 같은 Riot ID의 회원이 있습니다.")
+        raise ValueError(f'이미 등록된 Riot ID입니다: "{normalized_riot_id}"')
     user_id = insert_and_get_id(
         connection,
         """
