@@ -6,7 +6,7 @@ const TIER_DIVISIONS = { 1: "I", 2: "II", 3: "III", 4: "IV" };
 const DIVISION_TIERS = new Set([
   "IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND",
 ]);
-const DEFAULT_POSTER_IMAGE = "/static/season-26-2-poster.png";
+const DEFAULT_POSTER_IMAGE = "/static/season-26-2-poster.png?v=20260716-1";
 const DEFAULT_ROSTER_SCORE_TABLE = [
   ["C1", 56.3, 58.5, 57.4, 57.8, 55.7],
   ["C2", 53.4, 55.4, 54.4, 54.8, 52.8],
