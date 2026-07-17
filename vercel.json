@@ -12,9 +12,16 @@
   ],
   "routes": [
     {
-      "src": "/static/(.*)",
+      "src": "/static/assets/(.*)",
       "headers": {
         "Cache-Control": "public, max-age=31536000, immutable"
+      },
+      "dest": "/app/static/assets/$1"
+    },
+    {
+      "src": "/static/(.*)",
+      "headers": {
+        "Cache-Control": "public, max-age=0, must-revalidate"
       },
       "dest": "/app/static/$1"
     },
