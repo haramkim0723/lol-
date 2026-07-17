@@ -563,9 +563,9 @@ aside { display: grid; gap: 18px; }
 .intro-player::before { content: ""; position: absolute; width: 420px; height: 420px; border-radius: 50%; top: -170px; right: -90px; background: var(--tier-glow, rgba(217,169,79,.15)); filter: blur(5px); }
 .intro-player::after { content: attr(data-position); position: absolute; right: 22px; bottom: -35px; color: rgba(255,255,255,.025); font-size: 130px; font-weight: 900; letter-spacing: -.08em; }
 .intro-visual { position: relative; display: grid; place-items: center; min-height: 235px; z-index: 1; }
-.tier-emblem-link { display: grid; place-items: center; width: 210px; height: 210px; border-radius: 50%; text-decoration: none; transition: transform .18s ease, filter .18s ease; }
+.tier-emblem-link { display: grid; place-items: center; width: 250px; height: 250px; border-radius: 50%; text-decoration: none; transition: transform .18s ease, filter .18s ease; }
 a.tier-emblem-link:hover { transform: translateY(-4px) scale(1.035); filter: brightness(1.12); }
-.tier-emblem-image { display: block; width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 12px 22px rgba(0,0,0,.52)) drop-shadow(0 0 28px var(--tier-glow, rgba(135,149,168,.2))); }
+.tier-emblem-image { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; transform: scale(4.2); filter: drop-shadow(0 3px 6px rgba(0,0,0,.52)) drop-shadow(0 0 6px var(--tier-glow, rgba(135,149,168,.2))); }
 .tier-emblem { position: relative; width: 148px; height: 148px; transform: rotate(45deg); border-radius: 26% 44% 26% 44%; border: 3px solid var(--tier-color, #8795a8); background: linear-gradient(135deg, rgba(255,255,255,.28), transparent 32%), linear-gradient(145deg, var(--tier-light, #aab5c2), var(--tier-dark, #374453)); box-shadow: 0 0 48px var(--tier-glow, rgba(135,149,168,.2)), inset 0 0 0 9px rgba(3,7,12,.45); }
 .tier-emblem::after { content: attr(data-tier); position: absolute; inset: 0; transform: rotate(-45deg); display: grid; place-items: center; color: #fff; font-size: 13px; font-weight: 900; text-shadow: 0 2px 7px #000; }
 .intro-player-content { position: relative; z-index: 1; min-width: 0; padding: 22px 24px; border: 1px solid rgba(255,255,255,.07); border-radius: 18px; background: rgba(3,8,14,.44); box-shadow: 0 18px 45px rgba(0,0,0,.18); backdrop-filter: blur(5px); }
@@ -1905,7 +1905,7 @@ a.tier-emblem-link:hover { transform: translateY(-4px) scale(1.035); filter: bri
   .intro-arrow { width: 38px; height: 38px; font-size: 26px; }
   .intro-player { min-height: 480px; grid-template-columns: 1fr; gap: 15px; padding: 28px 16px; text-align: center; }
   .intro-visual { min-height: 190px; }
-  .tier-emblem-link { width: 170px; height: 170px; }
+  .tier-emblem-link { width: 200px; height: 200px; }
   .tier-emblem { width: 120px; height: 120px; }
   .intro-player-content { padding: 20px 14px; }
   .intro-player h3 { font-size: clamp(34px, 11vw, 50px); }
