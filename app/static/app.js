@@ -107,6 +107,7 @@ let pollStateInFlight = false;
 const STATE_POLL_INTERVAL_MS = 15000;
 const STATE_POLL_VIEWS = new Set(["poster", "setup", "auction", "tournament", "scrim"]);
 let simulatorExcludedSignature = "";
+let simulatorRecommendationRequest = null;
 let participationHostView = "settings";
 let participationApprovalView = "requests";
 let participationApprovalStatus = "pending";
@@ -1941,11 +1942,27 @@ function loadSimulationDraft() {
   }
 }
 
-function renderSimulatorRecommendations(recommendations) {
+function recommendationPaginationMarkup(page, pageCount, total) {
+  if (!total) return "";
+  const start = Math.max(1, Math.min(page - 2, pageCount - 4));
+  const end = Math.min(pageCount, start + 4);
+  const pages = Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  return `<nav class="recommendation-pagination" aria-label="추천 조합 페이지">
+    <span>총 ${total.toLocaleString("ko-KR")}개 조합</span>
+    <div>
+      <button type="button" data-recommendation-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>‹</button>
+      ${pages.map((number) => `<button type="button" class="${number === page ? "active" : ""}" data-recommendation-page="${number}">${number}</button>`).join("")}
+      <button type="button" data-recommendation-page="${page + 1}" ${page >= pageCount ? "disabled" : ""}>›</button>
+    </div>
+  </nav>`;
+}
+
+function renderSimulatorRecommendations(recommendations, pagination = {}) {
+  const { page = 1, page_count: pageCount = 1, total = recommendations.length } = pagination;
   $("#simulator-recommendations").innerHTML = recommendations.length
-    ? recommendations.map((result, index) => `
+    ? `${recommendations.map((result, index) => `
       <article class="recommendation-card">
-        <div class="recommendation-rank">${index + 1}</div>
+        <div class="recommendation-rank">${(page - 1) * 12 + index + 1}</div>
         ${POSITIONS.map((position) => {
           const player = result.lineup[position];
           return `<div class="recommendation-member${player.is_off_position ? " off-position" : ""}${player.is_locked ? " locked" : ""}">
@@ -1959,9 +1976,18 @@ function renderSimulatorRecommendations(recommendations) {
           <strong class="${result.score_difference === 0 ? "perfect" : ""}">${result.total_score}점</strong>
         </div>
         <button class="apply-recommendation" type="button" data-apply-recommendation="${index}">조합 적용</button>
-      </article>`).join("")
+      </article>`).join("")}${recommendationPaginationMarkup(page, pageCount, total)}`
     : '<div class="balance-empty">조건에 맞는 조합을 찾지 못했습니다.</div>';
   window.latestRecommendations = recommendations;
+}
+
+async function loadRecommendationPage(page = 1) {
+  if (!simulatorRecommendationRequest) return;
+  const result = await api("/api/tournament/recommend", {
+    method: "POST",
+    body: JSON.stringify({ ...simulatorRecommendationRequest, page, page_size: 12 }),
+  });
+  renderSimulatorRecommendations(result.recommendations, result);
 }
 
 function renderTournamentBracket() {
@@ -2700,12 +2726,8 @@ $("#team-simulator-form").addEventListener("submit", (event) => {
     POSITIONS.map((position) => [position, data[position] || null])
   );
   const excluded_player_ids = [...registeredTournamentPlayerIds()];
-  api("/api/tournament/recommend", {
-    method: "POST",
-    body: JSON.stringify({ locked, limit: 12, excluded_player_ids }),
-  }).then((result) => {
-    renderSimulatorRecommendations(result.recommendations);
-  }).catch((error) => toast(error.message, true));
+  simulatorRecommendationRequest = { locked, excluded_player_ids };
+  loadRecommendationPage(1).catch((error) => toast(error.message, true));
 });
 $("#start-tournament-button").addEventListener("click", async () => {
   if (state.tournament.format === "group_then_knockout") {
@@ -2992,6 +3014,15 @@ $("#participation-settings-form").addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("click", async (event) => {
+  const requestedRecommendationPage =
+    event.target.closest("[data-recommendation-page]")?.dataset.recommendationPage;
+  if (requestedRecommendationPage !== undefined) {
+    try {
+      await loadRecommendationPage(Number(requestedRecommendationPage));
+      $("#simulator-recommendations").scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (error) { toast(error.message, true); }
+    return;
+  }
   const searchedPlayer = event.target.closest("[data-player-search-id]");
   if (searchedPlayer) {
     selectSearchedPlayer(

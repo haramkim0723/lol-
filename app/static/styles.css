@@ -800,6 +800,11 @@ a.tier-emblem-link:hover { transform: translateY(-4px) scale(1.035); filter: bri
 .registration-closed { padding: 70px 20px; border: 1px dashed var(--line); border-radius: 16px; color: var(--muted); text-align: center; }
 .tournament-team-panel { max-width: 1100px; margin: 0 auto; }
 .simulator-recommendations { display: grid; gap: 10px; margin-top: 16px; }
+.recommendation-pagination { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 4px 2px; color: var(--muted); font-size: 11px; font-weight: 800; }
+.recommendation-pagination > div { display: flex; gap: 6px; }
+.recommendation-pagination button { min-width: 34px; height: 34px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; color: #c8d3df; background: #0b121b; }
+.recommendation-pagination button.active { color: #061113; border-color: var(--cyan); background: var(--cyan); }
+.recommendation-pagination button:disabled { opacity: .3; }
 .recommendation-card { display: grid; grid-template-columns: 48px repeat(5,minmax(0,1fr)) 105px auto; align-items: stretch; overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: linear-gradient(90deg,rgba(20,29,41,.96),rgba(8,13,20,.96)); }
 .recommendation-rank { display: grid; place-items: center; color: var(--gold); background: rgba(217,169,79,.06); font-size: 17px; font-weight: 900; }
 .recommendation-member { min-width: 0; padding: 11px 8px; border-left: 1px solid rgba(255,255,255,.04); }

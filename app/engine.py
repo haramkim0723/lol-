@@ -311,7 +311,7 @@ def recommend_team_combinations(
     state: dict[str, Any],
     locked: dict[str, str | None],
     target_score: int,
-    limit: int = 12,
+    limit: int | None = 12,
     excluded_player_ids: set[str] | None = None,
     minimum_score: float | None = None,
 ) -> list[dict[str, Any]]:
@@ -438,9 +438,10 @@ def recommend_team_combinations(
         }
         key = result_key(result)
         best.append((key, result))
-        best.sort(key=lambda item: item[0])
-        if len(best) > limit:
-            best.pop()
+        if limit is not None:
+            best.sort(key=lambda item: item[0])
+            if len(best) > limit:
+                best.pop()
 
     def backtrack(
         index: int,
@@ -457,7 +458,8 @@ def recommend_team_combinations(
         ):
             return
         if (
-            len(best) >= limit
+            limit is not None
+            and len(best) >= limit
             and best_possible_difference(index, score_so_far) > best[-1][0][0]
         ):
             return
@@ -486,6 +488,8 @@ def recommend_team_combinations(
         for position, player in lineup.items()
     )
     backtrack(0, dict(lineup), set(selected_ids), locked_score, 0)
+    if limit is None:
+        best.sort(key=lambda item: item[0])
     return [item[1] for item in best]
 
 

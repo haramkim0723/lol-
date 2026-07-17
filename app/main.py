@@ -870,7 +870,8 @@ class TeamRecommendationInput(BaseModel):
     locked: dict[
         Literal["TOP", "JUG", "MID", "ADC", "SUP"], str | None
     ]
-    limit: int = Field(default=12, ge=1, le=30)
+    page: int = Field(default=1, ge=1, le=100_000)
+    page_size: int = Field(default=12, ge=1, le=30)
     excluded_player_ids: list[str] = Field(default_factory=list, max_length=1000)
 
 
@@ -2010,15 +2011,24 @@ async def update_tournament_settings(
 @app.post("/api/tournament/recommend")
 async def recommend_tournament_team(data: TeamRecommendationInput):
     try:
+        recommendations = engine.recommend_team_combinations(
+            store.state,
+            data.locked,
+            store.state["tournament"]["score_limit"],
+            None,
+            set(data.excluded_player_ids),
+            max(0, store.state["tournament"]["score_limit"] - 5),
+        )
+        total = len(recommendations)
+        page_count = max(1, (total + data.page_size - 1) // data.page_size)
+        page = min(data.page, page_count)
+        start = (page - 1) * data.page_size
         return {
-            "recommendations": engine.recommend_team_combinations(
-                store.state,
-                data.locked,
-                store.state["tournament"]["score_limit"],
-                data.limit,
-                set(data.excluded_player_ids),
-                max(0, store.state["tournament"]["score_limit"] - 5),
-            )
+            "recommendations": recommendations[start:start + data.page_size],
+            "page": page,
+            "page_size": data.page_size,
+            "page_count": page_count,
+            "total": total,
         }
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
