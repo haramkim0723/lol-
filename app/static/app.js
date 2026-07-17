@@ -275,8 +275,24 @@ function captainById(id) {
 }
 
 function tierKey(tier = "") {
-  const upper = tier.toUpperCase();
-  return Object.keys(TIER_STYLES).find((key) => upper.startsWith(key)) || "UNRANKED";
+  const upper = String(tier).trim().toUpperCase().replace(/\s+/g, "");
+  const fullName = Object.keys(TIER_STYLES).find(
+    (key) => key !== "UNRANKED" && upper.startsWith(key)
+  );
+  if (fullName) return fullName;
+  if (/^GM\d*/.test(upper)) return "GRANDMASTER";
+  if (/^C(?:HALLENGER)?\d*/.test(upper)) return "CHALLENGER";
+  if (/^M\d*/.test(upper)) return "MASTER";
+  const compactTiers = {
+    D: "DIAMOND",
+    E: "EMERALD",
+    P: "PLATINUM",
+    G: "GOLD",
+    S: "SILVER",
+    B: "BRONZE",
+    I: "IRON",
+  };
+  return compactTiers[upper.charAt(0)] || "UNRANKED";
 }
 
 function opggUrl(riotId = "") {
