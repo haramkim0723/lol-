@@ -279,6 +279,39 @@ function tierKey(tier = "") {
   return Object.keys(TIER_STYLES).find((key) => upper.startsWith(key)) || "UNRANKED";
 }
 
+function opggUrl(riotId = "") {
+  const normalized = String(riotId).trim();
+  const separator = normalized.lastIndexOf("#");
+  if (separator <= 0 || separator === normalized.length - 1) return "";
+  const gameName = normalized.slice(0, separator).trim();
+  const tagLine = normalized.slice(separator + 1).trim();
+  if (!gameName || !tagLine) return "";
+  return `https://www.op.gg/summoners/kr/${encodeURIComponent(gameName)}-${encodeURIComponent(tagLine)}`;
+}
+
+function tierEmblemMarkup(tier, riotId = "") {
+  const key = tierKey(tier);
+  const profileUrl = opggUrl(riotId);
+  const content = key === "UNRANKED"
+    ? `<div class="tier-emblem" data-tier="${key}"></div>`
+    : `<img class="tier-emblem-image" src="/static/assets/ranked-emblems/${key.toLowerCase()}.png" alt="${key} 티어 엠블럼" loading="lazy" decoding="async" />`;
+  return profileUrl
+    ? `<a class="tier-emblem-link" href="${profileUrl}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(riotId)} OP.GG 열기">${content}</a>`
+    : `<div class="tier-emblem-link">${content}</div>`;
+}
+
+function riotIdMarkup(riotId = "") {
+  const label = riotId || "Riot ID 미등록";
+  return `<span class="riot-name">${escapeHtml(label)}</span>`;
+}
+
+function opggButtonMarkup(riotId = "") {
+  const profileUrl = opggUrl(riotId);
+  return profileUrl
+    ? `<a class="opgg-profile-link" href="${profileUrl}" target="_blank" rel="noopener noreferrer"><span>전적 검색</span><strong>OP.GG</strong><b>↗</b></a>`
+    : "";
+}
+
 function positionOptions(optional = false) {
   return `${optional ? '<option value="">선택 안 함</option>' : ""}${POSITIONS.map(
     (position) => `<option value="${position}">${POSITION_NAMES[position]}</option>`
@@ -699,17 +732,18 @@ function renderScoreIntro() {
   const [color, light, dark, glow] = TIER_STYLES[key];
   $("#score-intro-player").innerHTML = `
     <article class="intro-player" data-position="${player.primary_position}" style="--tier-color:${color};--tier-light:${light};--tier-dark:${dark};--tier-glow:${glow}">
-      <div class="intro-visual"><div class="tier-emblem" data-tier="${key}"></div></div>
+      <div class="intro-visual">${tierEmblemMarkup(player.tier, player.riot_id)}</div>
       <div class="intro-player-content">
         <div class="intro-index">${String(scoreIntroIndex + 1).padStart(2, "0")} / ${String(players.length).padStart(2, "0")} · ${POSITION_NAMES[player.primary_position]}</div>
         <h3>${escapeHtml(player.name)}</h3>
-        <span class="riot-name">${escapeHtml(player.riot_id || "Riot ID 미등록")}</span>
+        ${riotIdMarkup(player.riot_id)}
         <div class="intro-tier">${escapeHtml(player.tier)}</div>
         <div class="showcase-score"><strong>${Number(player.score || 0)}</strong><span>SCORE POINT</span></div>
         <div class="intro-positions">
           <span class="pos">${player.primary_position} · ${POSITION_NAMES[player.primary_position]}</span>
           ${player.secondary_position ? `<span class="pos">${player.secondary_position} · ${POSITION_NAMES[player.secondary_position]}</span>` : ""}
         </div>
+        ${opggButtonMarkup(player.riot_id)}
       </div>
     </article>`;
   $("#score-intro-position-nav").innerHTML = POSITIONS.map((position) => {
@@ -756,18 +790,19 @@ function renderIntro() {
   $("#intro-players").innerHTML = `
     <article class="intro-player" data-position="${player.primary_position}" style="--tier-color:${color};--tier-light:${light};--tier-dark:${dark};--tier-glow:${glow}">
       <div class="intro-visual">
-        <div class="tier-emblem" data-tier="${key}"></div>
+        ${tierEmblemMarkup(player.tier, player.riot_id)}
       </div>
       <div class="intro-player-content">
         <div class="intro-index">${String(introIndex + 1).padStart(2, "0")} / ${String(players.length).padStart(2, "0")} · ${POSITION_NAMES[player.primary_position]}</div>
         <h3>${escapeHtml(player.name)}</h3>
-        <span class="riot-name">${escapeHtml(player.riot_id || "Riot ID 미등록")}</span>
+        ${riotIdMarkup(player.riot_id)}
         <div class="intro-tier">${escapeHtml(player.tier)}</div>
         <div class="intro-positions">
           <span class="pos">${player.primary_position} · ${POSITION_NAMES[player.primary_position]}</span>
           ${player.secondary_position ? `<span class="pos">${player.secondary_position} · ${POSITION_NAMES[player.secondary_position]}</span>` : ""}
           ${player.status === "captain" ? '<span class="pos">CAPTAIN</span>' : ""}
         </div>
+        ${opggButtonMarkup(player.riot_id)}
       </div>
     </article>`;
 
@@ -1821,15 +1856,16 @@ function calculateFormScore(formSelector) {
     id: form.elements[position]?.value,
   })).filter((selection) => selection.id);
   const ids = selections.map((selection) => selection.id);
-  const score = selections.reduce(
+  const rawScore = selections.reduce(
     (sum, selection) =>
       sum + scoreForPosition(playerById(selection.id), selection.position),
     0
   );
+  const score = Math.round((rawScore + Number.EPSILON) * 100) / 100;
   const limit = state.tournament.score_limit;
   const duplicate = ids.length !== new Set(ids).size;
   const complete = ids.length === POSITIONS.length;
-  const over = score > limit;
+  const over = score > limit + 1e-9;
   return { ids, score, limit, duplicate, complete, over };
 }
 
@@ -1844,10 +1880,10 @@ function updateTeamScore() {
   const message = $("#team-score-message");
   message.classList.toggle("over", over || duplicate);
   message.textContent = duplicate ? "같은 선수를 두 포지션에 등록할 수 없습니다."
-    : over ? `제한을 ${score - limit}점 초과했습니다.`
-      : complete ? `등록 가능 · ${limit - score}점 여유`
+    : over ? `제한을 ${Math.round((score - limit) * 100) / 100}점 초과했습니다.`
+      : complete ? `등록 가능 · ${Math.round((limit - score) * 100) / 100}점 여유`
         : "다섯 포지션의 선수를 선택해 주세요.";
-  $("#team-register-button").disabled = !complete || over || duplicate;
+  $("#team-register-button").disabled = !complete || duplicate;
 }
 
 function updateSimulatorScore() {
@@ -1903,7 +1939,7 @@ function renderSimulatorRecommendations(recommendations) {
           </div>`;
         }).join("")}
         <div class="recommendation-score">
-          <small>목표 ${result.target_score} · 차이 ${result.score_difference}</small>
+          <small>목표 ${result.target_score} · 차이 ${Number(result.score_difference).toFixed(1).replace(/\.0$/, "")}</small>
           <strong class="${result.score_difference === 0 ? "perfect" : ""}">${result.total_score}점</strong>
         </div>
         <button class="apply-recommendation" type="button" data-apply-recommendation="${index}">조합 적용</button>
@@ -2605,6 +2641,19 @@ $("#riot-player-form").addEventListener("submit", async (event) => {
 
 $("#tournament-team-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  const validation = calculateFormScore("#tournament-team-form");
+  if (!validation.complete || validation.duplicate || validation.over) {
+    updateTeamScore();
+    toast(
+      validation.over
+        ? `팀 총점이 제한 ${validation.limit}점을 넘어서 신청할 수 없습니다.`
+        : validation.duplicate
+          ? "같은 선수를 두 포지션에 등록할 수 없습니다."
+          : "다섯 포지션의 선수를 모두 선택해 주세요.",
+      true
+    );
+    return;
+  }
   const data = Object.fromEntries(new FormData(event.target));
   const members = Object.fromEntries(POSITIONS.map((position) => [position, data[position]]));
   try {

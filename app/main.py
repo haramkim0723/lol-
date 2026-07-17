@@ -2017,6 +2017,7 @@ async def recommend_tournament_team(data: TeamRecommendationInput):
                 store.state["tournament"]["score_limit"],
                 data.limit,
                 set(data.excluded_player_ids),
+                max(0, store.state["tournament"]["score_limit"] - 5),
             )
         }
     except ValueError as exc:

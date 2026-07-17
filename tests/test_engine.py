@@ -160,6 +160,26 @@ class TournamentEngineTest(unittest.TestCase):
         self.assertEqual(recommendations[0]["score_difference"], 0)
         self.assertTrue(recommendations[0]["lineup"]["TOP"]["is_locked"])
 
+    def test_recommendations_only_include_scores_within_five_below_target(self):
+        state = engine.new_state()
+        for position, score in zip(engine.POSITIONS, (31, 31, 31, 31, 31)):
+            engine.add_player(state, position, "", "GOLD", position, score=score)
+        for position, score in zip(engine.POSITIONS, (30, 30, 30, 30, 29)):
+            engine.add_player(state, f"low-{position}", "", "GOLD", position, score=score)
+        engine.add_player(state, "over-TOP", "", "GOLD", "TOP", score=32)
+
+        recommendations = engine.recommend_team_combinations(
+            state,
+            {position: None for position in engine.POSITIONS},
+            target_score=155,
+            minimum_score=150,
+        )
+
+        self.assertTrue(recommendations)
+        self.assertTrue(
+            all(150 <= result["total_score"] <= 155 for result in recommendations)
+        )
+
     def test_recommendations_can_use_secondary_position(self):
         secondary_only = engine.add_player(
             self.state,

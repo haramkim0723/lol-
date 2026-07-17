@@ -313,7 +313,9 @@ def recommend_team_combinations(
     target_score: int,
     limit: int = 12,
     excluded_player_ids: set[str] | None = None,
+    minimum_score: float | None = None,
 ) -> list[dict[str, Any]]:
+    minimum_recommended_score = 0 if minimum_score is None else max(0, minimum_score)
     players = state["players"]
     by_id = {player["id"]: player for player in players}
     excluded_player_ids = excluded_player_ids or set()
@@ -403,10 +405,17 @@ def recommend_team_combinations(
         completed: dict[str, dict[str, Any]],
         off_position_count: int,
     ) -> None:
-        total_score = sum(
+        raw_total_score = sum(
             player_score_for_position(completed[position], position)
             for position in POSITIONS
         )
+        if not (
+            minimum_recommended_score - 1e-9
+            <= raw_total_score
+            <= target_score + 1e-9
+        ):
+            return
+        total_score = round(raw_total_score, 2)
         result = {
             "lineup": {
                 position: {
@@ -424,7 +433,7 @@ def recommend_team_combinations(
             },
             "total_score": total_score,
             "target_score": target_score,
-            "score_difference": abs(total_score - target_score),
+            "score_difference": round(target_score - total_score, 2),
             "off_position_count": off_position_count,
         }
         key = result_key(result)
@@ -440,6 +449,13 @@ def recommend_team_combinations(
         score_so_far: float,
         off_position_count: int,
     ) -> None:
+        if score_so_far > target_score + 1e-9:
+            return
+        if (
+            score_so_far + remaining_max_scores[index]
+            < minimum_recommended_score - 1e-9
+        ):
+            return
         if (
             len(best) >= limit
             and best_possible_difference(index, score_so_far) > best[-1][0][0]
