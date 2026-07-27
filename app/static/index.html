@@ -644,8 +644,12 @@
                 <label>날짜
                   <input name="match_date" type="date" required />
                 </label>
-                <input name="best_of" type="hidden" value="2" />
-                <div class="scrim-format-note">2경기 세트 · 2:0, 1:1, 0:2</div>
+                <label>경기 방식
+                  <select name="best_of" required>
+                    <option value="2">2경기 세트</option>
+                    <option value="3">BO3</option>
+                  </select>
+                </label>
                 <label>팀 A
                   <select name="team_a_id" required></select>
                 </label>
@@ -734,8 +738,12 @@
               <label>날짜
                 <input name="match_date" type="date" required />
               </label>
-              <input name="best_of" type="hidden" value="2" />
-              <div class="scrim-format-note">2경기 세트 · 2:0, 1:1, 0:2</div>
+              <label>경기 방식
+                <select name="best_of" required>
+                  <option value="2">2경기 세트</option>
+                  <option value="3">BO3</option>
+                </select>
+              </label>
               <label>팀 A
                 <select name="team_a_id" required></select>
               </label>

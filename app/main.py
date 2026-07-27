@@ -2173,10 +2173,39 @@ async def select_tournament_winner(
 def scrim_result_payload(data: ScrimResultInput) -> dict:
     if data.team_a_id == data.team_b_id:
         raise HTTPException(400, "서로 다른 두 팀을 선택해 주세요.")
-    if data.best_of != 2:
-        raise HTTPException(400, "스크림은 2경기 세트로만 등록할 수 있습니다.")
-    if data.team_a_score + data.team_b_score != 2:
-        raise HTTPException(400, "두 팀의 스코어 합계는 2경기여야 합니다.")
+    if data.best_of == 2:
+        if data.team_a_score + data.team_b_score != 2:
+            raise HTTPException(400, "2경기 세트의 스코어 합계는 2여야 합니다.")
+    elif data.best_of == 3:
+        scores = (data.team_a_score, data.team_b_score)
+        if max(scores) != 2 or min(scores) > 1:
+            raise HTTPException(400, "BO3 결과는 2:0, 2:1, 0:2, 1:2만 가능합니다.")
+    else:
+        raise HTTPException(400, "경기 방식은 2경기 세트 또는 BO3만 가능합니다.")
+    return {
+        **data.model_dump(),
+        "winner_team_id": (
+            data.team_a_id
+            if data.team_a_score > data.team_b_score
+            else data.team_b_id
+            if data.team_b_score > data.team_a_score
+            else None
+        ),
+    }
+
+
+def tournament_result_payload(data: ScrimResultInput) -> dict:
+    if data.team_a_id == data.team_b_id:
+        raise HTTPException(400, "서로 다른 두 팀을 선택해 주세요.")
+    if data.best_of == 2:
+        if data.team_a_score + data.team_b_score != 2:
+            raise HTTPException(400, "2경기 세트의 스코어 합계는 2여야 합니다.")
+    elif data.best_of == 3:
+        scores = (data.team_a_score, data.team_b_score)
+        if max(scores) != 2 or min(scores) > 1:
+            raise HTTPException(400, "BO3 결과는 2:0, 2:1, 0:2, 1:2만 가능합니다.")
+    else:
+        raise HTTPException(400, "공식 경기 방식은 2경기 세트 또는 BO3만 가능합니다.")
     return {
         **data.model_dump(),
         "winner_team_id": (
@@ -2211,7 +2240,7 @@ async def create_tournament_result(data: ScrimResultInput, request: Request):
             raise HTTPException(400, "같은 조에 속한 팀끼리만 공식 조별 결과를 등록할 수 있습니다.")
         result = {
             "id": uuid.uuid4().hex,
-            **scrim_result_payload(data),
+            **tournament_result_payload(data),
             "created_at": time.time(),
             "updated_at": time.time(),
         }

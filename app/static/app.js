@@ -3500,7 +3500,7 @@ function renderScrimWinrates() {
       <div class="scrim-winrate-records">
         <span>세트 승률<strong>${percent(item.setWins, item.setLosses)} · ${item.setWins}승 ${item.setLosses}패</strong></span>
         <span>시리즈 승률<strong>${item.seriesWins}승 ${item.seriesDraws}무 ${item.seriesLosses}패</strong></span>
-        <span>2경기 세트<strong>${item.seriesWins + item.seriesDraws + item.seriesLosses}회</strong></span>
+        <span>등록 경기<strong>${item.seriesWins + item.seriesDraws + item.seriesLosses}회</strong></span>
       </div>
       ${item.team.id === selectedScrimTeamId ? scrimTeamHistoryMarkup(item.team.id) : ""}
     </article>
@@ -3539,7 +3539,7 @@ function renderScrimResults() {
         <div class="team-head">
           <div>
             <strong>${scoreMarkup}</strong>
-            <div class="meta">${escapeHtml(result.match_date)} · ${Number(result.best_of) === 2 ? "2경기 세트" : `기존 BO${result.best_of || 3}`}${result.memo ? ` · ${escapeHtml(result.memo)}` : ""}</div>
+            <div class="meta">${escapeHtml(result.match_date)} · ${Number(result.best_of) === 2 ? "2경기 세트" : `BO${result.best_of || 3}`}${result.memo ? ` · ${escapeHtml(result.memo)}` : ""}</div>
           </div>
           ${canEdit ? `<button class="ghost" type="button" data-edit-scrim-result="${result.id}">수정</button>` : ""}
         </div>
@@ -3711,9 +3711,19 @@ $("#scrim-winrate-list").addEventListener("keydown", (event) => {
   ["team_a_score", "team_b_score"].forEach((fieldName) => {
     form.elements[fieldName].addEventListener("input", (event) => {
       const score = Math.max(0, Math.min(2, Number(event.target.value || 0)));
+      if (Number(form.elements.best_of.value) !== 2) return;
       const otherName = fieldName === "team_a_score" ? "team_b_score" : "team_a_score";
       form.elements[otherName].value = 2 - score;
     });
+  });
+});
+
+["group-result-form", "scrim-result-form"].forEach((formId) => {
+  document.getElementById(formId)?.elements.best_of.addEventListener("change", (event) => {
+    const form = event.target.form;
+    const isBo3 = Number(event.target.value) === 3;
+    form.elements.team_a_score.value = isBo3 ? 2 : 1;
+    form.elements.team_b_score.value = isBo3 ? 0 : 1;
   });
 });
 
@@ -3760,12 +3770,14 @@ $("#scrim-result-list").addEventListener("click", (event) => {
   $("#scrim-result-entry").open = true;
   form.elements.result_id.value = result.id;
   form.elements.match_date.value = result.match_date;
-  form.elements.best_of.value = 2;
+  form.elements.best_of.value = [2, 3].includes(Number(result.best_of))
+    ? String(result.best_of)
+    : "2";
   form.elements.team_a_id.value = result.team_a_id;
   form.elements.team_b_id.value = result.team_b_id;
-  const isTwoGameResult = Number(result.best_of) === 2;
-  form.elements.team_a_score.value = isTwoGameResult ? result.team_a_score : 1;
-  form.elements.team_b_score.value = isTwoGameResult ? result.team_b_score : 1;
+  const isSupportedResult = [2, 3].includes(Number(result.best_of));
+  form.elements.team_a_score.value = isSupportedResult ? result.team_a_score : 1;
+  form.elements.team_b_score.value = isSupportedResult ? result.team_b_score : 1;
   form.elements.memo.value = result.memo || "";
   $("#cancel-result-edit").classList.remove("hidden");
   form.scrollIntoView({ behavior: "smooth", block: "center" });

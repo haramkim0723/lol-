@@ -1522,8 +1522,8 @@ class ApiFlowTest(unittest.TestCase):
                         "team_a_id": team_id,
                         "team_b_id": opponent_id,
                         "match_date": "2026-07-08",
-                        "best_of": 2,
-                        "team_a_score": 0,
+                        "best_of": 3,
+                        "team_a_score": 1,
                         "team_b_score": 2,
                     },
                 )
@@ -1799,9 +1799,9 @@ class ApiFlowTest(unittest.TestCase):
                     "team_a_id": group_a_ids[0],
                     "team_b_id": group_a_ids[1],
                     "match_date": "2026-07-12",
-                    "best_of": 2,
+                    "best_of": 3,
                     "team_a_score": 2,
-                    "team_b_score": 0,
+                    "team_b_score": 1,
                 },
             )
             self.assertEqual(win.status_code, 200)
@@ -1822,9 +1822,9 @@ class ApiFlowTest(unittest.TestCase):
             with_results = client.get("/api/state").json()
             standings = result_standings(with_results)
             self.assertEqual(standings[group_a_ids[0]]["points"], 3)
-            self.assertEqual(standings[group_a_ids[0]]["diff"], 2)
+            self.assertEqual(standings[group_a_ids[0]]["diff"], 1)
             self.assertEqual(standings[group_a_ids[1]]["points"], 0)
-            self.assertEqual(standings[group_a_ids[1]]["diff"], -2)
+            self.assertEqual(standings[group_a_ids[1]]["diff"], -1)
             self.assertEqual(standings[group_b_ids[0]]["points"], 1)
             self.assertEqual(standings[group_b_ids[1]]["points"], 1)
             self.assertEqual(standings[group_b_ids[0]]["draws"], 1)
