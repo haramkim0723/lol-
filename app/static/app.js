@@ -1088,6 +1088,17 @@ function renderTournamentGroups() {
     "hidden", tournament.status !== "group" || !isHost
   );
   const groups = tournament.groups || [];
+  const allResultsComplete = groups.length > 0 && groups.every((group) => group.results_complete);
+  const hasQualificationTie = groups.some((group) => group.qualification_tie);
+  const knockoutButton = $("#start-group-knockout-button");
+  if (knockoutButton) {
+    knockoutButton.disabled = !allResultsComplete;
+    knockoutButton.textContent = hasQualificationTie
+      ? "동률 팀 선택 후 본선 편집"
+      : allResultsComplete
+        ? "자동 진출팀 확정 및 본선 편집"
+        : "모든 조별 경기 완료 후 확정";
+  }
   const waitingForDraw = groupDrawReady;
   const revealSequence = groupDrawSequence();
   const revealDone = groupDrawRevealActive && groupDrawRevealCount >= revealSequence.length;
@@ -1128,7 +1139,9 @@ function renderTournamentGroups() {
           <article class="group-draft-card ${groupColors[groupIndex % groupColors.length]}">
             <header>
               <strong>${escapeHtml(group.name)}</strong>
-              <span>${(group.qualified_team_ids || []).length}/${tournament.qualifiers_per_group}</span>
+              <span>${(group.qualified_team_ids?.length
+                ? group.qualified_team_ids
+                : group.suggested_qualified_team_ids || []).length}/${tournament.qualifiers_per_group}</span>
             </header>
             <div>
               <div class="group-standings-head">
@@ -1152,7 +1165,11 @@ function renderTournamentGroups() {
                 : groupStandings(group)
               ).map((standing, teamIndex) => {
                 const teamId = standing.teamId;
-                const checked = (group.qualified_team_ids || []).includes(teamId);
+                const selectedIds = group.qualified_team_ids?.length
+                  ? group.qualified_team_ids
+                  : group.suggested_qualified_team_ids || [];
+                const checked = selectedIds.includes(teamId);
+                const manualSelectionAllowed = isHost && group.results_complete && group.qualification_tie;
                 const drawHidden = showManualReveal && !standing.drawVisible;
                 return `<label class="group-team-row${checked ? " qualified" : ""}${standing.drawCurrent ? " draw-current" : ""}${drawHidden ? " draw-slot-empty" : " draw-reveal"}" data-group-index="${groupIndex}" data-team-id="${teamId}">
                   <span class="group-team-seed">${teamIndex + 1}</span>
@@ -1162,9 +1179,16 @@ function renderTournamentGroups() {
                   <small>${standing.wins}승 ${standing.draws}무 ${standing.losses}패</small>
                   <input type="checkbox" data-group-qualifier="${groupIndex}" value="${teamId}"
                     aria-label="${escapeHtml(teamById(teamId)?.name || "-")} 본선 진출"
-                    ${checked ? "checked" : ""} ${isHost ? "" : "disabled"} />
+                    ${checked ? "checked" : ""} ${manualSelectionAllowed ? "" : "disabled"} />
                 </label>`;
               }).join("")}
+              <small class="group-qualification-status${group.qualification_tie ? " tie" : group.results_complete ? " ready" : ""}">
+                ${group.qualification_tie
+                  ? "동률 발생 · 강사님이 진출팀을 선택해 주세요."
+                  : group.results_complete
+                    ? "모든 경기 완료 · 진출 예정팀이 자동 산정되었습니다."
+                    : `${group.results_recorded || 0}/${group.results_required ?? (group.team_ids.length * (group.team_ids.length - 1) / 2)}경기 완료`}
+              </small>
             </div>
           </article>
         `).join("")}
@@ -1176,24 +1200,30 @@ function renderTournamentGroups() {
 function renderGroupResultForm() {
   const form = $("#group-result-form");
   if (!form) return;
-  const groupTeamIds = new Set((state.tournament.groups || []).flatMap((group) => group.team_ids || []));
+  const groups = state.tournament.groups || [];
+  const groupTeamIds = new Set(groups.flatMap((group) => group.team_ids || []));
   const teams = state.tournament.teams.filter((team) => groupTeamIds.has(team.id));
   $("#group-result-entry")?.classList.toggle("hidden", state.tournament.status !== "group" || teams.length < 2);
   if (teams.length < 2) return;
+  const groupSelect = form.elements.group_index;
+  const selectedGroupIndex = Number(groupSelect.value || 0);
+  groupSelect.innerHTML = groups.map(
+    (_, index) => `<option value="${index}">${String.fromCharCode(65 + index)}조</option>`
+  ).join("");
+  groupSelect.value = String(Math.min(selectedGroupIndex, Math.max(0, groups.length - 1)));
+  const activeGroup = groups[Number(groupSelect.value)] || groups[0];
+  const activeTeamIds = new Set(activeGroup?.team_ids || []);
+  const groupTeams = teams.filter((team) => activeTeamIds.has(team.id));
   const teamASelect = form.elements.team_a_id;
   const selectedTeamA = teamASelect.value;
-  teamASelect.innerHTML = teams.map(
+  teamASelect.innerHTML = groupTeams.map(
     (team) => `<option value="${team.id}">${escapeHtml(team.name)}</option>`
   ).join("");
-  if (teams.some((team) => team.id === selectedTeamA)) {
+  if (groupTeams.some((team) => team.id === selectedTeamA)) {
     teamASelect.value = selectedTeamA;
   }
-  const activeGroup = (state.tournament.groups || []).find(
-    (group) => (group.team_ids || []).includes(teamASelect.value)
-  );
-  const opponents = teams.filter(
+  const opponents = groupTeams.filter(
     (team) => team.id !== teamASelect.value
-      && (activeGroup?.team_ids || []).includes(team.id)
   );
   const teamBSelect = form.elements.team_b_id;
   const selectedTeamB = teamBSelect.value;
@@ -2875,6 +2905,7 @@ $("#play-group-draw-button")?.addEventListener("click", () => {
 $("#group-result-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const payload = Object.fromEntries(new FormData(event.target));
+  delete payload.group_index;
   payload.best_of = Number(payload.best_of || 2);
   payload.team_a_score = Number(payload.team_a_score || 0);
   payload.team_b_score = Number(payload.team_b_score || 0);
@@ -2966,7 +2997,14 @@ $("#tournament-groups").addEventListener("change", async (event) => {
 });
 
 $("#start-group-knockout-button").addEventListener("click", async () => {
-  openBracketEditor();
+  try {
+    await api("/api/tournament/groups/start-knockout", { method: "POST" });
+    await refreshState({ renderView: false });
+    renderTournament();
+    openBracketEditor();
+  } catch (error) {
+    toast(error.message, true);
+  }
 });
 
 $("#open-bracket-editor-button").addEventListener("click", openBracketEditor);
@@ -3491,10 +3529,24 @@ function scrimTeamHistoryMarkup(teamId) {
 function renderScrimWinrates() {
   const list = $("#scrim-winrate-list");
   const stats = scrimStatsByTeam();
-  list.innerHTML = stats.length ? stats.map((item, index) => `
-    <article class="scrim-winrate-card${item.team.id === selectedScrimTeamId ? " selected" : ""}" data-scrim-stats-team-id="${item.team.id}" tabindex="0" role="button">
+  const rankedStats = stats.map((item, index) => ({ ...item, rank: index + 1 }));
+  const visibleStats = selectedScrimTeamId
+    ? rankedStats.filter((item) => item.team.id === selectedScrimTeamId)
+    : rankedStats;
+  const pageSelect = $("#scrim-team-page-select");
+  pageSelect.innerHTML = `
+    <option value="">전체 순위</option>
+    ${rankedStats.map((item) => `
+      <option value="${item.team.id}">${item.rank}위 · ${escapeHtml(item.team.name)}</option>
+    `).join("")}
+  `;
+  pageSelect.value = selectedScrimTeamId || "";
+  list.classList.toggle("team-page", Boolean(selectedScrimTeamId));
+  $("#scrim-recent-results").classList.toggle("hidden", Boolean(selectedScrimTeamId));
+  list.innerHTML = visibleStats.length ? visibleStats.map((item) => `
+    <article id="scrim-winrate-${item.team.id}" class="scrim-winrate-card${item.team.id === selectedScrimTeamId ? " selected" : ""}" data-scrim-stats-team-id="${item.team.id}" tabindex="0" role="button">
       <div class="scrim-winrate-head">
-        <strong>${index + 1}. ${escapeHtml(item.team.name)}</strong>
+        <strong>${item.rank}. ${escapeHtml(item.team.name)}</strong>
         <b>${percent(item.seriesWins, item.seriesLosses)}</b>
       </div>
       <div class="scrim-winrate-records">
@@ -3683,6 +3735,10 @@ $("#group-result-form")?.elements.team_a_id.addEventListener(
   "change",
   renderGroupResultForm,
 );
+$("#group-result-form")?.elements.group_index.addEventListener(
+  "change",
+  renderGroupResultForm,
+);
 
 $("#scrim-winrate-list").addEventListener("click", (event) => {
   const card = event.target.closest("[data-scrim-stats-team-id]");
@@ -3691,6 +3747,14 @@ $("#scrim-winrate-list").addEventListener("click", (event) => {
     selectedScrimTeamId === card.dataset.scrimStatsTeamId
       ? null
       : card.dataset.scrimStatsTeamId;
+  renderScrimTeams();
+  renderScrimWinrates();
+  renderScrimResultForm();
+  renderScrimResults();
+});
+
+$("#scrim-team-page-select").addEventListener("change", (event) => {
+  selectedScrimTeamId = event.target.value || null;
   renderScrimTeams();
   renderScrimWinrates();
   renderScrimResultForm();
@@ -3718,13 +3782,11 @@ $("#scrim-winrate-list").addEventListener("keydown", (event) => {
   });
 });
 
-["group-result-form", "scrim-result-form"].forEach((formId) => {
-  document.getElementById(formId)?.elements.best_of.addEventListener("change", (event) => {
-    const form = event.target.form;
-    const isBo3 = Number(event.target.value) === 3;
-    form.elements.team_a_score.value = isBo3 ? 2 : 1;
-    form.elements.team_b_score.value = isBo3 ? 0 : 1;
-  });
+$("#scrim-result-form")?.elements.best_of.addEventListener("change", (event) => {
+  const form = event.target.form;
+  const isBo3 = Number(event.target.value) === 3;
+  form.elements.team_a_score.value = isBo3 ? 2 : 1;
+  form.elements.team_b_score.value = isBo3 ? 0 : 1;
 });
 
 $("#scrim-result-form").addEventListener("submit", async (event) => {

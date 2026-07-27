@@ -690,13 +690,89 @@ def set_group_qualifiers(
     ]
 
 
+def update_group_qualification_suggestions(state: dict[str, Any]) -> None:
+    tournament = state["tournament"]
+    results = state.get("tournament_results", [])
+    qualifier_count = tournament.get("qualifiers_per_group", 2)
+    for group in tournament.get("groups", []):
+        team_ids = group.get("team_ids", [])
+        team_set = set(team_ids)
+        group_results = [
+            result for result in results
+            if result.get("team_a_id") in team_set
+            and result.get("team_b_id") in team_set
+        ]
+        expected = len(team_ids) * (len(team_ids) - 1) // 2
+        played_pairs = {
+            frozenset((result["team_a_id"], result["team_b_id"]))
+            for result in group_results
+        }
+        records = {team_id: {"wins": 0, "diff": 0} for team_id in team_ids}
+        head_to_head: dict[frozenset[str], str | None] = {}
+        for result in group_results:
+            team_a_id = result["team_a_id"]
+            team_b_id = result["team_b_id"]
+            score_a = result["team_a_score"]
+            score_b = result["team_b_score"]
+            records[team_a_id]["diff"] += score_a - score_b
+            records[team_b_id]["diff"] += score_b - score_a
+            winner_id = result.get("winner_team_id")
+            if winner_id in records:
+                records[winner_id]["wins"] += 1
+            head_to_head[frozenset((team_a_id, team_b_id))] = winner_id
+
+        buckets: dict[tuple[int, int], list[str]] = {}
+        for team_id in team_ids:
+            key = (records[team_id]["wins"], records[team_id]["diff"])
+            buckets.setdefault(key, []).append(team_id)
+        ordered: list[str] = []
+        unresolved_at_cutoff = False
+        for key in sorted(buckets, reverse=True):
+            bucket = buckets[key]
+            resolved = False
+            if len(bucket) == 2:
+                winner_id = head_to_head.get(frozenset(bucket))
+                if winner_id in bucket:
+                    bucket = [
+                        winner_id,
+                        next(team_id for team_id in bucket if team_id != winner_id),
+                    ]
+                    resolved = True
+            start = len(ordered)
+            ordered.extend(bucket)
+            if start < qualifier_count < len(ordered) and len(bucket) > 1 and not resolved:
+                unresolved_at_cutoff = True
+
+        complete = len(played_pairs) == expected
+        group["results_recorded"] = len(played_pairs)
+        group["results_required"] = expected
+        group["results_complete"] = complete
+        group["qualification_tie"] = complete and unresolved_at_cutoff
+        group["suggested_qualified_team_ids"] = (
+            ordered[:qualifier_count] if complete and not unresolved_at_cutoff else []
+        )
+
+
 def start_group_knockout(state: dict[str, Any]) -> None:
     tournament = state["tournament"]
     if tournament["status"] != "group":
         raise ValueError("조별 진행 단계가 아닙니다.")
+    update_group_qualification_suggestions(state)
     required = tournament.get("qualifiers_per_group", 2)
+    for group in tournament["groups"]:
+        if not group.get("results_complete"):
+            raise ValueError("모든 조별 경기가 끝난 뒤 본선 진출팀을 확정할 수 있습니다.")
+        if not group.get("qualified_team_ids") and not group.get("qualification_tie"):
+            group["qualified_team_ids"] = list(
+                group.get("suggested_qualified_team_ids", [])
+            )
     if any(len(group["qualified_team_ids"]) != required for group in tournament["groups"]):
-        raise ValueError(f"각 조에서 진출팀을 {required}팀씩 선택해 주세요.")
+        raise ValueError(f"동률인 조의 진출팀을 {required}팀씩 선택해 주세요.")
+    tournament["qualified_team_ids"] = [
+        team_id
+        for group in tournament["groups"]
+        for team_id in group["qualified_team_ids"]
+    ]
     seeds = [
         team_id
         for rank in range(required)

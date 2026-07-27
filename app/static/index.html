@@ -641,26 +641,25 @@
             <details id="group-result-entry" class="group-result-entry">
               <summary>조별 경기 결과 입력</summary>
               <form id="group-result-form" class="scrim-form result-form">
+                <label>조 선택
+                  <select name="group_index" required></select>
+                </label>
                 <label>날짜
                   <input name="match_date" type="date" required />
                 </label>
-                <label>경기 방식
-                  <select name="best_of" required>
-                    <option value="2">2경기 세트</option>
-                    <option value="3">BO3</option>
-                  </select>
-                </label>
+                <input name="best_of" type="hidden" value="3" />
+                <div class="scrim-format-note official-format-title">공식 조별 경기 · BO3</div>
                 <label>팀 A
                   <select name="team_a_id" required></select>
                 </label>
                 <label>팀 A 점수
-                  <input name="team_a_score" type="number" min="0" max="2" value="1" required />
+                  <input name="team_a_score" type="number" min="0" max="2" value="2" required />
                 </label>
                 <label>팀 B
                   <select name="team_b_id" required></select>
                 </label>
                 <label>팀 B 점수
-                  <input name="team_b_score" type="number" min="0" max="2" value="1" required />
+                  <input name="team_b_score" type="number" min="0" max="2" value="0" required />
                 </label>
                 <label>메모
                   <input name="memo" maxlength="500" placeholder="선택 입력" />
@@ -730,6 +729,9 @@
           <div class="panel-title row">
             <div><span>SCRIM STATS</span><h2>스크림 승률</h2></div>
           </div>
+          <label class="scrim-team-page-picker">팀별 전적 보기
+            <select id="scrim-team-page-select" aria-label="스크림 팀 선택"></select>
+          </label>
           <div id="scrim-winrate-list" class="scrim-winrate-list"></div>
           <details id="scrim-result-entry" class="scrim-result-entry">
             <summary>스크림 결과 입력</summary>
@@ -768,8 +770,10 @@
               참가 팀원 또는 강사님만 결과를 등록할 수 있습니다.
             </div>
           </details>
-          <div id="scrim-history-title" class="scrim-history-title">최근 스크림 결과</div>
-          <div id="scrim-result-list" class="team-list"></div>
+          <section id="scrim-recent-results">
+            <div id="scrim-history-title" class="scrim-history-title">최근 스크림 결과</div>
+            <div id="scrim-result-list" class="team-list"></div>
+          </section>
         </aside>
 
         <aside id="scrim-admin-panel-legacy" class="panel admin-panel hidden">

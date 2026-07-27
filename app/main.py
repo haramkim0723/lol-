@@ -2197,15 +2197,11 @@ def scrim_result_payload(data: ScrimResultInput) -> dict:
 def tournament_result_payload(data: ScrimResultInput) -> dict:
     if data.team_a_id == data.team_b_id:
         raise HTTPException(400, "서로 다른 두 팀을 선택해 주세요.")
-    if data.best_of == 2:
-        if data.team_a_score + data.team_b_score != 2:
-            raise HTTPException(400, "2경기 세트의 스코어 합계는 2여야 합니다.")
-    elif data.best_of == 3:
-        scores = (data.team_a_score, data.team_b_score)
-        if max(scores) != 2 or min(scores) > 1:
-            raise HTTPException(400, "BO3 결과는 2:0, 2:1, 0:2, 1:2만 가능합니다.")
-    else:
-        raise HTTPException(400, "공식 경기 방식은 2경기 세트 또는 BO3만 가능합니다.")
+    if data.best_of != 3:
+        raise HTTPException(400, "공식 조별 경기는 BO3로만 등록할 수 있습니다.")
+    scores = (data.team_a_score, data.team_b_score)
+    if max(scores) != 2 or min(scores) > 1:
+        raise HTTPException(400, "BO3 결과는 2:0, 2:1, 0:2, 1:2만 가능합니다.")
     return {
         **data.model_dump(),
         "winner_team_id": (
@@ -2238,6 +2234,12 @@ async def create_tournament_result(data: ScrimResultInput, request: Request):
             for team_ids in group_team_ids
         ):
             raise HTTPException(400, "같은 조에 속한 팀끼리만 공식 조별 결과를 등록할 수 있습니다.")
+        pair = {data.team_a_id, data.team_b_id}
+        if any(
+            {item.get("team_a_id"), item.get("team_b_id")} == pair
+            for item in store.state.get("tournament_results", [])
+        ):
+            raise HTTPException(400, "같은 조별 대진의 결과는 한 번만 등록할 수 있습니다.")
         result = {
             "id": uuid.uuid4().hex,
             **tournament_result_payload(data),
@@ -2245,6 +2247,7 @@ async def create_tournament_result(data: ScrimResultInput, request: Request):
             "updated_at": time.time(),
         }
         store.state.setdefault("tournament_results", []).append(result)
+        engine.update_group_qualification_suggestions(store.state)
         store.save()
     await broadcast()
     return result
