@@ -374,6 +374,8 @@ class MatchWinnerInput(BaseModel):
     round_index: int = Field(ge=0)
     match_index: int = Field(ge=0)
     team_id: str
+    team1_score: int | None = Field(default=None, ge=0, le=99)
+    team2_score: int | None = Field(default=None, ge=0, le=99)
 
 
 class GroupQualifiersInput(BaseModel):
@@ -2166,6 +2168,8 @@ async def select_tournament_winner(
             data.round_index,
             data.match_index,
             data.team_id,
+            data.team1_score,
+            data.team2_score,
         )
     )
 

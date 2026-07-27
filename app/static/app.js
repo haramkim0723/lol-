@@ -2113,13 +2113,21 @@ function renderTournamentBracket() {
           <div class="bracket-match-label">MATCH ${matchIndex + 1}${match.winner_id ? " · FINISHED" : ""}</div>
           ${["team1_id", "team2_id"].map((slot) => {
             const team = teamById(match[slot]);
-            const canSelect = isHost && team && match.team1_id && match.team2_id && !match.winner_id;
-            return `<button class="bracket-team${team ? " ready" : ""}${match.winner_id === team?.id ? " winner" : ""}" type="button"
-              ${canSelect ? `data-match-winner="${team.id}" data-round-index="${roundIndex}" data-match-index="${matchIndex}"` : "disabled"}>
+            const scoreKey = slot === "team1_id" ? "team1_score" : "team2_score";
+            return `<div class="bracket-team${team ? " ready" : ""}${match.winner_id === team?.id ? " winner" : ""}">
               <strong>${escapeHtml(team?.name || "TBD")}</strong>
-              <span>${team ? `${team.total_score}점` : ""}</span>
-            </button>`;
+              <span>${match[scoreKey] ?? ""}</span>
+            </div>`;
           }).join("")}
+          ${isHost && match.team1_id && match.team2_id ? `
+            <div class="bracket-score-editor">
+              <input type="number" min="0" max="99" value="${match.team1_score ?? ""}" placeholder="A" aria-label="팀 A 스코어" />
+              <b>:</b>
+              <input type="number" min="0" max="99" value="${match.team2_score ?? ""}" placeholder="B" aria-label="팀 B 스코어" />
+              <button class="ghost" type="button" data-match-score-save data-round-index="${roundIndex}" data-match-index="${matchIndex}">
+                ${match.winner_id ? "결과 수정" : "결과 저장"}
+              </button>
+            </div>` : ""}
         </div>`).join("")}
     </section>`).join("");
 }
@@ -3318,7 +3326,7 @@ document.addEventListener("click", async (event) => {
   const renameTeamSaveButton = event.target.closest("[data-team-rename-save]");
   const renameTeamCancelButton = event.target.closest("[data-team-rename-cancel]");
   const teamActionButton = event.target.closest("[data-team-rename], [data-team-rename-save], [data-team-approve], [data-team-reject], [data-team-delete]");
-  const winnerButton = event.target.closest("[data-match-winner]");
+  const winnerButton = event.target.closest("[data-match-score-save]");
   const setTeamActionBusy = (busy) => {
     if (!teamActionButton) return;
     const card = teamActionButton.closest(".registered-team");
@@ -3379,12 +3387,28 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (winnerButton) {
+      const editor = winnerButton.closest(".bracket-score-editor");
+      const inputs = [...editor.querySelectorAll("input")];
+      if (inputs.some((input) => input.value === "")) {
+        toast("두 팀의 스코어를 모두 입력해 주세요.", true);
+        return;
+      }
+      const scores = inputs.map((input) => Number(input.value));
+      if (scores[0] === scores[1]) {
+        toast("본선 경기는 동점으로 저장할 수 없습니다.", true);
+        return;
+      }
+      const roundIndex = Number(winnerButton.dataset.roundIndex);
+      const matchIndex = Number(winnerButton.dataset.matchIndex);
+      const match = state.tournament.rounds[roundIndex][matchIndex];
       await api("/api/tournament/winner", {
         method: "POST",
         body: JSON.stringify({
-          round_index: Number(winnerButton.dataset.roundIndex),
-          match_index: Number(winnerButton.dataset.matchIndex),
-          team_id: winnerButton.dataset.matchWinner,
+          round_index: roundIndex,
+          match_index: matchIndex,
+          team_id: scores[0] > scores[1] ? match.team1_id : match.team2_id,
+          team1_score: scores[0],
+          team2_score: scores[1],
         }),
       });
       await refreshState();

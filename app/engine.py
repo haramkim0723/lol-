@@ -801,6 +801,8 @@ def _create_knockout(tournament: dict[str, Any], approved: list[str]) -> None:
                     "team1_id": None,
                     "team2_id": None,
                     "winner_id": None,
+                    "team1_score": None,
+                    "team2_score": None,
                 }
                 for _ in range(match_count)
             ]
@@ -816,10 +818,15 @@ def _create_knockout(tournament: dict[str, Any], approved: list[str]) -> None:
 
 
 def select_match_winner(
-    state: dict[str, Any], round_index: int, match_index: int, team_id: str
+    state: dict[str, Any],
+    round_index: int,
+    match_index: int,
+    team_id: str,
+    team1_score: int | None = None,
+    team2_score: int | None = None,
 ) -> None:
     tournament = state["tournament"]
-    if tournament["status"] != "running":
+    if tournament["status"] not in ("running", "finished"):
         raise ValueError("진행 중인 토너먼트가 아닙니다.")
     try:
         match = tournament["rounds"][round_index][match_index]
@@ -829,7 +836,23 @@ def select_match_winner(
         raise ValueError("이 경기에 참가하지 않은 팀입니다.")
     if not match["team1_id"] or not match["team2_id"]:
         raise ValueError("부전승 경기는 자동으로 처리됩니다.")
+    if (team1_score is None) != (team2_score is None):
+        raise ValueError("두 팀의 스코어를 모두 입력해 주세요.")
+    if team1_score is not None:
+        if team1_score == team2_score:
+            raise ValueError("본선 경기 스코어는 동점일 수 없습니다.")
+        score_winner = (
+            match["team1_id"] if team1_score > team2_score else match["team2_id"]
+        )
+        if score_winner != team_id:
+            raise ValueError("입력한 스코어와 승리 팀이 일치하지 않습니다.")
+    if match.get("winner_id") and match["winner_id"] != team_id:
+        _clear_downstream_result(tournament, round_index, match_index)
+    tournament["status"] = "running"
+    tournament["champion_id"] = None
     match["winner_id"] = team_id
+    match["team1_score"] = team1_score
+    match["team2_score"] = team2_score
     loser_id = (
         match["team2_id"] if team_id == match["team1_id"] else match["team1_id"]
     )
@@ -849,6 +872,34 @@ def select_match_winner(
     next_match[slot] = team_id
     next_match["winner_id"] = None
     _advance_byes(tournament)
+
+
+def _clear_downstream_result(
+    tournament: dict[str, Any], round_index: int, match_index: int
+) -> None:
+    match = tournament["rounds"][round_index][match_index]
+    if "winner_to" in match or "loser_to" in match:
+        routes = [match.get("winner_to"), match.get("loser_to")]
+    elif round_index < len(tournament["rounds"]) - 1:
+        routes = [{
+            "round_index": round_index + 1,
+            "match_index": match_index // 2,
+            "slot": "team1_id" if match_index % 2 == 0 else "team2_id",
+        }]
+    else:
+        routes = []
+    for route in routes:
+        if route is None:
+            continue
+        target_round = route["round_index"]
+        target_match = route["match_index"]
+        target = tournament["rounds"][target_round][target_match]
+        if target.get("winner_id"):
+            _clear_downstream_result(tournament, target_round, target_match)
+        target[route["slot"]] = None
+        target["winner_id"] = None
+        target["team1_score"] = None
+        target["team2_score"] = None
 
 
 def set_custom_bracket(
@@ -875,6 +926,8 @@ def set_custom_bracket(
                     "team1_id": definition.get("team1_id"),
                     "team2_id": definition.get("team2_id"),
                     "winner_id": None,
+                    "team1_score": None,
+                    "team2_score": None,
                     "winner_to": definition.get("winner_to"),
                     "loser_to": definition.get("loser_to"),
                 }
