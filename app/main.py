@@ -407,9 +407,9 @@ class ScrimResultInput(BaseModel):
     team_a_id: str
     team_b_id: str
     match_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
-    best_of: int = Field(default=3)
-    team_a_score: int = Field(ge=0, le=3)
-    team_b_score: int = Field(ge=0, le=3)
+    best_of: int = Field(default=2)
+    team_a_score: int = Field(ge=0, le=2)
+    team_b_score: int = Field(ge=0, le=2)
     memo: str | None = Field(default=None, max_length=500)
 
 
@@ -2173,8 +2173,10 @@ async def select_tournament_winner(
 def scrim_result_payload(data: ScrimResultInput) -> dict:
     if data.team_a_id == data.team_b_id:
         raise HTTPException(400, "서로 다른 두 팀을 선택해 주세요.")
-    if data.best_of not in (3, 5):
-        raise HTTPException(400, "경기 방식은 BO3 또는 BO5만 선택할 수 있습니다.")
+    if data.best_of != 2:
+        raise HTTPException(400, "스크림은 2경기 세트로만 등록할 수 있습니다.")
+    if data.team_a_score + data.team_b_score != 2:
+        raise HTTPException(400, "두 팀의 스코어 합계는 2경기여야 합니다.")
     return {
         **data.model_dump(),
         "winner_team_id": (

@@ -1011,10 +1011,8 @@ class ApiFlowTest(unittest.TestCase):
                     "set_losses": 0,
                     "series_wins": 0,
                     "series_losses": 0,
-                    "bo3_wins": 0,
-                    "bo3_losses": 0,
-                    "bo5_wins": 0,
-                    "bo5_losses": 0,
+                    "two_game_wins": 0,
+                    "two_game_losses": 0,
                 }
                 for team in state_payload["tournament"]["teams"]
             }
@@ -1030,11 +1028,10 @@ class ApiFlowTest(unittest.TestCase):
                 a["series_losses"] += 0 if a_won else 1
                 b["series_wins"] += 0 if a_won else 1
                 b["series_losses"] += 1 if a_won else 0
-                prefix = "bo5" if result["best_of"] == 5 else "bo3"
-                a[f"{prefix}_wins"] += 1 if a_won else 0
-                a[f"{prefix}_losses"] += 0 if a_won else 1
-                b[f"{prefix}_wins"] += 0 if a_won else 1
-                b[f"{prefix}_losses"] += 1 if a_won else 0
+                a["two_game_wins"] += 1 if a_won else 0
+                a["two_game_losses"] += 0 if a_won else 1
+                b["two_game_wins"] += 0 if a_won else 1
+                b["two_game_losses"] += 1 if a_won else 0
             return stats
 
         with TestClient(app) as host_client:
@@ -1075,10 +1072,10 @@ class ApiFlowTest(unittest.TestCase):
             )
             self.assertEqual(winner.status_code, 200)
 
-            for team_a, team_b, best_of, score_a, score_b in (
-                (teams[0], teams[1], 3, 2, 0),
-                (teams[0], teams[2], 3, 1, 2),
-                (teams[3], teams[4], 5, 3, 2),
+            for team_a, team_b, score_a, score_b in (
+                (teams[0], teams[1], 2, 0),
+                (teams[0], teams[2], 0, 2),
+                (teams[3], teams[4], 2, 0),
             ):
                 result = host_client.post(
                     "/api/scrim/results",
@@ -1086,7 +1083,7 @@ class ApiFlowTest(unittest.TestCase):
                         "team_a_id": team_a["id"],
                         "team_b_id": team_b["id"],
                         "match_date": "2026-07-10",
-                        "best_of": best_of,
+                        "best_of": 2,
                         "team_a_score": score_a,
                         "team_b_score": score_b,
                     },
@@ -1098,9 +1095,9 @@ class ApiFlowTest(unittest.TestCase):
             stats = scrim_stats(state_payload)
             self.assertEqual(stats[teams[0]["id"]]["series_wins"], 1)
             self.assertEqual(stats[teams[0]["id"]]["series_losses"], 1)
-            self.assertEqual(stats[teams[0]["id"]]["set_wins"], 3)
+            self.assertEqual(stats[teams[0]["id"]]["set_wins"], 2)
             self.assertEqual(stats[teams[0]["id"]]["set_losses"], 2)
-            self.assertEqual(stats[teams[3]["id"]]["bo5_wins"], 1)
+            self.assertEqual(stats[teams[3]["id"]]["two_game_wins"], 1)
             self.assertEqual(
                 round(
                     stats[teams[0]["id"]]["series_wins"]
@@ -1397,9 +1394,9 @@ class ApiFlowTest(unittest.TestCase):
                         "team_a_id": teams[0]["id"],
                         "team_b_id": teams[1]["id"],
                         "match_date": "2026-07-10",
-                        "best_of": 3,
+                        "best_of": 2,
                         "team_a_score": 2,
-                        "team_b_score": 1,
+                        "team_b_score": 0,
                     },
                 )
                 self.assertEqual(scrim_result.status_code, 200)
@@ -1410,7 +1407,7 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(stats[teams[0]["id"]]["series_wins"], 1)
             self.assertEqual(stats[teams[1]["id"]]["series_losses"], 1)
             self.assertEqual(stats[teams[0]["id"]]["set_wins"], 2)
-            self.assertEqual(stats[teams[0]["id"]]["set_losses"], 1)
+            self.assertEqual(stats[teams[0]["id"]]["set_losses"], 0)
 
             start = host_client.post("/api/tournament/start")
             self.assertEqual(start.status_code, 200)
@@ -1510,9 +1507,9 @@ class ApiFlowTest(unittest.TestCase):
                         "team_a_id": team_id,
                         "team_b_id": opponent_id,
                         "match_date": "2026-07-07",
-                        "best_of": 3,
+                        "best_of": 2,
                         "team_a_score": 2,
-                        "team_b_score": 1,
+                        "team_b_score": 0,
                     },
                 )
                 self.assertEqual(created.status_code, 200)
@@ -1524,9 +1521,9 @@ class ApiFlowTest(unittest.TestCase):
                         "team_a_id": team_id,
                         "team_b_id": opponent_id,
                         "match_date": "2026-07-08",
-                        "best_of": 5,
-                        "team_a_score": 2,
-                        "team_b_score": 3,
+                        "best_of": 2,
+                        "team_a_score": 0,
+                        "team_b_score": 2,
                     },
                 )
                 self.assertEqual(updated.status_code, 200)
@@ -1538,9 +1535,9 @@ class ApiFlowTest(unittest.TestCase):
                         "team_a_id": team_id,
                         "team_b_id": opponent_id,
                         "match_date": "2026-07-09",
-                        "best_of": 5,
-                        "team_a_score": 2,
-                        "team_b_score": 2,
+                        "best_of": 2,
+                        "team_a_score": 1,
+                        "team_b_score": 1,
                     },
                 )
                 self.assertEqual(draw_score.status_code, 200)
@@ -1566,9 +1563,9 @@ class ApiFlowTest(unittest.TestCase):
                         "team_a_id": team_id,
                         "team_b_id": opponent_id,
                         "match_date": "2026-07-07",
-                        "best_of": 3,
+                        "best_of": 2,
                         "team_a_score": 2,
-                        "team_b_score": 1,
+                        "team_b_score": 0,
                     },
                 )
                 self.assertEqual(forbidden.status_code, 403)
@@ -1622,7 +1619,7 @@ class ApiFlowTest(unittest.TestCase):
                     "team_a_id": pending["id"],
                     "team_b_id": approved[0]["id"],
                     "match_date": "2026-07-12",
-                    "best_of": 3,
+                    "best_of": 2,
                     "team_a_score": 2,
                     "team_b_score": 0,
                 },
@@ -1767,9 +1764,9 @@ class ApiFlowTest(unittest.TestCase):
                     "team_a_id": teams[0]["id"],
                     "team_b_id": teams[0]["id"],
                     "match_date": "2026-07-12",
-                    "best_of": 3,
+                    "best_of": 2,
                     "team_a_score": 1,
-                    "team_b_score": 0,
+                    "team_b_score": 1,
                 },
             )
             self.assertEqual(same_team.status_code, 400)
@@ -1779,7 +1776,7 @@ class ApiFlowTest(unittest.TestCase):
                     "team_a_id": teams[0]["id"],
                     "team_b_id": teams[1]["id"],
                     "match_date": "2026-07-12",
-                    "best_of": 3,
+                    "best_of": 2,
                     "team_a_score": 2,
                     "team_b_score": 0,
                 },
@@ -1792,7 +1789,7 @@ class ApiFlowTest(unittest.TestCase):
                     "team_a_id": teams[2]["id"],
                     "team_b_id": teams[3]["id"],
                     "match_date": "2026-07-12",
-                    "best_of": 5,
+                    "best_of": 2,
                     "team_a_score": 1,
                     "team_b_score": 1,
                 },

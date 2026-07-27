@@ -2811,7 +2811,7 @@ $("#play-group-draw-button")?.addEventListener("click", () => {
 $("#group-result-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const payload = Object.fromEntries(new FormData(event.target));
-  payload.best_of = Number(payload.best_of || 3);
+  payload.best_of = Number(payload.best_of || 2);
   payload.team_a_score = Number(payload.team_a_score || 0);
   payload.team_b_score = Number(payload.team_b_score || 0);
   try {
@@ -3362,8 +3362,7 @@ function renderScrimResultForm() {
 function scrimStatsByTeam() {
   const stats = new Map(state.tournament.teams.map((team) => [team.id, {
     team, setWins: 0, setLosses: 0, seriesWins: 0, seriesLosses: 0,
-    seriesDraws: 0, bo3Wins: 0, bo3Losses: 0, bo3Draws: 0,
-    bo5Wins: 0, bo5Losses: 0, bo5Draws: 0,
+    seriesDraws: 0,
   }]));
   (state.scrim_results || []).forEach((result) => {
     const a = stats.get(result.team_a_id);
@@ -3381,13 +3380,6 @@ function scrimStatsByTeam() {
     b.seriesWins += !draw && !aWon ? 1 : 0;
     b.seriesLosses += !draw && aWon ? 1 : 0;
     b.seriesDraws += draw ? 1 : 0;
-    const prefix = Number(result.best_of || 3) === 5 ? "bo5" : "bo3";
-    a[`${prefix}Wins`] += !draw && aWon ? 1 : 0;
-    a[`${prefix}Losses`] += !draw && !aWon ? 1 : 0;
-    a[`${prefix}Draws`] += draw ? 1 : 0;
-    b[`${prefix}Wins`] += !draw && !aWon ? 1 : 0;
-    b[`${prefix}Losses`] += !draw && aWon ? 1 : 0;
-    b[`${prefix}Draws`] += draw ? 1 : 0;
   });
   return [...stats.values()].sort((left, right) => {
     const leftRate = left.seriesWins / Math.max(1, left.seriesWins + left.seriesLosses);
@@ -3405,7 +3397,7 @@ function renderScrimWinrates() {
   const list = $("#scrim-winrate-list");
   const stats = scrimStatsByTeam();
   list.innerHTML = stats.length ? stats.map((item, index) => `
-    <article class="scrim-winrate-card">
+    <article class="scrim-winrate-card${item.team.id === selectedScrimTeamId ? " selected" : ""}" data-scrim-stats-team-id="${item.team.id}" tabindex="0" role="button">
       <div class="scrim-winrate-head">
         <strong>${index + 1}. ${escapeHtml(item.team.name)}</strong>
         <b>${percent(item.seriesWins, item.seriesLosses)}</b>
@@ -3413,8 +3405,7 @@ function renderScrimWinrates() {
       <div class="scrim-winrate-records">
         <span>세트 승률<strong>${percent(item.setWins, item.setLosses)} · ${item.setWins}승 ${item.setLosses}패</strong></span>
         <span>시리즈 승률<strong>${item.seriesWins}승 ${item.seriesDraws}무 ${item.seriesLosses}패</strong></span>
-        <span>BO3<strong>${item.bo3Wins}승 ${item.bo3Draws}무 ${item.bo3Losses}패</strong></span>
-        <span>BO5<strong>${item.bo5Wins}승 ${item.bo5Draws}무 ${item.bo5Losses}패</strong></span>
+        <span>2경기 세트<strong>${item.seriesWins + item.seriesDraws + item.seriesLosses}회</strong></span>
       </div>
     </article>
   `).join("") : '<div class="empty-state">등록된 팀이 없습니다.</div>';
@@ -3428,8 +3419,11 @@ function renderScrimResults() {
       || result.team_a_id === selectedScrimTeamId
       || result.team_b_id === selectedScrimTeamId)
     .sort((left, right) => String(right.match_date).localeCompare(String(left.match_date)));
+  const selectedTeam = selectedScrimTeamId ? teamById(selectedScrimTeamId) : null;
+  $("#scrim-history-title").textContent = selectedTeam
+    ? `${selectedTeam.name} · 상대별 경기 내역`
+    : "최근 스크림 결과";
   if (!results.length) {
-    const selectedTeam = selectedScrimTeamId ? teamById(selectedScrimTeamId) : null;
     list.innerHTML = `<div class="empty-state">${selectedTeam ? `${escapeHtml(selectedTeam.name)} 팀의 등록된 결과가 없습니다.` : "아직 등록된 결과가 없습니다."}</div>`;
     return;
   }
@@ -3437,12 +3431,19 @@ function renderScrimResults() {
     const teamA = teamById(result.team_a_id);
     const teamB = teamById(result.team_b_id);
     const canEdit = Boolean(teamA?.can_manage_scrim_result || teamB?.can_manage_scrim_result);
+    const selectedIsA = selectedScrimTeamId === result.team_a_id;
+    const opponent = selectedIsA ? teamB : teamA;
+    const selectedScore = selectedIsA ? result.team_a_score : result.team_b_score;
+    const opponentScore = selectedIsA ? result.team_b_score : result.team_a_score;
+    const scoreMarkup = selectedTeam
+      ? `${escapeHtml(selectedTeam.name)} ${selectedScore} : ${opponentScore} ${escapeHtml(opponent?.name || "삭제된 팀")}`
+      : `${escapeHtml(teamA?.name || "삭제된 팀")} ${result.team_a_score} : ${result.team_b_score} ${escapeHtml(teamB?.name || "삭제된 팀")}`;
     return `
       <article class="team-item scrim-result-item">
         <div class="team-head">
           <div>
-            <strong>${escapeHtml(teamA?.name || "삭제된 팀")} ${result.team_a_score} : ${result.team_b_score} ${escapeHtml(teamB?.name || "삭제된 팀")}</strong>
-            <div class="meta">${escapeHtml(result.match_date)} · BO${result.best_of || 3}${result.memo ? ` · ${escapeHtml(result.memo)}` : ""}</div>
+            <strong>${scoreMarkup}</strong>
+            <div class="meta">${escapeHtml(result.match_date)} · ${Number(result.best_of) === 2 ? "2경기 세트" : `기존 BO${result.best_of || 3}`}${result.memo ? ` · ${escapeHtml(result.memo)}` : ""}</div>
           </div>
           ${canEdit ? `<button class="ghost" type="button" data-edit-scrim-result="${result.id}">수정</button>` : ""}
         </div>
@@ -3576,9 +3577,44 @@ $("#team-list").addEventListener("click", (event) => {
   selectedScrimTeamId =
     selectedScrimTeamId === card.dataset.scrimTeamId ? null : card.dataset.scrimTeamId;
   renderScrimTeams();
+  renderScrimWinrates();
   renderScrimResultForm();
   renderScrimResults();
   $("#scrim-result-list").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+$("#scrim-winrate-list").addEventListener("click", (event) => {
+  const card = event.target.closest("[data-scrim-stats-team-id]");
+  if (!card) return;
+  selectedScrimTeamId =
+    selectedScrimTeamId === card.dataset.scrimStatsTeamId
+      ? null
+      : card.dataset.scrimStatsTeamId;
+  renderScrimTeams();
+  renderScrimWinrates();
+  renderScrimResultForm();
+  renderScrimResults();
+  $("#scrim-result-list").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+$("#scrim-winrate-list").addEventListener("keydown", (event) => {
+  if (!["Enter", " "].includes(event.key)) return;
+  const card = event.target.closest("[data-scrim-stats-team-id]");
+  if (!card) return;
+  event.preventDefault();
+  card.click();
+});
+
+["group-result-form", "scrim-result-form"].forEach((formId) => {
+  const form = document.getElementById(formId);
+  if (!form) return;
+  ["team_a_score", "team_b_score"].forEach((fieldName) => {
+    form.elements[fieldName].addEventListener("input", (event) => {
+      const score = Math.max(0, Math.min(2, Number(event.target.value || 0)));
+      const otherName = fieldName === "team_a_score" ? "team_b_score" : "team_a_score";
+      form.elements[otherName].value = 2 - score;
+    });
+  });
 });
 
 $("#scrim-result-form").addEventListener("submit", async (event) => {
@@ -3624,11 +3660,12 @@ $("#scrim-result-list").addEventListener("click", (event) => {
   $("#scrim-result-entry").open = true;
   form.elements.result_id.value = result.id;
   form.elements.match_date.value = result.match_date;
-  form.elements.best_of.value = result.best_of || 3;
+  form.elements.best_of.value = 2;
   form.elements.team_a_id.value = result.team_a_id;
   form.elements.team_b_id.value = result.team_b_id;
-  form.elements.team_a_score.value = result.team_a_score;
-  form.elements.team_b_score.value = result.team_b_score;
+  const isTwoGameResult = Number(result.best_of) === 2;
+  form.elements.team_a_score.value = isTwoGameResult ? result.team_a_score : 1;
+  form.elements.team_b_score.value = isTwoGameResult ? result.team_b_score : 1;
   form.elements.memo.value = result.memo || "";
   $("#cancel-result-edit").classList.remove("hidden");
   form.scrollIntoView({ behavior: "smooth", block: "center" });
