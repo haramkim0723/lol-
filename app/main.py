@@ -263,6 +263,7 @@ STATE_MUTATION_PATHS = (
     "/api/admin/setup-test-competitions",
     "/api/admin/competitions",
     "/api/notices",
+    "/api/roster",
     "/api/roster-score-table",
     "/api/captains",
     "/api/players",

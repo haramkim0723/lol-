@@ -17,7 +17,7 @@ os.environ["SCRIM_ALLOW_PUBLIC_SIGNUP"] = "true"
 
 from fastapi.testclient import TestClient
 
-from app.main import app, store
+from app.main import app, requires_state_refresh, store
 from app import scrim_db
 from app.scrim_db import db_path as scrim_db_path
 
@@ -266,6 +266,26 @@ class ApiFlowTest(unittest.TestCase):
                         "score": "33.2",
                     },
                 ],
+            )
+
+    def test_serverless_roster_mutations_refresh_persistent_state(self):
+        for method, path in (
+            ("PATCH", "/api/roster/23"),
+            ("PATCH", "/api/roster"),
+            ("POST", "/api/roster"),
+            ("DELETE", "/api/roster/23"),
+        ):
+            request = type(
+                "RequestStub",
+                (),
+                {
+                    "method": method,
+                    "url": type("UrlStub", (), {"path": path})(),
+                },
+            )()
+            self.assertTrue(
+                requires_state_refresh(request),
+                f"{method} {path} must refresh persistent state on Vercel",
             )
 
     def test_roster_applied_unpaid_filter(self):
