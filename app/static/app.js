@@ -105,6 +105,8 @@ let selectedScrimTeamId = null;
 let pendingApiCount = 0;
 let pollStateInFlight = false;
 let celebrationTimer = null;
+let liveSocket = null;
+let socketReconnectTimer = null;
 const STATE_POLL_INTERVAL_MS = 15000;
 const STATE_POLL_VIEWS = new Set(["poster", "setup", "auction", "tournament", "scrim"]);
 let simulatorExcludedSignature = "";
@@ -2384,8 +2386,14 @@ function connectSocket() {
     setInterval(pollState, STATE_POLL_INTERVAL_MS);
     return;
   }
+  clearTimeout(socketReconnectTimer);
+  if (liveSocket) {
+    liveSocket.onclose = null;
+    liveSocket.close();
+  }
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(`${protocol}//${location.host}/ws`);
+  liveSocket = socket;
   socket.onopen = () => {
     $("#socket-dot").classList.add("online");
     $("#socket-text").textContent = "실시간 연결됨";
@@ -2402,9 +2410,10 @@ function connectSocket() {
     }
   };
   socket.onclose = () => {
+    if (liveSocket !== socket) return;
     $("#socket-dot").classList.remove("online");
     $("#socket-text").textContent = "재연결 중";
-    setTimeout(connectSocket, 1500);
+    socketReconnectTimer = setTimeout(connectSocket, 1500);
   };
 }
 
@@ -2538,6 +2547,7 @@ $("#login-form").addEventListener("submit", async (event) => {
     state = nextState;
     stateSignature = meaningfulStateSignature(state);
     authPromptOpen = false;
+    connectSocket();
     if (status) {
       status.className = "login-status";
       status.textContent = "로그인 성공.";
