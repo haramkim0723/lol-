@@ -104,6 +104,7 @@ let rosterPage = 1;
 let selectedScrimTeamId = null;
 let pendingApiCount = 0;
 let pollStateInFlight = false;
+let celebrationTimer = null;
 const STATE_POLL_INTERVAL_MS = 15000;
 const STATE_POLL_VIEWS = new Set(["poster", "setup", "auction", "tournament", "scrim"]);
 let simulatorExcludedSignature = "";
@@ -2098,6 +2099,23 @@ function renderTournamentBracket() {
   $("#tournament-champion").textContent = tournament.champion_id
     ? `🏆 ${teamById(tournament.champion_id)?.name || ""} 우승`
     : "";
+  const champion = teamById(tournament.champion_id);
+  const winnerShowcase = $("#tournament-winner-showcase");
+  if (winnerShowcase) {
+    winnerShowcase.classList.toggle("hidden", !champion);
+    winnerShowcase.innerHTML = champion ? `
+      <span>TOURNAMENT CHAMPION</span>
+      <div class="winner-crown">♛</div>
+      <small>WINNER</small>
+      <strong>${escapeHtml(champion.name)}</strong>
+      <p>최종 우승을 축하합니다!</p>
+      <button class="ghost" type="button" data-replay-celebration>🎉 세리머니 다시 보기</button>
+    ` : "";
+  }
+  if (champion && sessionStorage.getItem("celebratedChampionId") !== champion.id) {
+    sessionStorage.setItem("celebratedChampionId", champion.id);
+    requestAnimationFrame(() => playChampionCelebration(champion.name));
+  }
   const roundLabel = (roundIndex) => {
     const remaining = tournament.rounds.length - roundIndex;
     if (remaining === 1) return "FINAL";
@@ -2105,10 +2123,7 @@ function renderTournamentBracket() {
     if (remaining === 3) return "QUARTER-FINALS";
     return `ROUND OF ${2 ** remaining}`;
   };
-  $("#tournament-bracket").innerHTML = tournament.rounds.map((round, roundIndex) => `
-    <section class="bracket-round">
-      <div class="bracket-round-title">${escapeHtml(tournament.round_labels?.[roundIndex] || roundLabel(roundIndex))}</div>
-      ${round.map((match, matchIndex) => `
+  const matchMarkup = (match, roundIndex, matchIndex) => `
         <div class="bracket-match">
           <div class="bracket-match-label">MATCH ${matchIndex + 1}${match.winner_id ? " · FINISHED" : ""}</div>
           ${["team1_id", "team2_id"].map((slot) => {
@@ -2128,8 +2143,60 @@ function renderTournamentBracket() {
                 ${match.winner_id ? "결과 수정" : "결과 저장"}
               </button>
             </div>` : ""}
-        </div>`).join("")}
-    </section>`).join("");
+        </div>`;
+  const lastRoundIndex = tournament.rounds.length - 1;
+  if (lastRoundIndex < 1) {
+    $("#tournament-bracket").innerHTML = tournament.rounds.map((round, roundIndex) => `
+      <section class="bracket-round bracket-final">
+        <div class="bracket-round-title">${escapeHtml(tournament.round_labels?.[roundIndex] || roundLabel(roundIndex))}</div>
+        ${round.map((match, matchIndex) => matchMarkup(match, roundIndex, matchIndex)).join("")}
+      </section>`).join("");
+    return;
+  }
+  const sideRoundMarkup = (roundIndex, side) => {
+    const round = tournament.rounds[roundIndex];
+    const half = Math.ceil(round.length / 2);
+    const start = side === "left" ? 0 : half;
+    const matches = round.slice(start, side === "left" ? half : round.length);
+    return `<section class="bracket-round bracket-${side}" data-depth="${roundIndex}">
+      <div class="bracket-round-title">${escapeHtml(tournament.round_labels?.[roundIndex] || roundLabel(roundIndex))}</div>
+      ${matches.map((match, index) => matchMarkup(match, roundIndex, start + index)).join("")}
+    </section>`;
+  };
+  const leftRounds = Array.from(
+    { length: lastRoundIndex },
+    (_, index) => sideRoundMarkup(index, "left")
+  ).join("");
+  const rightRounds = Array.from(
+    { length: lastRoundIndex },
+    (_, index) => sideRoundMarkup(lastRoundIndex - index - 1, "right")
+  ).join("");
+  const finalRound = tournament.rounds[lastRoundIndex];
+  $("#tournament-bracket").innerHTML = `
+    <div class="bracket-wing bracket-wing-left">${leftRounds}</div>
+    <section class="bracket-round bracket-final">
+      <div class="bracket-round-title">${escapeHtml(tournament.round_labels?.[lastRoundIndex] || "FINAL")}</div>
+      ${finalRound.map((match, matchIndex) => matchMarkup(match, lastRoundIndex, matchIndex)).join("")}
+    </section>
+    <div class="bracket-wing bracket-wing-right">${rightRounds}</div>`;
+}
+
+function playChampionCelebration(teamName) {
+  document.querySelector(".champion-celebration")?.remove();
+  clearTimeout(celebrationTimer);
+  const overlay = document.createElement("div");
+  overlay.className = "champion-celebration";
+  const colors = ["#f2c45f", "#56d5ff", "#62e6b5", "#ff6f91", "#ffffff"];
+  overlay.innerHTML = `
+    <div class="champion-celebration-title">
+      <small>TOURNAMENT WINNER</small>
+      <strong>🏆 ${escapeHtml(teamName)}</strong>
+    </div>
+    ${Array.from({ length: 90 }, (_, index) => `
+      <i style="--x:${(index * 37) % 100}%;--delay:${(index % 18) * .08}s;--duration:${2.8 + (index % 9) * .18}s;--color:${colors[index % colors.length]};--rotate:${(index * 47) % 360}deg"></i>
+    `).join("")}`;
+  document.body.appendChild(overlay);
+  celebrationTimer = setTimeout(() => overlay.remove(), 7000);
 }
 
 function updateCaptainPreview() {
@@ -3327,6 +3394,7 @@ document.addEventListener("click", async (event) => {
   const renameTeamCancelButton = event.target.closest("[data-team-rename-cancel]");
   const teamActionButton = event.target.closest("[data-team-rename], [data-team-rename-save], [data-team-approve], [data-team-reject], [data-team-delete]");
   const winnerButton = event.target.closest("[data-match-score-save]");
+  const replayCelebrationButton = event.target.closest("[data-replay-celebration]");
   const setTeamActionBusy = (busy) => {
     if (!teamActionButton) return;
     const card = teamActionButton.closest(".registered-team");
@@ -3341,6 +3409,13 @@ document.addEventListener("click", async (event) => {
     }
   };
   try {
+    if (replayCelebrationButton) {
+      const champion = state.tournament.teams.find(
+        (team) => team.id === state.tournament.champion_id
+      );
+      if (champion) playChampionCelebration(champion.name);
+      return;
+    }
     if (renameTeamButton) {
       const card = renameTeamButton.closest(".registered-team");
       const editor = card?.querySelector(".registered-team-name-editor");
