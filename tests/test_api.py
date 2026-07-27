@@ -1287,6 +1287,7 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(initial_state["tournament"]["status"], "registration")
             self.assertEqual(initial_state["tournament"]["teams"], [])
             self.assertEqual(initial_state["scrim_results"], [])
+            self.assertEqual(initial_state["tournament_results"], [])
 
             applications = host_client.get("/api/participation/applications")
             self.assertEqual(applications.status_code, 200)
@@ -1587,6 +1588,7 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(initial["tournament"]["teams"], [])
             self.assertEqual(initial["tournament"]["rounds"], [])
             self.assertEqual(initial["scrim_results"], [])
+            self.assertEqual(initial["tournament_results"], [])
 
             blocked_start = client.post("/api/tournament/start")
             self.assertEqual(blocked_start.status_code, 400)
@@ -1651,7 +1653,7 @@ class ApiFlowTest(unittest.TestCase):
                 }
                 for team in state_payload["tournament"]["teams"]
             }
-            for result in state_payload["scrim_results"]:
+            for result in state_payload["tournament_results"]:
                 a = standings[result["team_a_id"]]
                 b = standings[result["team_b_id"]]
                 a["diff"] += result["team_a_score"] - result["team_b_score"]
@@ -1745,12 +1747,33 @@ class ApiFlowTest(unittest.TestCase):
                 if team_id
             }
             self.assertEqual(bracket_ids, set(qualifiers))
+            group_a_ids = drawn["tournament"]["groups"][0]["team_ids"]
+            group_b_ids = drawn["tournament"]["groups"][1]["team_ids"]
 
-            invalid_best_of = client.post(
+            scrim_only = client.post(
                 "/api/scrim/results",
                 json={
-                    "team_a_id": teams[0]["id"],
-                    "team_b_id": teams[1]["id"],
+                    "team_a_id": group_a_ids[0],
+                    "team_b_id": group_a_ids[1],
+                    "match_date": "2026-07-11",
+                    "best_of": 2,
+                    "team_a_score": 2,
+                    "team_b_score": 0,
+                },
+            )
+            self.assertEqual(scrim_only.status_code, 200)
+            isolated = client.get("/api/state").json()
+            self.assertEqual(len(isolated["scrim_results"]), 1)
+            self.assertEqual(isolated["tournament_results"], [])
+            self.assertTrue(
+                all(row["points"] == 0 for row in result_standings(isolated).values())
+            )
+
+            invalid_best_of = client.post(
+                "/api/tournament/results",
+                json={
+                    "team_a_id": group_a_ids[0],
+                    "team_b_id": group_a_ids[1],
                     "match_date": "2026-07-12",
                     "best_of": 1,
                     "team_a_score": 1,
@@ -1759,10 +1782,10 @@ class ApiFlowTest(unittest.TestCase):
             )
             self.assertEqual(invalid_best_of.status_code, 400)
             same_team = client.post(
-                "/api/scrim/results",
+                "/api/tournament/results",
                 json={
-                    "team_a_id": teams[0]["id"],
-                    "team_b_id": teams[0]["id"],
+                    "team_a_id": group_a_ids[0],
+                    "team_b_id": group_a_ids[0],
                     "match_date": "2026-07-12",
                     "best_of": 2,
                     "team_a_score": 1,
@@ -1771,10 +1794,10 @@ class ApiFlowTest(unittest.TestCase):
             )
             self.assertEqual(same_team.status_code, 400)
             win = client.post(
-                "/api/scrim/results",
+                "/api/tournament/results",
                 json={
-                    "team_a_id": teams[0]["id"],
-                    "team_b_id": teams[1]["id"],
+                    "team_a_id": group_a_ids[0],
+                    "team_b_id": group_a_ids[1],
                     "match_date": "2026-07-12",
                     "best_of": 2,
                     "team_a_score": 2,
@@ -1782,12 +1805,12 @@ class ApiFlowTest(unittest.TestCase):
                 },
             )
             self.assertEqual(win.status_code, 200)
-            self.assertEqual(win.json()["winner_team_id"], teams[0]["id"])
+            self.assertEqual(win.json()["winner_team_id"], group_a_ids[0])
             draw = client.post(
-                "/api/scrim/results",
+                "/api/tournament/results",
                 json={
-                    "team_a_id": teams[2]["id"],
-                    "team_b_id": teams[3]["id"],
+                    "team_a_id": group_b_ids[0],
+                    "team_b_id": group_b_ids[1],
                     "match_date": "2026-07-12",
                     "best_of": 2,
                     "team_a_score": 1,
@@ -1798,14 +1821,14 @@ class ApiFlowTest(unittest.TestCase):
             self.assertIsNone(draw.json()["winner_team_id"])
             with_results = client.get("/api/state").json()
             standings = result_standings(with_results)
-            self.assertEqual(standings[teams[0]["id"]]["points"], 3)
-            self.assertEqual(standings[teams[0]["id"]]["diff"], 2)
-            self.assertEqual(standings[teams[1]["id"]]["points"], 0)
-            self.assertEqual(standings[teams[1]["id"]]["diff"], -2)
-            self.assertEqual(standings[teams[2]["id"]]["points"], 1)
-            self.assertEqual(standings[teams[3]["id"]]["points"], 1)
-            self.assertEqual(standings[teams[2]["id"]]["draws"], 1)
-            self.assertEqual(standings[teams[3]["id"]]["draws"], 1)
+            self.assertEqual(standings[group_a_ids[0]]["points"], 3)
+            self.assertEqual(standings[group_a_ids[0]]["diff"], 2)
+            self.assertEqual(standings[group_a_ids[1]]["points"], 0)
+            self.assertEqual(standings[group_a_ids[1]]["diff"], -2)
+            self.assertEqual(standings[group_b_ids[0]]["points"], 1)
+            self.assertEqual(standings[group_b_ids[1]]["points"], 1)
+            self.assertEqual(standings[group_b_ids[0]]["draws"], 1)
+            self.assertEqual(standings[group_b_ids[1]]["draws"], 1)
 
     def test_websocket_sends_initial_state(self):
         with TestClient(app) as client:

@@ -213,6 +213,7 @@ class JsonStore:
             state["tournament"].setdefault(key, deepcopy(value))
         state.setdefault("participation", defaults["participation"])
         state.setdefault("scrim_results", defaults["scrim_results"])
+        state.setdefault("tournament_results", defaults["tournament_results"])
         state.setdefault("settings", defaults["settings"])
         state.setdefault("notices", [])
         state.setdefault("roster_score_table", [])

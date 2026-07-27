@@ -50,6 +50,7 @@ def new_state() -> dict[str, Any]:
             "applications": [],
         },
         "scrim_results": [],
+        "tournament_results": [],
         "auction": {
             "status": "setup",
             "queue": [],

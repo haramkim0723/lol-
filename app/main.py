@@ -2189,6 +2189,38 @@ def scrim_result_payload(data: ScrimResultInput) -> dict:
     }
 
 
+@app.post("/api/tournament/results")
+async def create_tournament_result(data: ScrimResultInput, request: Request):
+    require_host(request)
+    async with state_lock:
+        approved_team_ids = {
+            team["id"]
+            for team in store.state["tournament"]["teams"]
+            if team.get("status") == "approved"
+        }
+        if data.team_a_id not in approved_team_ids or data.team_b_id not in approved_team_ids:
+            raise HTTPException(400, "승인된 팀의 공식 경기만 등록할 수 있습니다.")
+        group_team_ids = [
+            set(group.get("team_ids", []))
+            for group in store.state["tournament"].get("groups", [])
+        ]
+        if group_team_ids and not any(
+            data.team_a_id in team_ids and data.team_b_id in team_ids
+            for team_ids in group_team_ids
+        ):
+            raise HTTPException(400, "같은 조에 속한 팀끼리만 공식 조별 결과를 등록할 수 있습니다.")
+        result = {
+            "id": uuid.uuid4().hex,
+            **scrim_result_payload(data),
+            "created_at": time.time(),
+            "updated_at": time.time(),
+        }
+        store.state.setdefault("tournament_results", []).append(result)
+        store.save()
+    await broadcast()
+    return result
+
+
 def normalize_image_url(value: str | None) -> str | None:
     normalized = (value or "").strip()
     if not normalized:

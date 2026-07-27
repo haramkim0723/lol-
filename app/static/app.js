@@ -1180,13 +1180,29 @@ function renderGroupResultForm() {
   const teams = state.tournament.teams.filter((team) => groupTeamIds.has(team.id));
   $("#group-result-entry")?.classList.toggle("hidden", state.tournament.status !== "group" || teams.length < 2);
   if (teams.length < 2) return;
-  ["team_a_id", "team_b_id"].forEach((name, index) => {
-    const select = form.elements[name];
-    const selected = select.value;
-    select.innerHTML = teams.map((team) => `<option value="${team.id}">${escapeHtml(team.name)}</option>`).join("");
-    if (teams.some((team) => team.id === selected)) select.value = selected;
-    else select.selectedIndex = Math.min(index, teams.length - 1);
-  });
+  const teamASelect = form.elements.team_a_id;
+  const selectedTeamA = teamASelect.value;
+  teamASelect.innerHTML = teams.map(
+    (team) => `<option value="${team.id}">${escapeHtml(team.name)}</option>`
+  ).join("");
+  if (teams.some((team) => team.id === selectedTeamA)) {
+    teamASelect.value = selectedTeamA;
+  }
+  const activeGroup = (state.tournament.groups || []).find(
+    (group) => (group.team_ids || []).includes(teamASelect.value)
+  );
+  const opponents = teams.filter(
+    (team) => team.id !== teamASelect.value
+      && (activeGroup?.team_ids || []).includes(team.id)
+  );
+  const teamBSelect = form.elements.team_b_id;
+  const selectedTeamB = teamBSelect.value;
+  teamBSelect.innerHTML = opponents.map(
+    (team) => `<option value="${team.id}">${escapeHtml(team.name)}</option>`
+  ).join("");
+  if (opponents.some((team) => team.id === selectedTeamB)) {
+    teamBSelect.value = selectedTeamB;
+  }
   if (!form.elements.match_date.value) {
     form.elements.match_date.value = new Date().toISOString().slice(0, 10);
   }
@@ -1230,7 +1246,7 @@ function groupStandings(group) {
     points: 0,
     diff: 0,
   }]));
-  (state.scrim_results || []).forEach((result) => {
+  (state.tournament_results || []).forEach((result) => {
     if (!teamIds.has(result.team_a_id) || !teamIds.has(result.team_b_id)) return;
     const a = rows.get(result.team_a_id);
     const b = rows.get(result.team_b_id);
@@ -2513,10 +2529,45 @@ function defaultBracketDraft() {
       loser_to: null,
     });
   }
-  return [
-    { label: "1라운드", matches: firstMatches.length ? firstMatches : [{ team1_id: null, team2_id: null, winner_to: null, loser_to: null }] },
-    { label: "결승", matches: [{ team1_id: null, team2_id: null, winner_to: null, loser_to: null }] },
-  ];
+  const rounds = [{
+    label: approved.length >= 8 ? "8강" : approved.length >= 4 ? "준결승" : "1라운드",
+    matches: firstMatches.length
+      ? firstMatches
+      : [{ team1_id: null, team2_id: null, winner_to: null, loser_to: null }],
+  }];
+  while (rounds[rounds.length - 1].matches.length > 1) {
+    const previousMatches = rounds[rounds.length - 1].matches;
+    const nextMatchCount = Math.ceil(previousMatches.length / 2);
+    const nextRoundIndex = rounds.length;
+    previousMatches.forEach((match, matchIndex) => {
+      match.winner_to = {
+        round_index: nextRoundIndex,
+        match_index: Math.floor(matchIndex / 2),
+        slot: matchIndex % 2 === 0 ? "team1_id" : "team2_id",
+      };
+    });
+    rounds.push({
+      label: nextMatchCount === 1 ? "결승" : nextMatchCount === 2 ? "준결승" : `${nextMatchCount * 2}강`,
+      matches: Array.from({ length: nextMatchCount }, () => ({
+        team1_id: null,
+        team2_id: null,
+        winner_to: null,
+        loser_to: null,
+      })),
+    });
+  }
+  if (rounds.length === 1) {
+    rounds.push({
+      label: "결승",
+      matches: [{ team1_id: null, team2_id: null, winner_to: null, loser_to: null }],
+    });
+    rounds[0].matches[0].winner_to = {
+      round_index: 1,
+      match_index: 0,
+      slot: "team1_id",
+    };
+  }
+  return rounds;
 }
 
 function openBracketEditor() {
@@ -2567,18 +2618,31 @@ function renderBracketEditor() {
   $("#bracket-editor-rounds").innerHTML = bracketDraft.map((round, roundIndex) => `
     <section class="bracket-editor-round">
       <div class="bracket-editor-round-head">
-        <input value="${escapeHtml(round.label)}" data-bracket-round-label="${roundIndex}" aria-label="라운드 이름" />
-        <button class="ghost" type="button" data-add-bracket-match="${roundIndex}">경기 추가</button>
+        <div>
+          <small>ROUND ${roundIndex + 1}</small>
+          <input value="${escapeHtml(round.label)}" data-bracket-round-label="${roundIndex}" aria-label="라운드 이름" />
+        </div>
+        <button class="ghost" type="button" data-add-bracket-match="${roundIndex}">+ 경기</button>
         <button class="remove" type="button" data-remove-bracket-round="${roundIndex}">라운드 삭제</button>
       </div>
       ${round.matches.map((match, matchIndex) => `
         <article class="bracket-editor-match">
-          <strong>경기 ${matchIndex + 1}</strong>
-          <label>1번 팀<select data-bracket-team="${roundIndex}:${matchIndex}:team1_id">${teamOptions(match.team1_id)}</select></label>
-          <label>2번 팀<select data-bracket-team="${roundIndex}:${matchIndex}:team2_id">${teamOptions(match.team2_id)}</select></label>
-          <label>승자 이동<select data-bracket-route="${roundIndex}:${matchIndex}:winner_to">${routeOptions(roundIndex, bracketRouteValue(match.winner_to))}</select></label>
-          <label>패자 이동<select data-bracket-route="${roundIndex}:${matchIndex}:loser_to">${routeOptions(roundIndex, bracketRouteValue(match.loser_to))}</select></label>
-          <button class="remove" type="button" data-remove-bracket-match="${roundIndex}:${matchIndex}">삭제</button>
+          <div class="bracket-editor-match-head">
+            <strong>MATCH ${String(matchIndex + 1).padStart(2, "0")}</strong>
+            <button class="remove" type="button" data-remove-bracket-match="${roundIndex}:${matchIndex}">경기 삭제</button>
+          </div>
+          <div class="bracket-editor-versus">
+            <label>팀 A<select data-bracket-team="${roundIndex}:${matchIndex}:team1_id">${teamOptions(match.team1_id)}</select></label>
+            <b>VS</b>
+            <label>팀 B<select data-bracket-team="${roundIndex}:${matchIndex}:team2_id">${teamOptions(match.team2_id)}</select></label>
+          </div>
+          <details class="bracket-advanced">
+            <summary>고급 이동 설정 <span>승자·패자 경로</span></summary>
+            <div>
+              <label>승자 이동<select data-bracket-route="${roundIndex}:${matchIndex}:winner_to">${routeOptions(roundIndex, bracketRouteValue(match.winner_to))}</select></label>
+              <label>패자 이동<select data-bracket-route="${roundIndex}:${matchIndex}:loser_to">${routeOptions(roundIndex, bracketRouteValue(match.loser_to))}</select></label>
+            </div>
+          </details>
         </article>
       `).join("")}
     </section>
@@ -2815,7 +2879,7 @@ $("#group-result-form")?.addEventListener("submit", async (event) => {
   payload.team_a_score = Number(payload.team_a_score || 0);
   payload.team_b_score = Number(payload.team_b_score || 0);
   try {
-    await api("/api/scrim/results", {
+    await api("/api/tournament/results", {
       method: "POST",
       body: JSON.stringify(payload),
     });
@@ -3393,6 +3457,37 @@ function percent(wins, losses) {
   return total ? `${Math.round(wins / total * 100)}%` : "-";
 }
 
+function scrimTeamHistoryMarkup(teamId) {
+  const teamById = (id) => state.tournament.teams.find((team) => team.id === id);
+  const results = [...(state.scrim_results || [])]
+    .filter((result) => result.team_a_id === teamId || result.team_b_id === teamId)
+    .sort((left, right) => String(right.match_date).localeCompare(String(left.match_date)));
+  if (!results.length) {
+    return '<div class="scrim-inline-empty">등록된 경기 결과가 없습니다.</div>';
+  }
+  return `
+    <div class="scrim-inline-history">
+      <div class="scrim-inline-history-title">상대별 경기 내역</div>
+      ${results.map((result) => {
+        const isTeamA = result.team_a_id === teamId;
+        const opponent = teamById(isTeamA ? result.team_b_id : result.team_a_id);
+        const ownScore = Number(isTeamA ? result.team_a_score : result.team_b_score);
+        const opponentScore = Number(isTeamA ? result.team_b_score : result.team_a_score);
+        const outcome = ownScore === opponentScore ? "draw" : ownScore > opponentScore ? "win" : "loss";
+        const outcomeLabel = outcome === "win" ? "승" : outcome === "loss" ? "패" : "무";
+        return `
+          <div class="scrim-inline-match">
+            <time>${escapeHtml(result.match_date)}</time>
+            <span>vs ${escapeHtml(opponent?.name || "삭제된 팀")}</span>
+            <strong>${ownScore} : ${opponentScore}</strong>
+            <b class="${outcome}">${outcomeLabel}</b>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
 function renderScrimWinrates() {
   const list = $("#scrim-winrate-list");
   const stats = scrimStatsByTeam();
@@ -3407,6 +3502,7 @@ function renderScrimWinrates() {
         <span>시리즈 승률<strong>${item.seriesWins}승 ${item.seriesDraws}무 ${item.seriesLosses}패</strong></span>
         <span>2경기 세트<strong>${item.seriesWins + item.seriesDraws + item.seriesLosses}회</strong></span>
       </div>
+      ${item.team.id === selectedScrimTeamId ? scrimTeamHistoryMarkup(item.team.id) : ""}
     </article>
   `).join("") : '<div class="empty-state">등록된 팀이 없습니다.</div>';
 }
@@ -3583,6 +3679,11 @@ $("#team-list").addEventListener("click", (event) => {
   $("#scrim-result-list").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
+$("#group-result-form")?.elements.team_a_id.addEventListener(
+  "change",
+  renderGroupResultForm,
+);
+
 $("#scrim-winrate-list").addEventListener("click", (event) => {
   const card = event.target.closest("[data-scrim-stats-team-id]");
   if (!card) return;
@@ -3594,7 +3695,6 @@ $("#scrim-winrate-list").addEventListener("click", (event) => {
   renderScrimWinrates();
   renderScrimResultForm();
   renderScrimResults();
-  $("#scrim-result-list").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
 $("#scrim-winrate-list").addEventListener("keydown", (event) => {

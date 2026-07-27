@@ -179,11 +179,14 @@
 
 ### 조 편성
 1. `POST /api/tournament/start`
-2. `PUT /api/tournament/groups/qualifiers`
-3. `POST /api/tournament/groups/start-knockout`
+2. `POST /api/tournament/results`
+3. `PUT /api/tournament/groups/qualifiers`
+4. `POST /api/tournament/groups/start-knockout`
 4. 기대 결과
    - 조 편성은 시작 버튼에서 실제 랜덤 배치
    - 화면에서는 미리 만들어진 순서를 한 팀씩 공개
+   - 공식 조별 결과만 승점·득실·순위에 반영
+   - 스크림 결과는 공식 조별 순위에 반영되지 않음
    - 체크된 팀이 본선 진출팀으로 반영
 
 ### 본선 진행
@@ -320,6 +323,7 @@
 - `POST /api/tournament/teams/{team_id}/approval`
 - `DELETE /api/tournament/teams/{team_id}`
 - `POST /api/tournament/start`
+- `POST /api/tournament/results`
 - `PUT /api/tournament/groups/qualifiers`
 - `POST /api/tournament/groups/start-knockout`
 - `PUT /api/tournament/bracket`
