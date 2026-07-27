@@ -1738,6 +1738,41 @@ function renderMyPage() {
   form.elements.riot_id.value = viewer.riot_id || "";
   form.elements.secondary_riot_id.value = viewer.secondary_riot_id || "";
   form.elements.nickname.value = viewer.nickname || "";
+  const team = (state.tournament?.teams || []).find(
+    (item) => item.viewer_is_member && item.status !== "rejected",
+  );
+  const teamCard = $("#mypage-team-card");
+  teamCard.classList.toggle("hidden", !team);
+  if (team) {
+    const teamForm = $("#mypage-team-name-form");
+    teamForm.elements.team_id.value = team.id;
+    if (document.activeElement !== teamForm.elements.name) {
+      teamForm.elements.name.value = team.name || "";
+    }
+    $("#mypage-team-status").textContent = {
+      pending: "승인 대기",
+      approved: "승인 완료",
+    }[team.status] || team.status;
+    updateTeamRenameCooldown();
+  }
+}
+
+function updateTeamRenameCooldown() {
+  const form = $("#mypage-team-name-form");
+  if (!form || $("#mypage-team-card").classList.contains("hidden")) return;
+  const team = (state.tournament?.teams || []).find(
+    (item) => item.id === form.elements.team_id.value,
+  );
+  if (!team) return;
+  const remaining = Math.max(
+    0,
+    Math.ceil(Number(team.rename_available_at || 0) - Date.now() / 1000),
+  );
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = remaining > 0 || !team.can_rename;
+  $("#mypage-team-name-help").textContent = remaining > 0
+    ? `다음 변경까지 ${Math.floor(remaining / 60)}분 ${remaining % 60}초`
+    : "팀명 변경 후 1시간 동안 다시 변경할 수 없습니다.";
 }
 
 function renderNotices() {
@@ -3894,7 +3929,27 @@ $("#mypage-form").addEventListener("submit", async (event) => {
   } catch (error) { toast(error.message, true); }
 });
 
+$("#mypage-team-name-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.target;
+  try {
+    await withButtonLoading(
+      form.querySelector('button[type="submit"]'),
+      "변경 중...",
+      () => api(`/api/tournament/teams/${form.elements.team_id.value}/name`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: form.elements.name.value }),
+      }),
+    );
+    toast("팀명을 변경했습니다. 1시간 후 다시 변경할 수 있습니다.");
+    await refreshState();
+  } catch (error) {
+    toast(error.message, true);
+  }
+});
+
 setInterval(updateTimer, 100);
+setInterval(updateTeamRenameCooldown, 1000);
 async function initializeApp() {
   const data = await api("/api/state");
   state = data;

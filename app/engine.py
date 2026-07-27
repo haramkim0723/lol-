@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import random
 import time
 import uuid
@@ -8,6 +9,7 @@ from typing import Any
 
 
 POSITIONS = ("TOP", "JUG", "MID", "ADC", "SUP")
+TEAM_RENAME_COOLDOWN_SECONDS = 60 * 60
 MAX_RECOMMENDATION_CANDIDATES_PER_POSITION = 24
 
 
@@ -153,6 +155,15 @@ def public_state_from_base(
     ):
         public_team = dict(team)
         belongs_to_team = viewer_riot_id in access.get("member_riot_ids", set())
+        public_team["viewer_is_member"] = belongs_to_team
+        public_team["can_rename"] = bool(
+            viewer
+            and team.get("status") != "rejected"
+            and (
+                viewer.get("role") == "host"
+                or belongs_to_team
+            )
+        )
         public_team["can_manage_scrim_result"] = bool(
             viewer
             and (
@@ -566,6 +577,45 @@ def approve_tournament_team(
     if team is None:
         raise ValueError("팀을 찾을 수 없습니다.")
     team["status"] = "approved" if approved else "rejected"
+    return team
+
+
+def rename_tournament_team(
+    state: dict[str, Any],
+    team_id: str,
+    name: str,
+    *,
+    now: float | None = None,
+) -> dict[str, Any]:
+    tournament = state["tournament"]
+    team = next((item for item in tournament["teams"] if item["id"] == team_id), None)
+    if team is None or team.get("status") == "rejected":
+        raise ValueError("팀을 찾을 수 없습니다.")
+
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise ValueError("팀명을 입력해 주세요.")
+    if team["name"] == normalized_name:
+        raise ValueError("현재 팀명과 동일합니다.")
+    if any(
+        item["id"] != team_id
+        and item.get("status") != "rejected"
+        and item["name"].casefold() == normalized_name.casefold()
+        for item in tournament["teams"]
+    ):
+        raise ValueError("이미 사용 중인 팀명입니다.")
+
+    now = time.time() if now is None else now
+    renamed_at = team.get("renamed_at")
+    if renamed_at is not None:
+        remaining = TEAM_RENAME_COOLDOWN_SECONDS - (now - float(renamed_at))
+        if remaining > 0:
+            minutes = max(1, math.ceil(remaining / 60))
+            raise ValueError(f"팀명은 {minutes}분 후에 다시 변경할 수 있습니다.")
+
+    team["name"] = normalized_name
+    team["renamed_at"] = now
+    team["rename_available_at"] = now + TEAM_RENAME_COOLDOWN_SECONDS
     return team
 
 

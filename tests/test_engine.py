@@ -117,6 +117,26 @@ class TournamentEngineTest(unittest.TestCase):
         self.assertEqual(team["total_score"], 40)
         self.assertEqual(team["status"], "pending")
 
+    def test_team_name_change_has_one_hour_cooldown(self):
+        team = engine.register_tournament_team(
+            self.state, "변경 전", self.members, "1234"
+        )
+        renamed = engine.rename_tournament_team(
+            self.state, team["id"], "변경 후", now=1_000
+        )
+        self.assertEqual(renamed["name"], "변경 후")
+        self.assertEqual(renamed["rename_available_at"], 4_600)
+
+        with self.assertRaisesRegex(ValueError, "1분 후"):
+            engine.rename_tournament_team(
+                self.state, team["id"], "너무 빠른 변경", now=4_599
+            )
+
+        renamed_again = engine.rename_tournament_team(
+            self.state, team["id"], "한 시간 후", now=4_600
+        )
+        self.assertEqual(renamed_again["name"], "한 시간 후")
+
     def test_team_over_host_score_limit_is_rejected(self):
         self.state["tournament"]["score_limit"] = 39
         with self.assertRaisesRegex(ValueError, "제한 39점"):

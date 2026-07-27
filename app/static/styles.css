@@ -951,6 +951,7 @@ a.tier-emblem-link:hover { transform: translateY(-4px) scale(1.035); filter: bri
 .mypage-score-item strong { margin-top: 3px; font-size: 13px; }
 .mypage-score-item b { color: var(--gold-light); font-size: 22px; }
 .mypage-score-item small { margin-left: 2px; font-size: 10px; }
+.form-help { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 
 .scrim-shell { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start; }
 .scrim-shell.admin-only { grid-template-columns: minmax(0, 960px); }

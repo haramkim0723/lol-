@@ -415,6 +415,20 @@
             </div>
             <div id="mypage-score-list" class="mypage-score-list"></div>
           </section>
+          <section id="mypage-team-card" class="mypage-score-card hidden">
+            <div class="mypage-score-heading">
+              <div><span>MY TEAM</span><h3>내가 속한 팀</h3></div>
+              <strong id="mypage-team-status">-</strong>
+            </div>
+            <form id="mypage-team-name-form" class="scrim-form compact">
+              <input name="team_id" type="hidden" />
+              <label>팀명
+                <input name="name" maxlength="30" required placeholder="팀 이름" />
+              </label>
+              <p id="mypage-team-name-help" class="form-help"></p>
+              <button class="secondary" type="submit">팀명 변경</button>
+            </form>
+          </section>
           <form id="mypage-form" class="scrim-form compact">
             <label>본 아이디
               <input name="riot_id" maxlength="80" required placeholder="Riot ID#KR1" />

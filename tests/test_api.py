@@ -894,6 +894,83 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(response.json()["total_score"], 40)
             self.assertNotIn("registration_pin", response.json())
 
+    def test_team_member_can_rename_team_once_per_hour(self):
+        with TestClient(app) as host_client:
+            login_as_host(host_client)
+            players = {}
+            for position in ("TOP", "JUG", "MID", "ADC", "SUP"):
+                riot_id = (
+                    "rename-member#KR1"
+                    if position == "TOP"
+                    else f"rename-{position.lower()}#KR1"
+                )
+                response = host_client.post(
+                    "/api/players",
+                    json={
+                        "name": f"Rename {position}",
+                        "riot_id": riot_id,
+                        "tier": "GOLD",
+                        "score": 1,
+                        "primary_position": position,
+                        "secondary_position": None,
+                    },
+                )
+                self.assertEqual(response.status_code, 200)
+                players[position] = response.json()["id"]
+
+            team = host_client.post(
+                "/api/tournament/teams",
+                json={
+                    "name": "변경 전 팀",
+                    "registration_pin": "5678",
+                    "members": players,
+                },
+            )
+            self.assertEqual(team.status_code, 200)
+            team_id = team.json()["id"]
+
+            with TestClient(app) as member_client:
+                member = member_client.post(
+                    "/api/scrim/users",
+                    json={
+                        "name": "Rename Member",
+                        "riot_id": "rename-member#KR1",
+                        "password": "1234",
+                    },
+                )
+                self.assertEqual(member.status_code, 200)
+                approval = host_client.patch(
+                    f'/api/scrim/admin/users/{member.json()["id"]}/approval',
+                    json={"approved": True},
+                )
+                self.assertEqual(approval.status_code, 200)
+
+                member_state = member_client.get("/api/state").json()
+                member_team = next(
+                    item
+                    for item in member_state["tournament"]["teams"]
+                    if item["id"] == team_id
+                )
+                self.assertTrue(member_team["viewer_is_member"])
+                self.assertTrue(member_team["can_rename"])
+
+                with patch("app.engine.time.time", return_value=1_000):
+                    renamed = member_client.patch(
+                        f"/api/tournament/teams/{team_id}/name",
+                        json={"name": "변경 완료 팀"},
+                    )
+                self.assertEqual(renamed.status_code, 200)
+                self.assertEqual(renamed.json()["name"], "변경 완료 팀")
+                self.assertEqual(renamed.json()["rename_available_at"], 4_600)
+
+                with patch("app.engine.time.time", return_value=1_001):
+                    blocked = member_client.patch(
+                        f"/api/tournament/teams/{team_id}/name",
+                        json={"name": "연속 변경 팀"},
+                    )
+                self.assertEqual(blocked.status_code, 400)
+                self.assertIn("60분 후", blocked.json()["detail"])
+
     def test_five_team_test_tournament_and_scrim_winrates(self):
         def create_team(client: TestClient, index: int) -> dict:
             members = {}

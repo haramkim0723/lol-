@@ -152,6 +152,16 @@
    - 팀 점수 제한 초과 시 실패
    - 등록 후 승인 대기 상태
 
+### 팀원의 팀명 변경
+1. 등록 팀에 포함된 참가자 로그인
+2. 마이페이지에서 `PATCH /api/tournament/teams/{team_id}/name`
+3. `GET /api/state`
+4. 기대 결과
+   - 내가 속한 유효 팀과 현재 팀명이 마이페이지에 표시
+   - 팀원만 팀명 변경 가능
+   - 다른 유효 팀과 중복되는 팀명은 사용할 수 없음
+   - 변경 후 1시간 동안 추가 변경이 차단되고 남은 시간이 표시
+
 ### 강사님 팀 승인/반려/삭제
 1. `POST /api/tournament/teams/{team_id}/approval`
 2. `DELETE /api/tournament/teams/{team_id}`
@@ -305,6 +315,7 @@
 - `PUT /api/tournament/settings`
 - `POST /api/tournament/recommend`
 - `POST /api/tournament/teams`
+- `PATCH /api/tournament/teams/{team_id}/name`
 - `POST /api/tournament/teams/{team_id}/approval`
 - `DELETE /api/tournament/teams/{team_id}`
 - `POST /api/tournament/start`

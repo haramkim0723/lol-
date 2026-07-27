@@ -82,10 +82,10 @@ def compute_viewer(token: str | None) -> dict:
     user = current_user_or_none(token)
     if user is None:
         return {"role": "spectator", "captain_id": None, "authenticated": False}
-    can_view_scores = (
-        user.get("role") == "ADMIN"
-        or bool(store.state.get("participation", {}).get("score_visible"))
-    )
+    # Authenticated users may always see their own roster tier and line scores.
+    # The participation score_visible setting only controls whether player
+    # scores are exposed in the shared competition state.
+    can_view_scores = True
     with scrim_db.connect() as connection:
         roster = scrim_db.get_roster_entry_by_user_identity(
             connection, user["id"], user.get("riot_id")
@@ -358,6 +358,10 @@ class TournamentTeamInput(BaseModel):
 
 class TeamApprovalInput(BaseModel):
     approved: bool
+
+
+class TeamNameInput(BaseModel):
+    name: str = Field(min_length=1, max_length=30)
 
 
 class BulkTeamBuildInput(BaseModel):
@@ -2069,6 +2073,46 @@ async def approve_tournament_team(
             store.state, team_id, data.approved
         )
     )
+
+
+@app.patch("/api/tournament/teams/{team_id}/name")
+async def rename_tournament_team(
+    team_id: str, data: TeamNameInput, request: Request
+):
+    viewer = require_participant(request)
+    try:
+        async with state_lock:
+            team = next(
+                (
+                    item
+                    for item in store.state["tournament"]["teams"]
+                    if item["id"] == team_id and item.get("status") != "rejected"
+                ),
+                None,
+            )
+            if team is None:
+                raise HTTPException(404, "팀을 찾을 수 없습니다.")
+            team_player_ids = set(team.get("members", {}).values())
+            viewer_riot_id = str(viewer.get("riot_id") or "").casefold()
+            belongs_to_team = any(
+                player["id"] in team_player_ids
+                and str(player.get("riot_id") or "").casefold() == viewer_riot_id
+                for player in store.state["players"]
+            )
+            if viewer["role"] != "host" and not belongs_to_team:
+                raise HTTPException(403, "해당 팀원만 팀명을 변경할 수 있습니다.")
+            renamed = engine.rename_tournament_team(
+                store.state, team_id, data.name
+            )
+            store.save()
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    await broadcast()
+    return {
+        key: value
+        for key, value in renamed.items()
+        if key not in ("registration_pin", "created_by_user_id")
+    }
 
 
 @app.delete("/api/tournament/teams/{team_id}")
