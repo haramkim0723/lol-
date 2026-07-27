@@ -301,6 +301,61 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(payload["stats"]["applied_unpaid"], 1)
             self.assertEqual([entry["id"] for entry in payload["entries"]], [unpaid["id"]])
 
+    def test_roster_saves_sync_team_registration_players(self):
+        with TestClient(app) as client:
+            login = login_as_host(client)
+            self.assertEqual(login.status_code, 200)
+
+            created = client.post(
+                "/api/roster",
+                json={
+                    "name": "Synced Player",
+                    "riot_id": "synced-player#KR1",
+                    "tier": "D3",
+                    "preferred_lines": "탑",
+                    "participation_status_text": "대회 미참가",
+                },
+            )
+            self.assertEqual(created.status_code, 200)
+            roster_id = created.json()["id"]
+
+            updated = client.patch(
+                f"/api/roster/{roster_id}",
+                json={"participation_status_text": "대회 참가"},
+            )
+            self.assertEqual(updated.status_code, 200)
+            players = client.get("/api/state").json()["players"]
+            matching = [
+                player
+                for player in players
+                if player["riot_id"] == "synced-player#KR1"
+            ]
+            self.assertEqual(len(matching), 1)
+            self.assertEqual(matching[0]["primary_position"], "TOP")
+
+            bulk = client.patch(
+                "/api/roster",
+                json={
+                    "rows": [
+                        {
+                            "id": roster_id,
+                            "preferred_lines": "정글,미드",
+                        }
+                    ]
+                },
+            )
+            self.assertEqual(bulk.status_code, 200)
+            self.assertEqual(bulk.json()["synchronized"], 1)
+            players = client.get("/api/state").json()["players"]
+            matching = [
+                player
+                for player in players
+                if player["riot_id"] == "synced-player#KR1"
+            ]
+            self.assertEqual(matching[0]["primary_position"], "JUG")
+            self.assertEqual(matching[0]["secondary_position"], "MID")
+            self.assertEqual(matching[0]["position_scores"]["JUG"], 34.9)
+
     def test_roster_riot_preview_returns_tier_scores(self):
         async def fake_lookup_kr_player(riot_id: str):
             return {

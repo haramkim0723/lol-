@@ -579,6 +579,29 @@ def roster_entry_is_applied(entry: dict) -> bool:
     )
 
 
+def roster_entry_has_approved_application(entry: dict) -> bool:
+    user_id = entry.get("user_id")
+    riot_id = str(entry.get("riot_id") or "").strip().casefold()
+    return any(
+        application.get("status") == "APPROVED"
+        and (
+            (user_id is not None and application.get("user_id") == user_id)
+            or (
+                riot_id
+                and str(application.get("riot_id") or "").strip().casefold()
+                == riot_id
+            )
+        )
+        for application in store.state.get("participation", {}).get("applications", [])
+    )
+
+
+def reconcile_score_player_from_roster(entry: dict) -> bool:
+    if roster_entry_is_applied(entry) or roster_entry_has_approved_application(entry):
+        return sync_score_player_from_roster(entry) is not None
+    return remove_score_player_for_roster(entry)
+
+
 def roster_tier_from_riot_tier(tier: str | None) -> str | None:
     base = str(tier or "").split("\u00b7", 1)[0].strip()
     return scrim_db.normalize_roster_tier(base)
@@ -1774,9 +1797,12 @@ async def update_roster_entry(roster_id: int, data: RosterEntryInput, request: R
     require_host(request)
     payload = data.model_dump(exclude_unset=True)
     try:
-        apply_roster_score_table()
-        with scrim_db.connect() as connection:
-            entry = scrim_db.update_roster_entry(connection, roster_id, payload)
+        async with state_lock:
+            apply_roster_score_table()
+            with scrim_db.connect() as connection:
+                entry = scrim_db.update_roster_entry(connection, roster_id, payload)
+            if reconcile_score_player_from_roster(entry):
+                store.save()
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     with scrim_db.connect() as connection:
@@ -1794,6 +1820,7 @@ async def update_roster_entry(roster_id: int, data: RosterEntryInput, request: R
     participation_history: dict[int, list[dict]] = {}
     for row in participation_rows:
         participation_history.setdefault(row["user_id"], []).append(row)
+    await broadcast()
     return roster_payload(entry, applications, applications_by_riot_id, participation_history)
 
 
@@ -1829,17 +1856,31 @@ async def delete_roster_entry(roster_id: int, request: Request):
 async def bulk_update_roster(data: RosterBulkUpdateInput, request: Request):
     require_host(request)
     try:
-        apply_roster_score_table()
-        with scrim_db.connect() as connection:
-            for row in data.rows:
-                scrim_db.update_roster_entry(
-                    connection,
-                    row.id,
-                    row.model_dump(exclude={"id"}, exclude_unset=True),
-                )
+        synchronized = 0
+        async with state_lock:
+            apply_roster_score_table()
+            with scrim_db.connect() as connection:
+                entries = [
+                    scrim_db.update_roster_entry(
+                        connection,
+                        row.id,
+                        row.model_dump(exclude={"id"}, exclude_unset=True),
+                    )
+                    for row in data.rows
+                ]
+            synchronized = sum(
+                reconcile_score_player_from_roster(entry) for entry in entries
+            )
+            if synchronized:
+                store.save()
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"ok": True, "updated": len(data.rows)}
+    await broadcast()
+    return {
+        "ok": True,
+        "updated": len(data.rows),
+        "synchronized": synchronized,
+    }
 
 
 @app.put("/api/settings")
