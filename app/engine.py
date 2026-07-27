@@ -760,7 +760,10 @@ def start_group_knockout(state: dict[str, Any]) -> None:
     update_group_qualification_suggestions(state)
     required = tournament.get("qualifiers_per_group", 2)
     for group in tournament["groups"]:
-        if not group.get("results_complete"):
+        if (
+            not group.get("results_complete")
+            and len(group.get("qualified_team_ids", [])) != required
+        ):
             raise ValueError("모든 조별 경기가 끝난 뒤 본선 진출팀을 확정할 수 있습니다.")
         if not group.get("qualified_team_ids") and not group.get("qualification_tie"):
             group["qualified_team_ids"] = list(

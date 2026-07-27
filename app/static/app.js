@@ -259,6 +259,18 @@ function playerById(id) {
   return state.players.find((player) => player.id === id);
 }
 
+function scrimTeamMembersMarkup(team) {
+  const members = POSITIONS.map((position) => {
+    const player = playerById(team.members?.[position]);
+    return player
+      ? `<span title="${escapeHtml(position)}">${escapeHtml(player.name)}</span>`
+      : "";
+  }).filter(Boolean);
+  return members.length
+    ? `<span class="scrim-winrate-members">${members.join("")}</span>`
+    : "";
+}
+
 function registeredTournamentPlayerIds() {
   const ids = new Set();
   (state?.tournament?.teams || []).forEach((team) => {
@@ -1055,7 +1067,14 @@ function renderTournament() {
     ? tournament.teams.map((team) => `
       <article class="registered-team${team.over_score_limit ? " over-limit" : ""}">
         <div class="registered-team-head">
-          <strong>${escapeHtml(team.name)}</strong>
+          <div class="registered-team-name-block">
+            <strong>${escapeHtml(team.name)}</strong>
+            ${isHost ? `<div class="registered-team-name-editor hidden">
+              <input type="text" maxlength="50" value="${escapeHtml(team.name)}" aria-label="변경할 팀 이름" />
+              <button class="primary" type="button" data-team-rename-save="${team.id}">저장</button>
+              <button class="ghost" type="button" data-team-rename-cancel>취소</button>
+            </div>` : ""}
+          </div>
           <span class="team-status ${team.status}">${team.status === "approved" ? "승인" : team.status === "rejected" ? "반려" : "승인 대기"}</span>
         </div>
         <div class="registered-team-members">
@@ -1067,6 +1086,7 @@ function renderTournament() {
         <div class="registered-team-footer">
           <span>총 ${team.total_score} / ${tournament.score_limit}점${team.over_score_limit ? " · 제한 초과" : ""}</span>
           ${isHost ? `<div class="team-admin-actions">
+            <button class="ghost" type="button" data-team-rename="${team.id}" data-team-name="${escapeHtml(team.name)}">이름 변경</button>
             <button class="ghost" type="button" data-team-approve="${team.id}">승인</button>
             <button class="ghost" type="button" data-team-reject="${team.id}">반려</button>
             <button class="remove" type="button" data-team-delete="${team.id}">삭제</button>
@@ -3294,12 +3314,15 @@ document.addEventListener("click", async (event) => {
   const approveTeamId = event.target.closest("[data-team-approve]")?.dataset.teamApprove;
   const rejectTeamId = event.target.closest("[data-team-reject]")?.dataset.teamReject;
   const deleteTeamId = event.target.closest("[data-team-delete]")?.dataset.teamDelete;
-  const teamActionButton = event.target.closest("[data-team-approve], [data-team-reject], [data-team-delete]");
+  const renameTeamButton = event.target.closest("[data-team-rename]");
+  const renameTeamSaveButton = event.target.closest("[data-team-rename-save]");
+  const renameTeamCancelButton = event.target.closest("[data-team-rename-cancel]");
+  const teamActionButton = event.target.closest("[data-team-rename], [data-team-rename-save], [data-team-approve], [data-team-reject], [data-team-delete]");
   const winnerButton = event.target.closest("[data-match-winner]");
   const setTeamActionBusy = (busy) => {
     if (!teamActionButton) return;
     const card = teamActionButton.closest(".registered-team");
-    card?.querySelectorAll("[data-team-approve], [data-team-reject], [data-team-delete]")
+    card?.querySelectorAll("[data-team-rename], [data-team-approve], [data-team-reject], [data-team-delete]")
       .forEach((button) => { button.disabled = busy; });
     if (busy) {
       teamActionButton.dataset.originalText = teamActionButton.textContent;
@@ -3310,6 +3333,33 @@ document.addEventListener("click", async (event) => {
     }
   };
   try {
+    if (renameTeamButton) {
+      const card = renameTeamButton.closest(".registered-team");
+      const editor = card?.querySelector(".registered-team-name-editor");
+      editor?.classList.remove("hidden");
+      editor?.querySelector("input")?.focus();
+      return;
+    }
+    if (renameTeamCancelButton) {
+      renameTeamCancelButton.closest(".registered-team-name-editor")?.classList.add("hidden");
+      return;
+    }
+    if (renameTeamSaveButton) {
+      const editor = renameTeamSaveButton.closest(".registered-team-name-editor");
+      const nextName = editor?.querySelector("input")?.value.trim() || "";
+      if (!nextName) {
+        toast("팀 이름을 입력해 주세요.", true);
+        return;
+      }
+      setTeamActionBusy(true);
+      await api(`/api/tournament/teams/${renameTeamSaveButton.dataset.teamRenameSave}/name`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: nextName }),
+      });
+      await refreshState();
+      toast("팀 이름을 변경했습니다.");
+      return;
+    }
     if (approveTeamId || rejectTeamId) {
       const teamId = approveTeamId || rejectTeamId;
       setTeamActionBusy(true);
@@ -3546,7 +3596,10 @@ function renderScrimWinrates() {
   list.innerHTML = visibleStats.length ? visibleStats.map((item) => `
     <article id="scrim-winrate-${item.team.id}" class="scrim-winrate-card${item.team.id === selectedScrimTeamId ? " selected" : ""}" data-scrim-stats-team-id="${item.team.id}" tabindex="0" role="button">
       <div class="scrim-winrate-head">
-        <strong>${item.rank}. ${escapeHtml(item.team.name)}</strong>
+        <div class="scrim-winrate-team">
+          <strong>${item.rank}. ${escapeHtml(item.team.name)}</strong>
+          ${scrimTeamMembersMarkup(item.team)}
+        </div>
         <b>${percent(item.seriesWins, item.seriesLosses)}</b>
       </div>
       <div class="scrim-winrate-records">
