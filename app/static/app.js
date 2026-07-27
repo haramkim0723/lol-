@@ -672,7 +672,7 @@ function mainViewForCompetition() {
 }
 
 function renderMainPoster() {
-  const source = activeCompetition()?.poster_image || DEFAULT_POSTER_IMAGE;
+  const source = activeCompetition()?.poster_image_url || DEFAULT_POSTER_IMAGE;
   $$(".main-poster-image").forEach((image) => {
     if (image.getAttribute("src") !== source) {
       image.src = source;

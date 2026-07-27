@@ -65,6 +65,12 @@ class JsonStore:
         )
 
     def competition_summary(self) -> dict[str, Any]:
+        def poster_url(competition: dict[str, Any]) -> str:
+            value = str(competition.get("poster_image") or "").strip()
+            if value.startswith("data:image/"):
+                return f"/api/competitions/{competition['id']}/poster"
+            return value if value.startswith(("https://", "http://", "/")) else ""
+
         return {
             "active_competition_id": self.document.get("active_competition_id"),
             "competitions": [
@@ -72,7 +78,7 @@ class JsonStore:
                     "id": competition["id"],
                     "name": competition["name"],
                     "mode": competition.get("mode", "auction"),
-                    "poster_image": competition.get("poster_image", ""),
+                    "poster_image_url": poster_url(competition),
                     "created_at": competition["created_at"],
                     "player_count": len(competition["state"]["players"]),
                     "team_count": len(
@@ -157,6 +163,7 @@ class JsonStore:
         result = self._redis_command(["GET", self.redis_key])
         if result:
             self.document = self._normalize_document(json.loads(result))
+            self._apply_redis_team_name_overrides()
 
     def _load(self) -> dict[str, Any]:
         raw: dict[str, Any] | None = None
@@ -177,7 +184,31 @@ class JsonStore:
                 raw = json.loads(self.path.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 pass
-        return self._normalize_document(raw or new_state())
+        document = self._normalize_document(raw or new_state())
+        self.document = document
+        if self.redis_url and self.redis_token:
+            self._apply_redis_team_name_overrides()
+        return self.document
+
+    def _apply_redis_team_name_overrides(self) -> None:
+        raw = self._redis_command(["HGETALL", f"{self.redis_key}:team-names"])
+        if not raw:
+            return
+        overrides = {
+            raw[index]: json.loads(raw[index + 1])
+            for index in range(0, len(raw), 2)
+        }
+        for competition in self.document.get("competitions", []):
+            for team in competition.get("state", {}).get(
+                "tournament", {}
+            ).get("teams", []):
+                override = overrides.get(team.get("id"))
+                if override:
+                    team["name"] = override["name"]
+                    team["renamed_at"] = override.get("renamed_at")
+                    team["rename_available_at"] = override.get(
+                        "rename_available_at"
+                    )
 
     def save(self) -> None:
         payload = json.dumps(self.document, ensure_ascii=False, indent=2)
@@ -196,6 +227,153 @@ class JsonStore:
             temp.write(payload)
             temp_path = Path(temp.name)
         temp_path.replace(self.path)
+
+    def save_team_name(
+        self,
+        team_id: str,
+        name: str,
+        renamed_at: float | None,
+        rename_available_at: float | None,
+    ) -> None:
+        """Persist a team-name edit without rewriting the full state document."""
+        competition_index = next(
+            (
+                index
+                for index, competition in enumerate(self.document["competitions"])
+                if competition["id"] == self.document.get("active_competition_id")
+            ),
+            None,
+        )
+        if competition_index is None:
+            raise OSError("Active competition not found")
+        teams = self.document["competitions"][competition_index]["state"][
+            "tournament"
+        ]["teams"]
+        team_index = next(
+            (index for index, team in enumerate(teams) if team["id"] == team_id),
+            None,
+        )
+        if team_index is None:
+            raise OSError("Tournament team not found")
+
+        if self.postgres_url:
+            try:
+                name_path = [
+                    "competitions", str(competition_index), "state",
+                    "tournament", "teams", str(team_index), "name",
+                ]
+                renamed_path = [
+                    "competitions", str(competition_index), "state",
+                    "tournament", "teams", str(team_index), "renamed_at",
+                ]
+                available_path = [
+                    "competitions", str(competition_index), "state",
+                    "tournament", "teams", str(team_index), "rename_available_at",
+                ]
+                with self._postgres_connect() as connection:
+                    self._ensure_postgres_table(connection)
+                    connection.execute(
+                        """
+                        UPDATE app_state
+                        SET document = jsonb_set(
+                              jsonb_set(
+                                jsonb_set(document, %s, %s::jsonb, true),
+                                %s, %s::jsonb, true
+                              ),
+                              %s, %s::jsonb, true
+                            ),
+                            updated_at = NOW()
+                        WHERE key = %s
+                        """,
+                        (
+                            name_path,
+                            json.dumps(name, ensure_ascii=False),
+                            renamed_path,
+                            json.dumps(renamed_at),
+                            available_path,
+                            json.dumps(rename_available_at),
+                            self.postgres_key,
+                        ),
+                    )
+                return
+            except Exception as exc:
+                raise OSError(f"Postgres team name update failed: {exc}") from exc
+
+        if self.redis_url and self.redis_token:
+            self._redis_command([
+                "HSET",
+                f"{self.redis_key}:team-names",
+                team_id,
+                json.dumps(
+                    {
+                        "name": name,
+                        "renamed_at": renamed_at,
+                        "rename_available_at": rename_available_at,
+                    },
+                    ensure_ascii=False,
+                ),
+            ])
+            return
+        self.save()
+
+    def refresh_team_name(self, team_id: str) -> None:
+        """Refresh only the team fields needed for a safe rename."""
+        target = next(
+            (
+                team
+                for competition in self.document.get("competitions", [])
+                if competition["id"] == self.document.get("active_competition_id")
+                for team in competition["state"]["tournament"]["teams"]
+                if team["id"] == team_id
+            ),
+            None,
+        )
+        if target is None:
+            return
+        if self.redis_url and self.redis_token:
+            raw = self._redis_command([
+                "HGET", f"{self.redis_key}:team-names", team_id
+            ])
+            if raw:
+                override = json.loads(raw)
+                target["name"] = override["name"]
+                target["renamed_at"] = override.get("renamed_at")
+                target["rename_available_at"] = override.get(
+                    "rename_available_at"
+                )
+            return
+        if self.postgres_url:
+            competition_index = next(
+                index
+                for index, competition in enumerate(self.document["competitions"])
+                if competition["id"] == self.document.get("active_competition_id")
+            )
+            team_index = next(
+                index
+                for index, team in enumerate(
+                    self.document["competitions"][competition_index]["state"][
+                        "tournament"
+                    ]["teams"]
+                )
+                if team["id"] == team_id
+            )
+            path = [
+                "competitions", str(competition_index), "state",
+                "tournament", "teams", str(team_index),
+            ]
+            with self._postgres_connect() as connection:
+                self._ensure_postgres_table(connection)
+                row = connection.execute(
+                    "SELECT document #> %s AS team FROM app_state WHERE key = %s",
+                    (path, self.postgres_key),
+                ).fetchone()
+            if row and row["team"]:
+                current = row["team"]
+                target["name"] = current.get("name", target["name"])
+                target["renamed_at"] = current.get("renamed_at")
+                target["rename_available_at"] = current.get(
+                    "rename_available_at"
+                )
 
     def reset(self) -> None:
         competition = self.active_competition

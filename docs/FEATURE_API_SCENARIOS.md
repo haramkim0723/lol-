@@ -53,7 +53,8 @@
 ### 포스터 메인
 1. 대회 생성 시 `poster_image` 입력
 2. `GET /api/state`
-3. 기대 결과
+3. `GET /api/competitions/{competition_id}/poster`
+4. 기대 결과
    - 현재 대회 포스터가 메인 화면에 표시됨
    - 점수제 참가자 화면에는 포스터가 표시되지 않음
 
@@ -293,6 +294,7 @@
 
 - `GET /api/state`
 - `POST /api/competitions`
+- `GET /api/competitions/{competition_id}/poster`
 - `POST /api/competitions/{competition_id}/select`
 - `DELETE /api/competitions/{competition_id}`
 - `PUT /api/participation/settings`

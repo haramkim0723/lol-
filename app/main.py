@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import secrets
@@ -23,7 +24,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -254,13 +255,38 @@ async def timing_middleware(request: Request, call_next):
     return response
 
 
+STATE_MUTATION_PATHS = (
+    "/api/settings",
+    "/api/competitions",
+    "/api/participation/settings",
+    "/api/participation/applications",
+    "/api/admin/setup-test-competitions",
+    "/api/admin/competitions",
+    "/api/notices",
+    "/api/roster-score-table",
+    "/api/captains",
+    "/api/players",
+    "/api/tournament",
+    "/api/scrim/results",
+    "/api/auction",
+    "/api/reset",
+)
+
+
+def requires_state_refresh(request: Request) -> bool:
+    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return False
+    if (
+        request.url.path.startswith("/api/tournament/teams/")
+        and request.url.path.endswith("/name")
+    ):
+        return False
+    return request.url.path.startswith(STATE_MUTATION_PATHS)
+
+
 @app.middleware("http")
 async def serverless_state_sync(request: Request, call_next):
-    if (
-        os.getenv("VERCEL")
-        and request.url.path.startswith("/api/")
-        and request.url.path != "/api/state"
-    ):
+    if os.getenv("VERCEL") and requires_state_refresh(request):
         async with state_lock:
             store.refresh()
             if engine.finalize_if_due(store.state):
@@ -1001,6 +1027,34 @@ async def create_competition(data: CompetitionInput, request: Request):
         "poster_image": competition.get("poster_image", ""),
         "created_at": competition["created_at"],
     }
+
+
+@app.get("/api/competitions/{competition_id}/poster")
+async def competition_poster(competition_id: str):
+    competition = next(
+        (
+            item
+            for item in store.document.get("competitions", [])
+            if item["id"] == competition_id
+        ),
+        None,
+    )
+    if competition is None:
+        raise HTTPException(404, "대회를 찾을 수 없습니다.")
+    value = str(competition.get("poster_image") or "")
+    if not value.startswith("data:image/") or "," not in value:
+        raise HTTPException(404, "포스터 이미지가 없습니다.")
+    header, encoded = value.split(",", 1)
+    media_type = header.removeprefix("data:").split(";", 1)[0]
+    try:
+        content = base64.b64decode(encoded, validate=True)
+    except ValueError as exc:
+        raise HTTPException(400, "포스터 이미지 형식이 올바르지 않습니다.") from exc
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @app.post("/api/competitions/{competition_id}/select")
@@ -2084,6 +2138,7 @@ async def rename_tournament_team(
     viewer = require_participant(request)
     try:
         async with state_lock:
+            store.refresh_team_name(team_id)
             team = next(
                 (
                     item
@@ -2106,7 +2161,12 @@ async def rename_tournament_team(
             renamed = engine.rename_tournament_team(
                 store.state, team_id, data.name
             )
-            store.save()
+            store.save_team_name(
+                team_id,
+                renamed["name"],
+                renamed.get("renamed_at"),
+                renamed.get("rename_available_at"),
+            )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     await broadcast()
