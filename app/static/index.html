@@ -743,6 +743,7 @@
               </label>
               <label>경기 방식
                 <select name="best_of" required>
+                  <option value="1">1경기 세트</option>
                   <option value="2">2경기 세트</option>
                   <option value="3">BO3</option>
                 </select>
@@ -757,7 +758,7 @@
                 <select name="team_b_id" required></select>
               </label>
               <label>팀 B 세트
-                <input name="team_b_score" type="number" min="0" max="2" value="1" required />
+                <input name="team_b_score" type="number" min="0" max="2" value="0" required />
               </label>
               <label>메모
                 <input name="memo" maxlength="500" placeholder="선택 입력" />

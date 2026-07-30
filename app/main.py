@@ -2279,7 +2279,10 @@ async def select_tournament_winner(
 def scrim_result_payload(data: ScrimResultInput) -> dict:
     if data.team_a_id == data.team_b_id:
         raise HTTPException(400, "서로 다른 두 팀을 선택해 주세요.")
-    if data.best_of == 2:
+    if data.best_of == 1:
+        if sorted((data.team_a_score, data.team_b_score)) != [0, 1]:
+            raise HTTPException(400, "1경기 세트 결과는 1:0 또는 0:1만 가능합니다.")
+    elif data.best_of == 2:
         if data.team_a_score + data.team_b_score != 2:
             raise HTTPException(400, "2경기 세트의 스코어 합계는 2여야 합니다.")
     elif data.best_of == 3:
@@ -2287,7 +2290,7 @@ def scrim_result_payload(data: ScrimResultInput) -> dict:
         if max(scores) != 2 or min(scores) > 1:
             raise HTTPException(400, "BO3 결과는 2:0, 2:1, 0:2, 1:2만 가능합니다.")
     else:
-        raise HTTPException(400, "경기 방식은 2경기 세트 또는 BO3만 가능합니다.")
+        raise HTTPException(400, "경기 방식은 1경기 세트, 2경기 세트 또는 BO3만 가능합니다.")
     return {
         **data.model_dump(),
         "winner_team_id": (
@@ -2561,7 +2564,7 @@ async def create_scrim_result(data: ScrimResultInput, request: Request):
 async def update_scrim_result(
     result_id: str, data: ScrimResultInput, request: Request
 ):
-    viewer = require_participant(request)
+    require_host(request)
     async with state_lock:
         result = next(
             (
@@ -2574,21 +2577,6 @@ async def update_scrim_result(
         if result is None:
             raise HTTPException(404, "결과를 찾을 수 없습니다.")
         original_team_ids = {result.get("team_a_id"), result.get("team_b_id")}
-        permission_granted = False
-        try:
-            require_scrim_result_manager(viewer, result["team_a_id"])
-            permission_granted = True
-        except HTTPException as error:
-            if error.status_code in (400, 404):
-                raise
-        try:
-            require_scrim_result_manager(viewer, result["team_b_id"])
-            permission_granted = True
-        except HTTPException as error:
-            if error.status_code in (400, 404):
-                raise
-        if not permission_granted:
-            raise HTTPException(403, "참가 팀원 또는 강사님만 결과를 수정할 수 있습니다.")
         if {data.team_a_id, data.team_b_id} != original_team_ids:
             raise HTTPException(400, "등록된 경기의 팀은 변경할 수 없습니다.")
         result.update(scrim_result_payload(data))

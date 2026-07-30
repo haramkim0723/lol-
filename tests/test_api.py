@@ -1504,7 +1504,7 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(finished_state["tournament"]["status"], "finished")
             self.assertEqual(finished_state["tournament"]["champion_id"], teams[0]["id"])
 
-    def test_team_member_can_create_and_update_scrim_result(self):
+    def test_team_member_can_create_but_only_host_can_update_scrim_result(self):
         with TestClient(app) as host_client:
             login_as_host(host_client)
             players = {}
@@ -1591,7 +1591,20 @@ class ApiFlowTest(unittest.TestCase):
                 self.assertEqual(created.status_code, 200)
                 self.assertEqual(created.json()["winner_team_id"], team_id)
 
-                updated = member_client.put(
+                forbidden_update = member_client.put(
+                    f'/api/scrim/results/{created.json()["id"]}',
+                    json={
+                        "team_a_id": team_id,
+                        "team_b_id": opponent_id,
+                        "match_date": "2026-07-08",
+                        "best_of": 3,
+                        "team_a_score": 1,
+                        "team_b_score": 2,
+                    },
+                )
+                self.assertEqual(forbidden_update.status_code, 403)
+
+                updated = host_client.put(
                     f'/api/scrim/results/{created.json()["id"]}',
                     json={
                         "team_a_id": team_id,
@@ -1618,6 +1631,33 @@ class ApiFlowTest(unittest.TestCase):
                 )
                 self.assertEqual(draw_score.status_code, 200)
                 self.assertIsNone(draw_score.json()["winner_team_id"])
+
+                single_set = member_client.post(
+                    "/api/scrim/results",
+                    json={
+                        "team_a_id": team_id,
+                        "team_b_id": opponent_id,
+                        "match_date": "2026-07-10",
+                        "best_of": 1,
+                        "team_a_score": 1,
+                        "team_b_score": 0,
+                    },
+                )
+                self.assertEqual(single_set.status_code, 200)
+                self.assertEqual(single_set.json()["winner_team_id"], team_id)
+
+                invalid_single_set = member_client.post(
+                    "/api/scrim/results",
+                    json={
+                        "team_a_id": team_id,
+                        "team_b_id": opponent_id,
+                        "match_date": "2026-07-10",
+                        "best_of": 1,
+                        "team_a_score": 1,
+                        "team_b_score": 1,
+                    },
+                )
+                self.assertEqual(invalid_single_set.status_code, 400)
 
                 forbidden_delete = member_client.delete(
                     f'/api/scrim/results/{created.json()["id"]}'

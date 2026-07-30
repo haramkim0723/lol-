@@ -3740,8 +3740,8 @@ function renderScrimResults() {
   list.innerHTML = results.map((result) => {
     const teamA = teamById(result.team_a_id);
     const teamB = teamById(result.team_b_id);
-    const canEdit = Boolean(teamA?.can_manage_scrim_result || teamB?.can_manage_scrim_result);
-    const canDelete = state.viewer.role === "host";
+    const canEdit = state.viewer.role === "host";
+    const canDelete = canEdit;
     const selectedIsA = selectedScrimTeamId === result.team_a_id;
     const opponent = selectedIsA ? teamB : teamA;
     const selectedScore = selectedIsA ? result.team_a_score : result.team_b_score;
@@ -3754,7 +3754,7 @@ function renderScrimResults() {
         <div class="team-head">
           <div>
             <strong>${scoreMarkup}</strong>
-            <div class="meta">${escapeHtml(result.match_date)} · ${Number(result.best_of) === 2 ? "2경기 세트" : `BO${result.best_of || 3}`}${result.memo ? ` · ${escapeHtml(result.memo)}` : ""}</div>
+            <div class="meta">${escapeHtml(result.match_date)} · ${Number(result.best_of) === 1 ? "1경기 세트" : Number(result.best_of) === 2 ? "2경기 세트" : `BO${result.best_of || 3}`}${result.memo ? ` · ${escapeHtml(result.memo)}` : ""}</div>
           </div>
           <div class="result-actions">
             ${canEdit ? `<button class="ghost" type="button" data-edit-scrim-result="${result.id}">수정</button>` : ""}
@@ -3940,19 +3940,21 @@ $("#scrim-winrate-list").addEventListener("keydown", (event) => {
   if (!form) return;
   ["team_a_score", "team_b_score"].forEach((fieldName) => {
     form.elements[fieldName].addEventListener("input", (event) => {
-      const score = Math.max(0, Math.min(2, Number(event.target.value || 0)));
-      if (Number(form.elements.best_of.value) !== 2) return;
+      const bestOf = Number(form.elements.best_of.value);
+      if (![1, 2].includes(bestOf)) return;
+      const score = Math.max(0, Math.min(bestOf, Number(event.target.value || 0)));
+      event.target.value = score;
       const otherName = fieldName === "team_a_score" ? "team_b_score" : "team_a_score";
-      form.elements[otherName].value = 2 - score;
+      form.elements[otherName].value = bestOf - score;
     });
   });
 });
 
 $("#scrim-result-form")?.elements.best_of.addEventListener("change", (event) => {
   const form = event.target.form;
-  const isBo3 = Number(event.target.value) === 3;
-  form.elements.team_a_score.value = isBo3 ? 2 : 1;
-  form.elements.team_b_score.value = isBo3 ? 0 : 1;
+  const bestOf = Number(event.target.value);
+  form.elements.team_a_score.value = bestOf === 3 ? 2 : 1;
+  form.elements.team_b_score.value = bestOf === 2 ? 1 : 0;
 });
 
 $("#scrim-result-form").addEventListener("submit", async (event) => {
@@ -4013,12 +4015,12 @@ $("#scrim-result-list").addEventListener("click", async (event) => {
   $("#scrim-result-entry").open = true;
   form.elements.result_id.value = result.id;
   form.elements.match_date.value = result.match_date;
-  form.elements.best_of.value = [2, 3].includes(Number(result.best_of))
+  form.elements.best_of.value = [1, 2, 3].includes(Number(result.best_of))
     ? String(result.best_of)
     : "2";
   form.elements.team_a_id.value = result.team_a_id;
   form.elements.team_b_id.value = result.team_b_id;
-  const isSupportedResult = [2, 3].includes(Number(result.best_of));
+  const isSupportedResult = [1, 2, 3].includes(Number(result.best_of));
   form.elements.team_a_score.value = isSupportedResult ? result.team_a_score : 1;
   form.elements.team_b_score.value = isSupportedResult ? result.team_b_score : 1;
   form.elements.memo.value = result.memo || "";
