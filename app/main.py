@@ -2598,6 +2598,21 @@ async def update_scrim_result(
     return result
 
 
+@app.delete("/api/scrim/results/{result_id}")
+async def delete_scrim_result(result_id: str, request: Request):
+    require_host(request)
+    async with state_lock:
+        results = store.state.setdefault("scrim_results", [])
+        result = next((item for item in results if item["id"] == result_id), None)
+        if result is None:
+            raise HTTPException(404, "스크림 결과를 찾을 수 없습니다.")
+        results.remove(result)
+        store.save()
+    delete_result_image_from_blob(result.get("image_url"))
+    await broadcast()
+    return {"ok": True, "deleted_result": result}
+
+
 async def mutate(action):
     try:
         async with state_lock:

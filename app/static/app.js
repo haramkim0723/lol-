@@ -3741,6 +3741,7 @@ function renderScrimResults() {
     const teamA = teamById(result.team_a_id);
     const teamB = teamById(result.team_b_id);
     const canEdit = Boolean(teamA?.can_manage_scrim_result || teamB?.can_manage_scrim_result);
+    const canDelete = state.viewer.role === "host";
     const selectedIsA = selectedScrimTeamId === result.team_a_id;
     const opponent = selectedIsA ? teamB : teamA;
     const selectedScore = selectedIsA ? result.team_a_score : result.team_b_score;
@@ -3755,7 +3756,10 @@ function renderScrimResults() {
             <strong>${scoreMarkup}</strong>
             <div class="meta">${escapeHtml(result.match_date)} · ${Number(result.best_of) === 2 ? "2경기 세트" : `BO${result.best_of || 3}`}${result.memo ? ` · ${escapeHtml(result.memo)}` : ""}</div>
           </div>
-          ${canEdit ? `<button class="ghost" type="button" data-edit-scrim-result="${result.id}">수정</button>` : ""}
+          <div class="result-actions">
+            ${canEdit ? `<button class="ghost" type="button" data-edit-scrim-result="${result.id}">수정</button>` : ""}
+            ${canDelete ? `<button class="danger" type="button" data-delete-scrim-result="${result.id}">삭제</button>` : ""}
+          </div>
         </div>
       </article>`;
   }).join("");
@@ -3984,7 +3988,22 @@ $("#cancel-result-edit").addEventListener("click", () => {
   renderScrimResultForm();
 });
 
-$("#scrim-result-list").addEventListener("click", (event) => {
+$("#scrim-result-list").addEventListener("click", async (event) => {
+  const deleteButton = event.target.closest("[data-delete-scrim-result]");
+  if (deleteButton) {
+    const resultId = deleteButton.dataset.deleteScrimResult;
+    if (!confirm("이 스크림 결과를 삭제할까요? 삭제한 결과는 복구할 수 없습니다.")) return;
+    deleteButton.disabled = true;
+    try {
+      await api(`/api/scrim/results/${resultId}`, { method: "DELETE" });
+      await refreshState();
+      toast("스크림 결과를 삭제했습니다.");
+    } catch (error) {
+      deleteButton.disabled = false;
+      toast(error.message, true);
+    }
+    return;
+  }
   const resultId = event.target.closest("[data-edit-scrim-result]")?.dataset.editScrimResult;
   if (!resultId) return;
   const result = (state.scrim_results || []).find((item) => item.id === resultId);

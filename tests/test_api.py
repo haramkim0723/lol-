@@ -1619,6 +1619,27 @@ class ApiFlowTest(unittest.TestCase):
                 self.assertEqual(draw_score.status_code, 200)
                 self.assertIsNone(draw_score.json()["winner_team_id"])
 
+                forbidden_delete = member_client.delete(
+                    f'/api/scrim/results/{created.json()["id"]}'
+                )
+                self.assertEqual(forbidden_delete.status_code, 403)
+
+                deleted = host_client.delete(
+                    f'/api/scrim/results/{created.json()["id"]}'
+                )
+                self.assertEqual(deleted.status_code, 200)
+                self.assertTrue(deleted.json()["ok"])
+                self.assertFalse(
+                    any(
+                        item["id"] == created.json()["id"]
+                        for item in store.state["scrim_results"]
+                    )
+                )
+                missing = host_client.delete(
+                    f'/api/scrim/results/{created.json()["id"]}'
+                )
+                self.assertEqual(missing.status_code, 404)
+
             with TestClient(app) as outsider_client:
                 outsider = outsider_client.post(
                     "/api/scrim/users",
