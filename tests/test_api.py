@@ -1551,10 +1551,20 @@ class ApiFlowTest(unittest.TestCase):
             )
             self.assertEqual(team_approval.status_code, 200)
             opponent_id = uuid.uuid4().hex
+            replacement_opponent_id = uuid.uuid4().hex
             store.state["tournament"]["teams"].append(
                 {
                     "id": opponent_id,
                     "name": "Opponent Team",
+                    "members": {},
+                    "status": "approved",
+                    "total_score": 0,
+                }
+            )
+            store.state["tournament"]["teams"].append(
+                {
+                    "id": replacement_opponent_id,
+                    "name": "Replacement Opponent",
                     "members": {},
                     "status": "approved",
                     "total_score": 0,
@@ -1617,6 +1627,23 @@ class ApiFlowTest(unittest.TestCase):
                 )
                 self.assertEqual(updated.status_code, 200)
                 self.assertEqual(updated.json()["winner_team_id"], opponent_id)
+
+                corrected_teams = host_client.put(
+                    f'/api/scrim/results/{created.json()["id"]}',
+                    json={
+                        "team_a_id": team_id,
+                        "team_b_id": replacement_opponent_id,
+                        "match_date": "2026-07-08",
+                        "best_of": 3,
+                        "team_a_score": 2,
+                        "team_b_score": 0,
+                    },
+                )
+                self.assertEqual(corrected_teams.status_code, 200)
+                self.assertEqual(
+                    corrected_teams.json()["team_b_id"], replacement_opponent_id
+                )
+                self.assertEqual(corrected_teams.json()["winner_team_id"], team_id)
 
                 draw_score = member_client.post(
                     "/api/scrim/results",

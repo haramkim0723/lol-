@@ -2564,7 +2564,7 @@ async def create_scrim_result(data: ScrimResultInput, request: Request):
 async def update_scrim_result(
     result_id: str, data: ScrimResultInput, request: Request
 ):
-    require_host(request)
+    viewer = require_host(request)
     async with state_lock:
         result = next(
             (
@@ -2576,9 +2576,10 @@ async def update_scrim_result(
         )
         if result is None:
             raise HTTPException(404, "결과를 찾을 수 없습니다.")
-        original_team_ids = {result.get("team_a_id"), result.get("team_b_id")}
-        if {data.team_a_id, data.team_b_id} != original_team_ids:
-            raise HTTPException(400, "등록된 경기의 팀은 변경할 수 없습니다.")
+        # A host (teacher) may correct every field, including both teams.
+        # Validate that replacements are still approved tournament teams.
+        require_scrim_result_manager(viewer, data.team_a_id)
+        require_scrim_result_manager(viewer, data.team_b_id)
         result.update(scrim_result_payload(data))
         result["updated_at"] = time.time()
         store.save()
