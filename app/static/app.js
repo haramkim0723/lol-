@@ -940,7 +940,7 @@ function renderTournamentSettingsControls() {
   $("#tournament-format-input").value = tournament.format || "single_elimination";
   $("#tournament-group-count-input").value = tournament.group_count || 2;
   $("#tournament-qualifiers-input").value = tournament.qualifiers_per_group || 2;
-  const settingsLocked = ["running", "finished"].includes(tournament.status);
+  const settingsLocked = tournament.status === "finished";
   ["#teacher-score-limit-input", "#tournament-score-visible-input", "#tournament-format-input", "#tournament-group-count-input", "#tournament-qualifiers-input", "#save-tournament-settings"]
     .forEach((selector) => { $(selector).disabled = settingsLocked; });
 }
@@ -2633,11 +2633,17 @@ $("#teacher-score-limit-form").addEventListener("submit", async (event) => {
   const scoreLimit = Number(
     new FormData(event.target).get("score_limit")
   );
+  const payload = tournamentSettingsPayload(scoreLimit);
+  const structureChanged = payload.format !== state.tournament.format
+    || payload.group_count !== state.tournament.group_count
+    || payload.qualifiers_per_group !== state.tournament.qualifiers_per_group;
+  if (state.tournament.status === "running" && structureChanged
+    && !window.confirm("대회 구조를 변경하면 현재 본선 대진표가 초기화됩니다. 계속할까요?")) return;
   try {
     await withButtonLoading(button, "저장 중", () =>
       api("/api/tournament/settings", {
         method: "PUT",
-        body: JSON.stringify(tournamentSettingsPayload(scoreLimit)),
+        body: JSON.stringify(payload),
       })
     );
     await refreshState();

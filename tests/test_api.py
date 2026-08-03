@@ -1804,6 +1804,24 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(first_round_ids, {team["id"] for team in approved})
             self.assertNotIn(pending["id"], first_round_ids)
 
+            score_change = client.put(
+                "/api/tournament/settings",
+                json={"score_limit": 80, "format": "single_elimination"},
+            )
+            self.assertEqual(score_change.status_code, 200)
+            still_running = client.get("/api/state").json()["tournament"]
+            self.assertEqual(still_running["status"], "running")
+            self.assertTrue(still_running["rounds"])
+
+            structure_change = client.put(
+                "/api/tournament/settings",
+                json={"score_limit": 80, "format": "group_then_knockout"},
+            )
+            self.assertEqual(structure_change.status_code, 200)
+            reset_state = client.get("/api/state").json()["tournament"]
+            self.assertEqual(reset_state["status"], "registration")
+            self.assertEqual(reset_state["rounds"], [])
+
     def test_tournament_progress_group_draw_and_results_flow(self):
         def result_standings(state_payload: dict) -> dict[str, dict[str, int]]:
             standings = {

@@ -2086,23 +2086,46 @@ async def update_tournament_settings(
     require_host(request)
     async with state_lock:
         tournament = store.state["tournament"]
-        if tournament["status"] in ("running", "finished"):
-            raise HTTPException(409, "본선 시작 후에는 대회 형식을 바꿀 수 없습니다.")
-        tournament["score_limit"] = data.score_limit
-        store.state.setdefault(
-            "participation",
-            {"enabled": False, "score_visible": False, "terms": "", "applications": []},
-        )["score_visible"] = data.score_visible
+        if tournament["status"] == "finished":
+            raise HTTPException(409, "대회 종료 후에는 설정을 변경할 수 없습니다.")
         format_changed = tournament.get("format") != data.format
         changed = (
             format_changed
             or tournament.get("group_count") != data.group_count
             or tournament.get("qualifiers_per_group") != data.qualifiers_per_group
         )
+        if changed and tournament["status"] == "running":
+            has_played_result = any(
+                match.get("team1_score") is not None
+                or match.get("team2_score") is not None
+                or (
+                    match.get("winner_id") is not None
+                    and match.get("team1_id") is not None
+                    and match.get("team2_id") is not None
+                )
+                for round_matches in tournament.get("rounds", [])
+                for match in round_matches
+            )
+            if has_played_result:
+                raise HTTPException(
+                    409,
+                    "본선 경기 결과가 입력된 뒤에는 대회 구조를 변경할 수 없습니다.",
+                )
+        tournament["score_limit"] = data.score_limit
+        store.state.setdefault(
+            "participation",
+            {"enabled": False, "score_visible": False, "terms": "", "applications": []},
+        )["score_visible"] = data.score_visible
         tournament["format"] = data.format
         tournament["group_count"] = data.group_count
         tournament["qualifiers_per_group"] = data.qualifiers_per_group
-        if changed and tournament["status"] == "group":
+        if changed and tournament["status"] == "running":
+            tournament["status"] = "registration"
+            tournament["groups"] = []
+            tournament["qualified_team_ids"] = []
+            tournament["rounds"] = []
+            tournament["champion_id"] = None
+        elif changed and tournament["status"] == "group":
             tournament["groups"] = []
             tournament["qualified_team_ids"] = []
             tournament["rounds"] = []
