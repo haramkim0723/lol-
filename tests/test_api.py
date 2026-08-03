@@ -1928,7 +1928,7 @@ class ApiFlowTest(unittest.TestCase):
             )
             self.assertEqual(format_change.status_code, 200)
             changed_format_state = client.get("/api/state").json()["tournament"]
-            self.assertEqual(changed_format_state["status"], "registration")
+            self.assertEqual(changed_format_state["status"], "group")
             self.assertEqual(changed_format_state["groups"], [])
 
             restore_group_format = client.put(

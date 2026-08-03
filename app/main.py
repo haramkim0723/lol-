@@ -2103,8 +2103,6 @@ async def update_tournament_settings(
         tournament["group_count"] = data.group_count
         tournament["qualifiers_per_group"] = data.qualifiers_per_group
         if changed and tournament["status"] == "group":
-            if format_changed:
-                tournament["status"] = "registration"
             tournament["groups"] = []
             tournament["qualified_team_ids"] = []
             tournament["rounds"] = []
