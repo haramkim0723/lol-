@@ -1917,6 +1917,33 @@ class ApiFlowTest(unittest.TestCase):
             self.assertEqual(client.post("/api/tournament/start").status_code, 200)
             drawn = client.get("/api/state").json()
 
+            format_change = client.put(
+                "/api/tournament/settings",
+                json={
+                    "score_limit": 100,
+                    "format": "single_elimination",
+                    "group_count": 2,
+                    "qualifiers_per_group": 1,
+                },
+            )
+            self.assertEqual(format_change.status_code, 200)
+            changed_format_state = client.get("/api/state").json()["tournament"]
+            self.assertEqual(changed_format_state["status"], "registration")
+            self.assertEqual(changed_format_state["groups"], [])
+
+            restore_group_format = client.put(
+                "/api/tournament/settings",
+                json={
+                    "score_limit": 100,
+                    "format": "group_then_knockout",
+                    "group_count": 2,
+                    "qualifiers_per_group": 1,
+                },
+            )
+            self.assertEqual(restore_group_format.status_code, 200)
+            self.assertEqual(client.post("/api/tournament/start").status_code, 200)
+            drawn = client.get("/api/state").json()
+
             first_group_ids = drawn["tournament"]["groups"][0]["team_ids"]
             over_limit = client.put(
                 "/api/tournament/groups/qualifiers",

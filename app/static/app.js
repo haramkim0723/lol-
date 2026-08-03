@@ -1035,9 +1035,8 @@ function renderTournament() {
   const settingsLocked = ["running", "finished"].includes(tournament.status);
   ["#teacher-score-limit-input", "#tournament-score-visible-input", "#tournament-format-input", "#tournament-group-count-input", "#tournament-qualifiers-input", "#save-tournament-settings"]
     .forEach((selector) => { $(selector).disabled = settingsLocked; });
-  $("#tournament-format-input").disabled = settingsLocked || tournament.status === "group";
   $("#start-tournament-button").classList.toggle(
-    "hidden", !registrationOpen || !isHost || tournament.format !== "group_then_knockout"
+    "hidden", !registrationOpen || !isHost
   );
   $("#open-bracket-editor-button").classList.toggle(
     "hidden",
@@ -1045,7 +1044,9 @@ function renderTournament() {
       || !isHost
       || tournament.teams.filter((team) => team.status === "approved").length < 2
   );
-  $("#start-tournament-button").textContent = "조 자동 추첨";
+  $("#start-tournament-button").textContent = tournament.format === "group_then_knockout"
+    ? "조 자동 추첨"
+    : "본선 대진 생성";
   $("#competition-room-format").textContent =
     tournament.format === "group_then_knockout"
       ? `조 편성 사용 · ${tournament.group_count}개 조 · 조당 ${tournament.qualifiers_per_group}팀 진출 · 본선 자유 편집`
