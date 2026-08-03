@@ -1129,6 +1129,9 @@ a.tier-emblem-link:hover { transform: translateY(-4px) scale(1.035); filter: bri
 }
 .group-draw-controls p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
 .group-draw-controls button { min-width: 190px; min-height: 50px; font-size: 15px; font-weight: 900; }
+.group-redraw-admin { display: flex; justify-content: flex-end; margin-top: 14px; }
+.group-redraw-admin button { min-height: 28px; padding: 5px 8px; color: var(--muted); font-size: 9px; opacity: .72; }
+.group-redraw-admin button:hover { color: var(--text); opacity: 1; }
 .draw-orbit {
   position: relative;
   width: 112px;

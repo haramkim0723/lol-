@@ -1884,6 +1884,39 @@ class ApiFlowTest(unittest.TestCase):
                 refreshed["tournament"]["groups"], drawn["tournament"]["groups"]
             )
 
+            changed_settings = client.put(
+                "/api/tournament/settings",
+                json={
+                    "score_limit": 90,
+                    "format": "group_then_knockout",
+                    "group_count": 2,
+                    "qualifiers_per_group": 2,
+                },
+            )
+            self.assertEqual(changed_settings.status_code, 200)
+            waiting_for_redraw = client.get("/api/state").json()
+            self.assertEqual(waiting_for_redraw["tournament"]["status"], "group")
+            self.assertEqual(waiting_for_redraw["tournament"]["groups"], [])
+
+            redraw = client.post("/api/tournament/start")
+            self.assertEqual(redraw.status_code, 200)
+            drawn = client.get("/api/state").json()
+            self.assertEqual(drawn["tournament"]["status"], "group")
+            self.assertEqual(len(drawn["tournament"]["groups"]), 2)
+
+            restore_settings = client.put(
+                "/api/tournament/settings",
+                json={
+                    "score_limit": 100,
+                    "format": "group_then_knockout",
+                    "group_count": 2,
+                    "qualifiers_per_group": 1,
+                },
+            )
+            self.assertEqual(restore_settings.status_code, 200)
+            self.assertEqual(client.post("/api/tournament/start").status_code, 200)
+            drawn = client.get("/api/state").json()
+
             first_group_ids = drawn["tournament"]["groups"][0]["team_ids"]
             over_limit = client.put(
                 "/api/tournament/groups/qualifiers",

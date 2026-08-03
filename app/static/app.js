@@ -1035,6 +1035,7 @@ function renderTournament() {
   const settingsLocked = ["running", "finished"].includes(tournament.status);
   ["#teacher-score-limit-input", "#tournament-score-visible-input", "#tournament-format-input", "#tournament-group-count-input", "#tournament-qualifiers-input", "#save-tournament-settings"]
     .forEach((selector) => { $(selector).disabled = settingsLocked; });
+  $("#tournament-format-input").disabled = settingsLocked || tournament.status === "group";
   $("#start-tournament-button").classList.toggle(
     "hidden", !registrationOpen || !isHost || tournament.format !== "group_then_knockout"
   );
@@ -1130,6 +1131,11 @@ function renderTournamentGroups() {
   const replayButton = $("#play-group-draw-button");
   replayButton?.classList.toggle("hidden", tournament.status !== "group" || groups.length === 0 || waitingForDraw || showDrawControls);
   if (replayButton) replayButton.textContent = "다시 보기";
+  const redrawButton = $("#redraw-groups-button");
+  redrawButton?.classList.toggle(
+    "hidden",
+    tournament.status !== "group" || !isHost || waitingForDraw || (showDrawControls && !revealDone)
+  );
   const totalTeams = groups.reduce((sum, group) => sum + group.team_ids.length, 0);
   $("#tournament-groups").innerHTML = `
     <div id="group-draw-waiting" class="group-draw-waiting${waitingForDraw ? "" : " hidden"}">
@@ -2989,6 +2995,12 @@ $("#tournament-groups").addEventListener("click", async (event) => {
   button.disabled = true;
   button.textContent = "추첨 중...";
   try {
+    if (state.tournament.status === "group" && (state.tournament.groups || []).length > 0
+      && !window.confirm("기존 조 편성과 입력된 조별 경기 결과가 모두 초기화됩니다. 새로 추첨할까요?")) {
+      button.disabled = false;
+      button.textContent = "추첨 시작";
+      return;
+    }
     await api("/api/tournament/start", { method: "POST" });
     await refreshState({ renderView: false });
     groupDrawReady = false;
@@ -3005,6 +3017,16 @@ $("#tournament-groups").addEventListener("click", async (event) => {
 
 $("#play-group-draw-button")?.addEventListener("click", () => {
   startManualGroupDraw();
+});
+
+$("#redraw-groups-button")?.addEventListener("click", () => {
+  groupDrawReady = true;
+  groupDrawRevealActive = false;
+  groupDrawRevealCount = 0;
+  lastGroupDrawAnimationSignature = "";
+  scrimRoomTab = "groups";
+  renderTournament();
+  renderScrimRoomTabs();
 });
 
 $("#group-result-form")?.addEventListener("submit", async (event) => {

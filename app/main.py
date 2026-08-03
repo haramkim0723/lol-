@@ -2088,6 +2088,8 @@ async def update_tournament_settings(
         tournament = store.state["tournament"]
         if tournament["status"] in ("running", "finished"):
             raise HTTPException(409, "본선 시작 후에는 대회 형식을 바꿀 수 없습니다.")
+        if tournament["status"] == "group" and tournament.get("format") != data.format:
+            raise HTTPException(409, "조별 진행 중에는 대회 방식을 변경할 수 없습니다.")
         tournament["score_limit"] = data.score_limit
         store.state.setdefault(
             "participation",
@@ -2102,9 +2104,10 @@ async def update_tournament_settings(
         tournament["group_count"] = data.group_count
         tournament["qualifiers_per_group"] = data.qualifiers_per_group
         if changed and tournament["status"] == "group":
-            tournament["status"] = "registration"
             tournament["groups"] = []
             tournament["qualified_team_ids"] = []
+            tournament["rounds"] = []
+            tournament["champion_id"] = None
         store.save()
     await broadcast()
     return {"ok": True}
