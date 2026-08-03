@@ -933,10 +933,21 @@ function updateScoreVisibleControl() {
   label.textContent = visible ? "공개 중" : "비공개";
 }
 
+function renderTournamentSettingsControls() {
+  const tournament = state.tournament;
+  $("#teacher-score-limit-input").value = tournament.score_limit;
+  updateScoreVisibleControl();
+  $("#tournament-format-input").value = tournament.format || "single_elimination";
+  $("#tournament-group-count-input").value = tournament.group_count || 2;
+  $("#tournament-qualifiers-input").value = tournament.qualifiers_per_group || 2;
+  const settingsLocked = ["running", "finished"].includes(tournament.status);
+  ["#teacher-score-limit-input", "#tournament-score-visible-input", "#tournament-format-input", "#tournament-group-count-input", "#tournament-qualifiers-input", "#save-tournament-settings"]
+    .forEach((selector) => { $(selector).disabled = settingsLocked; });
+}
+
 function renderSetup() {
   if (state.viewer.role !== "host") return;
-  $("#teacher-score-limit-input").value = state.tournament.score_limit;
-  updateScoreVisibleControl();
+  renderTournamentSettingsControls();
   const settings = state.settings;
   const form = $("#settings-form");
   Object.entries(settings).forEach(([key, value]) => {
@@ -1027,14 +1038,7 @@ function renderTournament() {
   $("#tournament-group-section").classList.toggle(
     "hidden", !isTournamentCompetition || (tournament.status !== "group" && !groupDrawReady)
   );
-  $("#teacher-score-limit-input").value = tournament.score_limit;
-  updateScoreVisibleControl();
-  $("#tournament-format-input").value = tournament.format || "single_elimination";
-  $("#tournament-group-count-input").value = tournament.group_count || 2;
-  $("#tournament-qualifiers-input").value = tournament.qualifiers_per_group || 2;
-  const settingsLocked = ["running", "finished"].includes(tournament.status);
-  ["#teacher-score-limit-input", "#tournament-score-visible-input", "#tournament-format-input", "#tournament-group-count-input", "#tournament-qualifiers-input", "#save-tournament-settings"]
-    .forEach((selector) => { $(selector).disabled = settingsLocked; });
+  renderTournamentSettingsControls();
   $("#start-tournament-button").classList.toggle(
     "hidden", !registrationOpen || !isHost
   );
