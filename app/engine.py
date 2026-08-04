@@ -678,6 +678,8 @@ def start_tournament(state: dict[str, Any]) -> None:
             candidates = [index for index in available if len(groups[index]["team_ids"]) == smallest]
             group_index = random.SystemRandom().choice(candidates)
             groups[group_index]["team_ids"].append(team_id)
+        for group in groups:
+            random.SystemRandom().shuffle(group["team_ids"])
         tournament["groups"] = groups
         tournament["qualified_team_ids"] = []
         tournament["rounds"] = []
