@@ -32,6 +32,7 @@ def new_state() -> dict[str, Any]:
             "format": "single_elimination",
             "group_count": 2,
             "qualifiers_per_group": 2,
+            "group_assignments": {},
             "status": "registration",
             "teams": [],
             "groups": [],
@@ -649,13 +650,34 @@ def start_tournament(state: dict[str, Any]) -> None:
                 f"조당 {qualifiers}팀 진출에는 승인 팀이 최소 "
                 f"{group_count * qualifiers}팀 필요합니다."
             )
-        random.SystemRandom().shuffle(approved)
+        assignments = tournament.get("group_assignments", {})
         groups = [
             {"name": f"{chr(65 + index)}조", "team_ids": [], "qualified_team_ids": []}
             for index in range(group_count)
         ]
-        for index, team_id in enumerate(approved):
-            groups[index % group_count]["team_ids"].append(team_id)
+        capacities = [
+            len(approved) // group_count + (1 if index < len(approved) % group_count else 0)
+            for index in range(group_count)
+        ]
+        unassigned = []
+        for team_id in approved:
+            group_index = assignments.get(team_id)
+            if isinstance(group_index, int) and 0 <= group_index < group_count:
+                if len(groups[group_index]["team_ids"]) >= capacities[group_index]:
+                    raise ValueError(f"{groups[group_index]['name']}에 고정한 팀이 조 정원을 초과합니다.")
+                groups[group_index]["team_ids"].append(team_id)
+            else:
+                unassigned.append(team_id)
+        random.SystemRandom().shuffle(unassigned)
+        for team_id in unassigned:
+            available = [
+                index for index in range(group_count)
+                if len(groups[index]["team_ids"]) < capacities[index]
+            ]
+            smallest = min(len(groups[index]["team_ids"]) for index in available)
+            candidates = [index for index in available if len(groups[index]["team_ids"]) == smallest]
+            group_index = random.SystemRandom().choice(candidates)
+            groups[group_index]["team_ids"].append(team_id)
         tournament["groups"] = groups
         tournament["qualified_team_ids"] = []
         tournament["rounds"] = []

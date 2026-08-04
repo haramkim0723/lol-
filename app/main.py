@@ -371,6 +371,7 @@ class TournamentSettingsInput(BaseModel):
     group_count: int = Field(default=2, ge=2, le=16)
     qualifiers_per_group: int = Field(default=2, ge=1, le=8)
     score_visible: bool = False
+    group_assignments: dict[str, int] = Field(default_factory=dict)
 
 
 class TournamentTeamInput(BaseModel):
@@ -2093,6 +2094,7 @@ async def update_tournament_settings(
             format_changed
             or tournament.get("group_count") != data.group_count
             or tournament.get("qualifiers_per_group") != data.qualifiers_per_group
+            or tournament.get("group_assignments", {}) != data.group_assignments
         )
         if changed and tournament["status"] == "running":
             has_played_result = any(
@@ -2116,9 +2118,29 @@ async def update_tournament_settings(
             "participation",
             {"enabled": False, "score_visible": False, "terms": "", "applications": []},
         )["score_visible"] = data.score_visible
+        approved_ids = {
+            team["id"] for team in tournament.get("teams", [])
+            if team.get("status") == "approved"
+        }
+        if set(data.group_assignments) - approved_ids:
+            raise HTTPException(400, "승인된 팀만 조를 고정할 수 있습니다.")
+        counts = [0] * data.group_count
+        for group_index in data.group_assignments.values():
+            if group_index < 0 or group_index >= data.group_count:
+                raise HTTPException(400, "고정할 조가 올바르지 않습니다.")
+            counts[group_index] += 1
+        approved_count = len(approved_ids)
+        capacities = [
+            approved_count // data.group_count
+            + (1 if index < approved_count % data.group_count else 0)
+            for index in range(data.group_count)
+        ]
+        if any(count > capacities[index] for index, count in enumerate(counts)):
+            raise HTTPException(400, "한 조에 고정한 팀이 조 정원을 초과합니다.")
         tournament["format"] = data.format
         tournament["group_count"] = data.group_count
         tournament["qualifiers_per_group"] = data.qualifiers_per_group
+        tournament["group_assignments"] = data.group_assignments
         if changed and tournament["status"] == "running":
             tournament["status"] = "registration"
             tournament["groups"] = []

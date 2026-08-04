@@ -429,11 +429,14 @@ class TournamentEngineTest(unittest.TestCase):
         tournament["format"] = "group_then_knockout"
         tournament["group_count"] = 2
         tournament["qualifiers_per_group"] = 1
+        tournament["group_assignments"] = {team_ids[0]: 0, team_ids[1]: 1}
 
         engine.start_tournament(self.state)
 
         self.assertEqual(tournament["status"], "group")
         self.assertEqual(len(tournament["groups"]), 2)
+        self.assertIn(team_ids[0], tournament["groups"][0]["team_ids"])
+        self.assertIn(team_ids[1], tournament["groups"][1]["team_ids"])
         for index, group in enumerate(tournament["groups"]):
             engine.set_group_qualifiers(
                 self.state, index, [group["team_ids"][0]]

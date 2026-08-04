@@ -86,6 +86,12 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 36px 60px; }
 .score-limit-form input,
 .score-limit-form select { width: 100%; height: 52px; margin: 0; padding: 10px 13px; border: 1px solid rgba(153,176,204,.25); border-radius: 11px; color: #fff; background: #080e15; outline: 0; font-size: 14px; font-weight: 900; }
 .score-limit-form select { color: var(--gold-light); }
+.group-assignment-settings { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit,minmax(190px,1fr)); gap: 9px; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.025); }
+.group-assignment-settings.hidden { display: none; }
+.group-assignment-title { grid-column: 1 / -1; color: var(--cyan); font-size: 11px; font-weight: 900; }
+.group-assignment-row { display: grid; grid-template-columns: minmax(0,1fr) 82px; gap: 8px; align-items: center; color: var(--text); font-size: 11px; font-weight: 800; }
+.group-assignment-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.score-limit-form .group-assignment-row select { height: 38px; padding: 6px 9px; font-size: 11px; }
 .score-visibility-toggle {
   grid-column: 1 / -1;
   grid-template-columns: auto 1fr auto;

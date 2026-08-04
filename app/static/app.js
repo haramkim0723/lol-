@@ -940,9 +940,11 @@ function renderTournamentSettingsControls() {
   $("#tournament-format-input").value = tournament.format || "single_elimination";
   $("#tournament-group-count-input").value = tournament.group_count || 2;
   $("#tournament-qualifiers-input").value = tournament.qualifiers_per_group || 2;
+  renderGroupAssignmentSettings();
   const settingsLocked = tournament.status === "finished";
   ["#teacher-score-limit-input", "#tournament-score-visible-input", "#tournament-format-input", "#tournament-group-count-input", "#tournament-qualifiers-input", "#save-tournament-settings"]
     .forEach((selector) => { $(selector).disabled = settingsLocked; });
+  $$("[data-group-assignment-team]").forEach((select) => { select.disabled = settingsLocked; });
 }
 
 function renderSetup() {
@@ -1106,6 +1108,33 @@ function renderTournament() {
   updateTeamScore();
   updateSimulatorScore();
   renderTournamentBracket();
+}
+
+function renderGroupAssignmentSettings() {
+  const container = $("#tournament-group-assignment-settings");
+  const tournament = state.tournament;
+  const visible = ($("#tournament-format-input").value || tournament.format) === "group_then_knockout";
+  container.classList.toggle("hidden", !visible);
+  if (!visible) return;
+  const groupCount = Number($("#tournament-group-count-input").value || tournament.group_count || 2);
+  const assignments = { ...(tournament.group_assignments || {}) };
+  $$('[data-group-assignment-team]').forEach((select) => {
+    if (select.value === "") delete assignments[select.dataset.groupAssignmentTeam];
+    else assignments[select.dataset.groupAssignmentTeam] = Number(select.value);
+  });
+  const teams = tournament.teams.filter((team) => team.status === "approved");
+  container.innerHTML = `
+    <div class="group-assignment-title">부분 랜덤 조 추첨 · 고정하지 않은 팀만 무작위 배치됩니다.</div>
+    ${teams.length ? teams.map((team) => `
+      <label class="group-assignment-row">
+        <span>${escapeHtml(team.name)}</span>
+        <select data-group-assignment-team="${team.id}">
+          <option value="">랜덤</option>
+          ${Array.from({ length: groupCount }, (_, index) => `<option value="${index}"${assignments[team.id] === index ? " selected" : ""}>${String.fromCharCode(65 + index)}조</option>`).join("")}
+        </select>
+      </label>
+    `).join("") : '<div class="empty-state">승인된 팀이 없습니다.</div>'}
+  `;
 }
 
 function renderTournamentGroups() {
@@ -2657,14 +2686,22 @@ $("#tournament-score-visible-input").addEventListener("change", (event) => {
 });
 
 function tournamentSettingsPayload(scoreLimit = Number($("#teacher-score-limit-input").value)) {
+  const groupAssignments = {};
+  $$("[data-group-assignment-team]").forEach((select) => {
+    if (select.value !== "") groupAssignments[select.dataset.groupAssignmentTeam] = Number(select.value);
+  });
   return {
     score_limit: scoreLimit,
     score_visible: $("#tournament-score-visible-input").checked,
     format: $("#tournament-format-input").value || state.tournament.format || "single_elimination",
     group_count: Number($("#tournament-group-count-input").value || state.tournament.group_count || 2),
     qualifiers_per_group: Number($("#tournament-qualifiers-input").value || state.tournament.qualifiers_per_group || 2),
+    group_assignments: groupAssignments,
   };
 }
+
+$("#tournament-format-input").addEventListener("change", renderGroupAssignmentSettings);
+$("#tournament-group-count-input").addEventListener("change", renderGroupAssignmentSettings);
 
 function defaultBracketDraft() {
   const qualified = new Set(state.tournament.qualified_team_ids || []);
