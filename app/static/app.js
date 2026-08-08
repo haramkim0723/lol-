@@ -1137,6 +1137,20 @@ function renderGroupAssignmentSettings() {
   `;
 }
 
+function groupResultsMarkup(group, isHost) {
+  const teamIds = new Set(group.team_ids || []);
+  const teamById = (id) => state.tournament.teams.find((team) => team.id === id);
+  const results = (state.tournament_results || []).filter(
+    (result) => teamIds.has(result.team_a_id) && teamIds.has(result.team_b_id)
+  );
+  if (!results.length) return "";
+  return `<div class="group-results-list">${results.map((result) => `
+    <div class="group-result-row">
+      <span>${escapeHtml(teamById(result.team_a_id)?.name || "-")} <b>${result.team_a_score} : ${result.team_b_score}</b> ${escapeHtml(teamById(result.team_b_id)?.name || "-")}</span>
+      ${isHost ? `<button class="ghost" type="button" data-edit-group-result="${result.id}">수정</button>` : ""}
+    </div>`).join("")}</div>`;
+}
+
 function renderTournamentGroups() {
   const tournament = state.tournament;
   const isHost = state.viewer.role === "host";
@@ -1252,6 +1266,7 @@ function renderTournamentGroups() {
                     ? "모든 경기 완료 · 진출 예정팀이 자동 산정되었습니다."
                     : `${group.results_recorded || 0}/${group.results_required ?? (group.team_ids.length * (group.team_ids.length - 1) / 2)}경기 완료`}
               </small>
+              ${groupResultsMarkup(group, isHost)}
             </div>
           </article>
         `).join("")}
@@ -1260,13 +1275,45 @@ function renderTournamentGroups() {
   renderGroupResultForm();
 }
 
+$("#tournament-groups")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-edit-group-result]");
+  if (!button || state.viewer.role !== "host") return;
+  const result = (state.tournament_results || []).find(
+    (item) => item.id === button.dataset.editGroupResult
+  );
+  if (!result) return;
+  const form = $("#group-result-form");
+  const groupIndex = (state.tournament.groups || []).findIndex((group) =>
+    (group.team_ids || []).includes(result.team_a_id)
+    && (group.team_ids || []).includes(result.team_b_id)
+  );
+  form.elements.group_index.value = String(Math.max(0, groupIndex));
+  renderGroupResultForm();
+  form.elements.result_id.value = result.id;
+  form.elements.match_date.value = result.match_date;
+  form.elements.team_a_id.value = result.team_a_id;
+  form.elements.team_a_id.dispatchEvent(new Event("change"));
+  form.elements.team_b_id.value = result.team_b_id;
+  form.elements.team_a_score.value = result.team_a_score;
+  form.elements.team_b_score.value = result.team_b_score;
+  form.elements.memo.value = result.memo || "";
+  form.querySelector('button[type="submit"]').textContent = "수정 저장";
+  $("#cancel-group-result-edit").classList.remove("hidden");
+  $("#group-result-entry").open = true;
+  $("#group-result-entry").scrollIntoView({ behavior: "smooth", block: "center" });
+});
+
 function renderGroupResultForm() {
   const form = $("#group-result-form");
   if (!form) return;
+  const isHost = state.viewer.role === "host";
   const groups = state.tournament.groups || [];
   const groupTeamIds = new Set(groups.flatMap((group) => group.team_ids || []));
   const teams = state.tournament.teams.filter((team) => groupTeamIds.has(team.id));
-  $("#group-result-entry")?.classList.toggle("hidden", state.tournament.status !== "group" || teams.length < 2);
+  $("#group-result-entry")?.classList.toggle(
+    "hidden",
+    state.tournament.status !== "group" || teams.length < 2 || !isHost
+  );
   if (teams.length < 2) return;
   const groupSelect = form.elements.group_index;
   const selectedGroupIndex = Number(groupSelect.value || 0);
@@ -3079,22 +3126,37 @@ $("#redraw-groups-button")?.addEventListener("click", () => {
 
 $("#group-result-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const payload = Object.fromEntries(new FormData(event.target));
+  const form = event.target;
+  const payload = Object.fromEntries(new FormData(form));
+  const resultId = payload.result_id;
+  delete payload.result_id;
   delete payload.group_index;
   payload.best_of = Number(payload.best_of || 2);
   payload.team_a_score = Number(payload.team_a_score || 0);
   payload.team_b_score = Number(payload.team_b_score || 0);
   try {
-    await api("/api/tournament/results", {
-      method: "POST",
+    await api(resultId ? `/api/tournament/results/${resultId}` : "/api/tournament/results", {
+      method: resultId ? "PUT" : "POST",
       body: JSON.stringify(payload),
     });
+    form.elements.result_id.value = "";
+    form.querySelector('button[type="submit"]').textContent = "결과 저장";
+    $("#cancel-group-result-edit")?.classList.add("hidden");
     await refreshState();
     $("#group-result-entry").open = true;
     toast("조별 경기 결과를 저장했습니다.");
   } catch (error) {
     toast(error.message, true);
   }
+});
+
+$("#cancel-group-result-edit")?.addEventListener("click", () => {
+  const form = $("#group-result-form");
+  form.reset();
+  form.elements.result_id.value = "";
+  form.querySelector('button[type="submit"]').textContent = "결과 저장";
+  $("#cancel-group-result-edit").classList.add("hidden");
+  renderGroupResultForm();
 });
 
 $("#build-test-teams-button")?.addEventListener("click", async (event) => {
@@ -4047,6 +4109,7 @@ $("#scrim-result-form").addEventListener("submit", async (event) => {
     );
     form.reset();
     form.elements.result_id.value = "";
+    form.querySelector('button[type="submit"]').textContent = "결과 저장";
     $("#cancel-result-edit").classList.add("hidden");
     await refreshState();
     toast(resultId ? "결과를 수정했습니다." : "결과를 등록했습니다.");
@@ -4056,11 +4119,40 @@ $("#scrim-result-form").addEventListener("submit", async (event) => {
 $("#cancel-result-edit").addEventListener("click", () => {
   $("#scrim-result-form").reset();
   $("#scrim-result-form").elements.result_id.value = "";
+  $("#scrim-result-form").querySelector('button[type="submit"]').textContent = "결과 저장";
   $("#cancel-result-edit").classList.add("hidden");
   renderScrimResultForm();
 });
 
 $("#scrim-result-list").addEventListener("click", async (event) => {
+  const editButton = event.target.closest("[data-edit-scrim-result]");
+  if (editButton) {
+    const resultId = editButton.dataset.editScrimResult;
+    const result = (state.scrim_results || []).find((item) => item.id === resultId);
+    if (!result) return;
+    const form = $("#scrim-result-form");
+    renderScrimResultForm();
+    $("#scrim-result-entry").open = true;
+    form.elements.result_id.value = result.id;
+    form.elements.match_date.value = result.match_date;
+    form.elements.best_of.value = [1, 2, 3].includes(Number(result.best_of))
+      ? String(result.best_of)
+      : "2";
+    form.elements.team_a_id.value = result.team_a_id;
+    form.elements.team_b_id.value = result.team_b_id;
+    const isSupportedResult = [1, 2, 3].includes(Number(result.best_of));
+    form.elements.team_a_score.value = isSupportedResult ? result.team_a_score : 1;
+    form.elements.team_b_score.value = isSupportedResult ? result.team_b_score : 1;
+    form.elements.memo.value = result.memo || "";
+    form.querySelector('button[type="submit"]').textContent = "수정 저장";
+    $("#cancel-result-edit").classList.remove("hidden");
+    document.querySelectorAll(".scrim-result-item.editing").forEach((item) =>
+      item.classList.remove("editing")
+    );
+    editButton.closest(".scrim-result-item")?.classList.add("editing");
+    return;
+  }
+
   const deleteButton = event.target.closest("[data-delete-scrim-result]");
   if (deleteButton) {
     const resultId = deleteButton.dataset.deleteScrimResult;
@@ -4076,26 +4168,6 @@ $("#scrim-result-list").addEventListener("click", async (event) => {
     }
     return;
   }
-  const resultId = event.target.closest("[data-edit-scrim-result]")?.dataset.editScrimResult;
-  if (!resultId) return;
-  const result = (state.scrim_results || []).find((item) => item.id === resultId);
-  if (!result) return;
-  const form = $("#scrim-result-form");
-  renderScrimResultForm();
-  $("#scrim-result-entry").open = true;
-  form.elements.result_id.value = result.id;
-  form.elements.match_date.value = result.match_date;
-  form.elements.best_of.value = [1, 2, 3].includes(Number(result.best_of))
-    ? String(result.best_of)
-    : "2";
-  form.elements.team_a_id.value = result.team_a_id;
-  form.elements.team_b_id.value = result.team_b_id;
-  const isSupportedResult = [1, 2, 3].includes(Number(result.best_of));
-  form.elements.team_a_score.value = isSupportedResult ? result.team_a_score : 1;
-  form.elements.team_b_score.value = isSupportedResult ? result.team_b_score : 1;
-  form.elements.memo.value = result.memo || "";
-  $("#cancel-result-edit").classList.remove("hidden");
-  form.scrollIntoView({ behavior: "smooth", block: "center" });
 });
 
 $("#admin-search-form").addEventListener("submit", async (event) => {

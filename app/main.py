@@ -2409,6 +2409,47 @@ async def create_tournament_result(data: ScrimResultInput, request: Request):
     return result
 
 
+@app.put("/api/tournament/results/{result_id}")
+async def update_tournament_result(
+    result_id: str, data: ScrimResultInput, request: Request
+):
+    require_host(request)
+    async with state_lock:
+        results = store.state.setdefault("tournament_results", [])
+        result = next((item for item in results if item["id"] == result_id), None)
+        if result is None:
+            raise HTTPException(404, "조별 예선 결과를 찾을 수 없습니다.")
+        approved_team_ids = {
+            team["id"]
+            for team in store.state["tournament"]["teams"]
+            if team.get("status") == "approved"
+        }
+        if data.team_a_id not in approved_team_ids or data.team_b_id not in approved_team_ids:
+            raise HTTPException(400, "승인된 팀의 공식 경기만 저장할 수 있습니다.")
+        group_team_ids = [
+            set(group.get("team_ids", []))
+            for group in store.state["tournament"].get("groups", [])
+        ]
+        if group_team_ids and not any(
+            data.team_a_id in team_ids and data.team_b_id in team_ids
+            for team_ids in group_team_ids
+        ):
+            raise HTTPException(400, "같은 조에 속한 팀끼리만 공식 조별 결과를 저장할 수 있습니다.")
+        pair = {data.team_a_id, data.team_b_id}
+        if any(
+            item["id"] != result_id
+            and {item.get("team_a_id"), item.get("team_b_id")} == pair
+            for item in results
+        ):
+            raise HTTPException(400, "같은 조별 대진의 결과는 한 번만 저장할 수 있습니다.")
+        result.update(tournament_result_payload(data))
+        result["updated_at"] = time.time()
+        engine.update_group_qualification_suggestions(store.state)
+        store.save()
+    await broadcast()
+    return result
+
+
 def normalize_image_url(value: str | None) -> str | None:
     normalized = (value or "").strip()
     if not normalized:

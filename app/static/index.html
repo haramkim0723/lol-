@@ -642,6 +642,7 @@
             <details id="group-result-entry" class="group-result-entry">
               <summary>조별 경기 결과 입력</summary>
               <form id="group-result-form" class="scrim-form result-form">
+                <input name="result_id" type="hidden" />
                 <label>조 선택
                   <select name="group_index" required></select>
                 </label>
@@ -666,6 +667,7 @@
                   <input name="memo" maxlength="500" placeholder="선택 입력" />
                 </label>
                 <div class="result-actions">
+                  <button id="cancel-group-result-edit" class="ghost hidden" type="button">수정 취소</button>
                   <button class="primary" type="submit">결과 저장</button>
                 </div>
               </form>

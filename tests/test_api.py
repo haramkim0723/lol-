@@ -2047,6 +2047,39 @@ class ApiFlowTest(unittest.TestCase):
             )
             self.assertEqual(win.status_code, 200)
             self.assertEqual(win.json()["winner_team_id"], group_a_ids[0])
+            corrected_payload = {
+                "team_a_id": group_a_ids[0],
+                "team_b_id": group_a_ids[1],
+                "match_date": "2026-07-13",
+                "best_of": 3,
+                "team_a_score": 2,
+                "team_b_score": 0,
+                "memo": "score correction",
+            }
+            corrected = client.put(
+                f'/api/tournament/results/{win.json()["id"]}',
+                json=corrected_payload,
+            )
+            self.assertEqual(corrected.status_code, 200)
+            self.assertEqual(corrected.json()["team_b_score"], 0)
+            self.assertEqual(corrected.json()["memo"], "score correction")
+            client.cookies.clear()
+            forbidden = client.put(
+                f'/api/tournament/results/{win.json()["id"]}',
+                json=corrected_payload,
+            )
+            self.assertEqual(forbidden.status_code, 403)
+            login_as_host(client)
+            restored = client.put(
+                f'/api/tournament/results/{win.json()["id"]}',
+                json={
+                    **corrected_payload,
+                    "match_date": "2026-07-12",
+                    "team_b_score": 1,
+                    "memo": None,
+                },
+            )
+            self.assertEqual(restored.status_code, 200)
             second_win = client.post(
                 "/api/tournament/results",
                 json={

@@ -887,6 +887,10 @@ a.tier-emblem-link:hover { transform: translateY(-4px) scale(1.035); filter: bri
   font-size: 12px;
   font-weight: 900;
 }
+.group-results-list { display: grid; gap: 6px; padding-top: 8px; border-top: 1px solid rgba(153,176,204,.13); }
+.group-result-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 9px; border-radius: 8px; background: rgba(255,255,255,.025); color: var(--muted); font-size: 10px; }
+.group-result-row b { color: var(--gold-light); font-size: 12px; }
+.group-result-row button { min-height: 28px; padding: 4px 8px; font-size: 9px; }
 .group-draw-animating .group-team-row {
   opacity: .18;
   transform: translateY(8px) scale(.98);
@@ -1040,6 +1044,7 @@ a.tier-emblem-link:hover { transform: translateY(-4px) scale(1.035); filter: bri
 .result-actions { display: flex; gap: 8px; align-items: center; }
 .result-actions button { min-height: 40px; padding: 8px 12px; font-size: 11px; }
 .scrim-result-item .team-head button { padding: 6px 9px; font-size: 10px; }
+.scrim-result-item.editing { border-color: var(--cyan); box-shadow: 0 0 0 1px rgba(86,213,255,.24); }
 .scrim-stats-panel { position: static; }
 .scrim-team-page-picker { display: grid; grid-template-columns: auto minmax(180px, 280px); gap: 10px; align-items: center; width: fit-content; margin-bottom: 12px; color: var(--muted); font-size: 10px; font-weight: 900; }
 .scrim-team-page-picker select { min-height: 36px; padding: 7px 32px 7px 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--text); background: #080e15; font-size: 11px; font-weight: 800; }
